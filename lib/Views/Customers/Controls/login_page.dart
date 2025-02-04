@@ -1,4 +1,5 @@
 // ignore: file_names
+import 'package:del_pick/Common/global_style.dart';
 import 'package:flutter/material.dart';
 
 class Login extends StatefulWidget {
@@ -37,7 +38,7 @@ class LoginState extends State<Login> {
                 "Log in to your account",
                 style: TextStyle(
                   color: Colors.blue,
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -49,11 +50,10 @@ class LoginState extends State<Login> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Email:',
+                    Text('Email:',
                       style: TextStyle(
-                        fontSize: 17, 
-                        color: Color.fromARGB(255, 71, 71, 71),
+                        fontSize: 16, 
+                        color:  GlobalStyle.fontColor,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -78,11 +78,11 @@ class LoginState extends State<Login> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Password:',
                       style: TextStyle(
-                        fontSize: 17, 
-                        color:  Color.fromARGB(255, 71, 71, 71),
+                        fontSize: 16, 
+                        color:  GlobalStyle.fontColor,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -113,7 +113,7 @@ class LoginState extends State<Login> {
 
               // Login Button
               Container(
-                width: screenWidth * 0.8,
+                width: screenWidth * 0.5,
                 height: 50.0,
                 decoration: BoxDecoration(
                   color: Colors.blue,
@@ -137,7 +137,7 @@ class LoginState extends State<Login> {
                     'Log in',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 18.0,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
