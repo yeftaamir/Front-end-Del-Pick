@@ -8,11 +8,10 @@ class Login extends StatefulWidget {
   const Login({super.key});
 
   @override
-  LoginState createState() => LoginState();
+  createState() => LoginState();
 }
 
 class LoginState extends State<Login> {
-  final formKey = GlobalKey<FormState>();
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   bool obscurePassword = true;
@@ -129,9 +128,7 @@ class LoginState extends State<Login> {
                 ),
                 child: TextButton(
                   onPressed: () {
-                    if (formKey.currentState!.validate()) {
-                      // Handle login logic
-                    }
+                    Navigator.pushReplacementNamed(context, '/Customers/HomePage');
                   },
                   child: const Text(
                     'Log in',

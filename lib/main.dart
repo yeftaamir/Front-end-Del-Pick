@@ -1,7 +1,7 @@
 import 'package:del_pick/Common/global_style.dart';
 import 'package:flutter/material.dart';
 
-import 'Views/Customers/Controls/login_page.dart';
+import 'Views/Controls/login_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -18,7 +18,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         brightness: Brightness.light,
         fontFamily: GlobalStyle.fontFamily,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.white),
         useMaterial3: true,
       ),
       home: const Login(),
