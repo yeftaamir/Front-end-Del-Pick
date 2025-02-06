@@ -16,6 +16,85 @@ class LoginState extends State<Login> {
   final passwordController = TextEditingController();
   bool obscurePassword = true;
 
+  void _showRoleSelectionDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Select Role',
+            style: TextStyle(
+              color: GlobalStyle.primaryColor,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildRoleButton(
+                  'Customer',
+                  Icons.person,
+                      () => Navigator.pushReplacementNamed(context, '/Customers/HomePage'),
+                ),
+                const SizedBox(height: 10),
+                _buildRoleButton(
+                  'Admin',
+                  Icons.admin_panel_settings,
+                      () => Navigator.pushReplacementNamed(context, '/Admin/HomePage'),
+                ),
+                const SizedBox(height: 10),
+                _buildRoleButton(
+                  'Driver',
+                  Icons.delivery_dining,
+                      () => Navigator.pushReplacementNamed(context, '/Driver/HomePage'),
+                ),
+                const SizedBox(height: 10),
+                _buildRoleButton(
+                  'Store',
+                  Icons.store,
+                      () => Navigator.pushReplacementNamed(context, '/Store/HomePage'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRoleButton(String role, IconData icon, VoidCallback onPressed) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(color: GlobalStyle.primaryColor),
+          ),
+        ),
+        onPressed: onPressed,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            Icon(icon, color: GlobalStyle.primaryColor),
+            const SizedBox(width: 12),
+            Text(
+              'Login as $role',
+              style: TextStyle(
+                color: GlobalStyle.primaryColor,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -49,10 +128,11 @@ class LoginState extends State<Login> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Email:',
+                    Text(
+                      'Email:',
                       style: TextStyle(
-                        fontSize: 16, 
-                        color:  GlobalStyle.fontColor,
+                        fontSize: 16,
+                        color: GlobalStyle.fontColor,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -80,8 +160,8 @@ class LoginState extends State<Login> {
                     Text(
                       'Password:',
                       style: TextStyle(
-                        fontSize: 16, 
-                        color:  GlobalStyle.fontColor,
+                        fontSize: 16,
+                        color: GlobalStyle.fontColor,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -115,7 +195,7 @@ class LoginState extends State<Login> {
                 width: screenWidth * 0.5,
                 height: 50.0,
                 decoration: BoxDecoration(
-                  color: Colors.blue,
+                  color: GlobalStyle.primaryColor,
                   borderRadius: BorderRadius.circular(30.0),
                   boxShadow: [
                     BoxShadow(
@@ -127,9 +207,7 @@ class LoginState extends State<Login> {
                   ],
                 ),
                 child: TextButton(
-                  onPressed: () {
-                    Navigator.pushReplacementNamed(context, '/Customers/HomePage');
-                  },
+                  onPressed: _showRoleSelectionDialog,
                   child: const Text(
                     'Log in',
                     style: TextStyle(

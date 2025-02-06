@@ -38,6 +38,7 @@ dependencies:
   lucide_icons: ^0.257.0
 
 dev_dependencies:
+  font_awesome_flutter: ^10.5.0
   flutter_test:
     sdk: flutter
 
@@ -57,6 +58,8 @@ flutter:
     - assets/images/
     - assets/fonts/
     - assets/icons/
+    - assets/images/store_front.jpg
+    - assets/images/menu_item.jpg
 
 
   # The following line ensures that the Material Icons font is

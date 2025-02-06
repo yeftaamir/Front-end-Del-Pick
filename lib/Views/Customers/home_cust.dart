@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-
+import 'store_detail.dart';
 
 class HomePage extends StatefulWidget {
   static const String route = "/Customers/HomePage";
   const HomePage({super.key});
 
   @override
-   createState() => HomePageState();
+  createState() => HomePageState();
 }
 
 class HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
-  
+
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -101,7 +101,9 @@ class HomePageState extends State<HomePage> {
                 ),
                 const SizedBox(height: 8.0),
                 ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    Navigator.pushNamed(context, StoreDetail.route);
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     shape: RoundedRectangleBorder(
@@ -117,4 +119,4 @@ class HomePageState extends State<HomePage> {
       ),
     );
   }
-} 
+}
