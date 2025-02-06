@@ -1,18 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-
-class MenuItem {
-  final String name;
-  final double price;
-  int quantity;
-
-  MenuItem({
-    required this.name,
-    required this.price,
-    this.quantity = 0,
-  });
-}
+import 'package:del_pick/Views/Customers/list_store.dart';
+import 'package:del_pick/Views/Customers/cart_screen.dart';
+import 'package:del_pick/Models/menu_item.dart';
 
 class StoreDetail extends StatefulWidget {
   static const String route = "/Customers/StoreDetail";
@@ -30,7 +21,6 @@ class _StoreDetailState extends State<StoreDetail> {
     MenuItem(name: 'Item 3', price: 20000),
     MenuItem(name: 'Item 4', price: 15000),
   ];
-
   bool get hasItemsInCart => menuItems.any((item) => item.quantity > 0);
 
   @override
@@ -181,12 +171,13 @@ class _StoreDetailState extends State<StoreDetail> {
                               ),
                             ),
                             TextButton(
-                              onPressed: () {},
+                              onPressed: () {
+                                Navigator.pushNamed(context, ListStore.route);
+                              },
                               child: const Text('See All'),
                             ),
                           ],
                         ),
-
                         // Menu Grid with padding bottom for Add to Cart button
                         GridView.builder(
                           padding: const EdgeInsets.only(bottom: 80),
@@ -315,8 +306,16 @@ class _StoreDetailState extends State<StoreDetail> {
                   ],
                 ),
                 child: ElevatedButton(
+                  // In the StoreDetail class, update the ElevatedButton onPressed callback:
                   onPressed: () {
-                    // Add to cart logic here
+                    // Filter items with quantity > 0
+                    final cartItems = menuItems.where((item) => item.quantity > 0).toList();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CartScreen(cartItems: cartItems),
+                      ),
+                    );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
