@@ -28,17 +28,30 @@ class HistoryDetailPage extends StatelessWidget {
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black54),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          icon: Container(
+            padding: const EdgeInsets.all(4.0), // Add padding to create the circle
+            decoration: BoxDecoration(
+              color: Colors.transparent,  // Blue color for the circle
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.blue,  // Border color
+                width: 1.0,  // Border width
+              ),
+            ),
+            child: const Icon(
+              Icons.arrow_back_ios_new,
+              color: Colors.blue,
+              size: 18,
+            ),
+          ),
+          onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           'Order Details',
           style: TextStyle(
-            fontSize: 20,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: GlobalStyle.fontColor,
+            color: Colors.black,
             fontFamily: GlobalStyle.fontFamily,
           ),
         ),
@@ -75,7 +88,7 @@ class HistoryDetailPage extends StatelessWidget {
               Text(
                 storeName,
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: GlobalStyle.fontColor,
                   fontFamily: GlobalStyle.fontFamily,

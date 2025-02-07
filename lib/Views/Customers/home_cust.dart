@@ -32,9 +32,9 @@ class HomePageState extends State<HomePage> {
   String _searchQuery = '';
 
   final List<Store> _stores = [
-    Store(name: 'NAMA TOKO', category: 'Kategori', icon: Icons.home),
-    Store(name: 'NAMA RUMAH MAKAN', category: 'Kategori', icon: Icons.restaurant),
-    Store(name: 'NAMA MINIMARKET', category: 'Kategori', icon: Icons.store),
+    Store(name: 'Nama Toko', category: 'Kategori', icon: Icons.home),
+    Store(name: 'Nama Rumah Makan', category: 'Kategori', icon: Icons.restaurant),
+    Store(name: 'Nama Minimarket', category: 'Kategori', icon: Icons.store),
   ];
 
   List<Store> get filteredStores {
@@ -47,6 +47,14 @@ class HomePageState extends State<HomePage> {
         store.category.toLowerCase().contains(_searchQuery.toLowerCase()))
         .toList();
   }
+
+  String _capitalizeEachWord(String text) {
+  return text.split(' ').map((word) {
+    return word.isNotEmpty
+        ? word[0].toUpperCase() + word.substring(1).toLowerCase()
+        : '';
+  }).join(' ');
+}
 
   void _onItemTapped(int index) {
     setState(() {
@@ -185,59 +193,53 @@ class HomePageState extends State<HomePage> {
   }
 
   Widget buildInfoCard(Store store) {
-    return Card(
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 15.0),
+    child: Card(
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16.0),
+        borderRadius: BorderRadius.circular(12.0),
       ),
-      color: GlobalStyle.lightColor,
+      color: Colors.blue[50],
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(store.icon, size: 48.0, color: GlobalStyle.primaryColor),
-            const SizedBox(width: 16.0),
+            Icon(store.icon, size: 50.0, color: Colors.blue),
+            const SizedBox(width: 18.0),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    store.name,
-                    style: TextStyle(
-                      fontSize: 18.0,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: GlobalStyle.fontFamily,
-                      color: GlobalStyle.fontColor,
+                    _capitalizeEachWord(store.name),
+                    style: const TextStyle(
+                      fontSize: 15.0,
+                      fontWeight: FontWeight.normal,
+                      color: Colors.black87,
                     ),
                   ),
                   const SizedBox(height: 4.0),
                   Text(
                     store.category,
-                    style: TextStyle(
-                      fontSize: 14.0,
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
+                    style: const TextStyle(
+                      fontSize: 12.0,
+                      color: Colors.black54,
                     ),
                   ),
-                  const SizedBox(height: 8.0),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pushNamed(context, StoreDetail.route);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: GlobalStyle.primaryColor,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8.0),
-                      ),
-                    ),
-                    child: const Text('See More'),
-                  )
                 ],
               ),
-            )
+            ),
+            IconButton(
+              icon: const Icon(Icons.arrow_forward_ios, size: 16.0, color: Colors.blue),
+              onPressed: () {
+                Navigator.pushNamed(context, StoreDetail.route);
+              },
+            ),
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

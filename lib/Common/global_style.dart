@@ -6,6 +6,7 @@ class GlobalStyle {
   static Color borderColor = const Color(0xffD6E6F2);
   static Color disableColor = const Color(0xffDEDEDE);
   static Color fontColor = const Color(0xff686262);
+  static Color whiteColor = const Color(0xffFFFFFF);
 
   static String fontFamily = "Poppins-Medium";
   static double fontSize = 12;
