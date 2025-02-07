@@ -1,7 +1,7 @@
 // File: lib/main.dart
 
-import 'package:del_pick/Common/global_style.dart';
 import 'package:flutter/material.dart';
+import 'package:del_pick/Common/global_style.dart';
 
 // Import views
 import 'Views/Controls/login_page.dart';
@@ -14,6 +14,9 @@ import 'Views/Customers/cart_screen.dart';
 import 'Views/Customers/location_access.dart';
 import 'Views/Customers/history_detail.dart';
 import 'Views/Customers/rating_cust.dart';
+import 'Views/Store/home_store.dart';
+import 'Views/Store/add_item.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -71,6 +74,7 @@ class MyApp extends StatelessWidget {
           vehicleNumber: 'B 1234 ABC',
           orderItems: [],
         ),
+
         // Admin routes
         '/Admin/HomePage': (context) => const Scaffold(
           body: Center(child: Text('Admin Home Page - To be implemented')),
@@ -82,9 +86,8 @@ class MyApp extends StatelessWidget {
         ),
 
         // Store routes
-        '/Store/HomePage': (context) => const Scaffold(
-          body: Center(child: Text('Store Home Page - To be implemented')),
-        ),
+        '/Store/HomePage': (context) => const HomeStore(),
+        '/Store/AddItem': (context) => const AddItemPage(),
       },
     );
   }
