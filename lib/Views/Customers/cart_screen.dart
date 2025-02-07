@@ -1,15 +1,14 @@
-// File: lib/Views/Customers/cart_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
+import 'package:del_pick/Views/Customers/location_access.dart';
 
 class CartScreen extends StatefulWidget {
   static const String route = "/Customers/Cart";
-  final List<MenuItem>? cartItems;
+  final List<MenuItem> cartItems;
 
-  const CartScreen({Key? key, this.cartItems}) : super(key: key);
+  const CartScreen({Key? key, required this.cartItems}) : super(key: key);
 
   @override
   State<CartScreen> createState() => _CartScreenState();
@@ -17,13 +16,28 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> {
   final double serviceCharge = 30000;
+  String? _deliveryAddress;
+  String? _errorMessage;
 
   double get subtotal {
-    if (widget.cartItems == null) return 0;
-    return widget.cartItems!.fold(0, (sum, item) => sum + (item.price * item.quantity));
+    return widget.cartItems.fold(0, (sum, item) => sum + (item.price * item.quantity));
   }
 
   double get total => subtotal + serviceCharge;
+
+  Future<void> _handleLocationAccess() async {
+    final result = await Navigator.pushNamed(
+        context,
+        LocationAccessScreen.route
+    );
+
+    if (result is Map<String, dynamic>) {
+      setState(() {
+        _deliveryAddress = result['address'];
+        _errorMessage = null;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,19 +55,19 @@ class _CartScreenState extends State<CartScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Delivery Address Section
-              const Text(
+              Text(
                 'Alamat Pengiriman',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
+                  fontFamily: GlobalStyle.fontFamily,
                 ),
               ),
               const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: () {
-                  // Handle location access
-                },
+
+              _deliveryAddress == null
+                  ? ElevatedButton.icon(
+                onPressed: _handleLocationAccess,
                 icon: const Icon(Icons.location_on),
                 label: const Text('Allow Location Access'),
                 style: ElevatedButton.styleFrom(
@@ -62,7 +76,35 @@ class _CartScreenState extends State<CartScreen> {
                     borderRadius: BorderRadius.circular(24),
                   ),
                 ),
+              )
+                  : Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: GlobalStyle.borderColor),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _deliveryAddress!,
+                  style: TextStyle(
+                    fontFamily: GlobalStyle.fontFamily,
+                    color: GlobalStyle.fontColor,
+                  ),
+                ),
               ),
+
+              if (_errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _errorMessage!,
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontFamily: GlobalStyle.fontFamily,
+                      fontSize: GlobalStyle.fontSize,
+                    ),
+                  ),
+                ),
 
               const Divider(height: 32),
 
@@ -195,7 +237,13 @@ class _CartScreenState extends State<CartScreen> {
         ),
         child: ElevatedButton(
           onPressed: () {
-            // Handle order creation
+            if (_deliveryAddress == null) {
+              setState(() {
+                _errorMessage = 'Please select a delivery address';
+              });
+            } else {
+              // Handle order creation
+            }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: GlobalStyle.primaryColor,

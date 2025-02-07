@@ -11,7 +11,9 @@ import 'Views/Customers/list_store.dart';
 import 'Views/Customers/profile_cust.dart';
 import 'Views/Customers/history_cust.dart';
 import 'Views/Customers/cart_screen.dart';
-
+import 'Views/Customers/location_access.dart';
+import 'Views/Customers/history_detail.dart';
+import 'Views/Customers/rating_cust.dart';
 void main() {
   runApp(const MyApp());
 }
@@ -55,9 +57,20 @@ class MyApp extends StatelessWidget {
         StoreDetail.route: (context) => const StoreDetail(),
         ListStore.route: (context) => const ListStore(),
         ProfilePage.route: (context) => const ProfilePage(),
-        HistoryPage.route: (context) => const HistoryPage(),
-        CartScreen.route: (context) => const CartScreen(),
-
+        HistoryCustomer.route: (context) => const HistoryCustomer(),
+        CartScreen.route: (context) => const CartScreen(cartItems: []),
+        LocationAccessScreen.route: (context) => const LocationAccessScreen(),
+        HistoryDetailPage.route: (context) => const HistoryDetailPage(
+          storeName: 'Store Name',
+          date: '2022-01-01T00:00:00.000Z',
+          amount: 100000,
+        ),
+        RatingCustomerPage.route: (context) => const RatingCustomerPage(
+          storeName: 'Store Name',
+          driverName: 'Driver Name',
+          vehicleNumber: 'B 1234 ABC',
+          orderItems: [],
+        ),
         // Admin routes
         '/Admin/HomePage': (context) => const Scaffold(
           body: Center(child: Text('Admin Home Page - To be implemented')),

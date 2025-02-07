@@ -38,6 +38,7 @@ android {
         }
     }
 }
+apply plugin: 'kotlin-android'
 
 flutter {
     source = "../.."
