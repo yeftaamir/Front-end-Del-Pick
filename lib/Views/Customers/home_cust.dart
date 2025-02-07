@@ -55,7 +55,7 @@ class HomePageState extends State<HomePage> {
         // Index 1 is the 'Search' button
         _startSearch();
       } else if (index == 2) { // Index 2 is the 'History' button
-        Navigator.pushNamed(context, HistoryPage.route);
+        Navigator.pushNamed(context, HistoryCustomer.route);
       }
     });
   }

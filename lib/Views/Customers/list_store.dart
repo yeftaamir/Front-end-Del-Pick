@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Models/menu_item.dart';
+import 'package:del_pick/Views/Customers/cart_screen.dart';
 
 class ListStore extends StatefulWidget {
   static const String route = "/Customers/ListStore";
@@ -212,7 +213,14 @@ class _ListStoreState extends State<ListStore> {
                 ),
                 child: ElevatedButton(
                   onPressed: () {
-                    // Add to cart logic here
+                    // Filter items with quantity > 0
+                    final cartItems = _menuItems.where((item) => item.quantity > 0).toList();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CartScreen(cartItems: cartItems),
+                      ),
+                    );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
