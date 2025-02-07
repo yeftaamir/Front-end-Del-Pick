@@ -44,12 +44,30 @@ class _ListStoreState extends State<ListStore> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.white,
         title: const Text(
           'Menu Items',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle
+          (color: Colors.black,
+            fontSize: 18),
         ),
         leading: IconButton(
-          icon: const FaIcon(FontAwesomeIcons.arrowLeft, color: Colors.white),
+          icon: Container(
+            padding: const EdgeInsets.all(4.0), // Add padding to create the circle
+            decoration: BoxDecoration(
+              color: Colors.transparent,  // Blue color for the circle
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.blue,  // Border color
+                width: 1.0,  // Border width
+              ),
+            ),
+            child: const Icon(
+              Icons.arrow_back_ios_new,
+              color: Colors.blue,
+              size: 18,
+            ),
+          ),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -232,8 +250,9 @@ class _ListStoreState extends State<ListStore> {
                   child: const Text(
                     'Add to Cart',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 14,
                       fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
                 ),

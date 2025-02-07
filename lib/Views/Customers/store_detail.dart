@@ -57,10 +57,10 @@ class _StoreDetailState extends State<StoreDetail> {
                               ),
                             ],
                           ),
-                          child: const FaIcon(
-                            FontAwesomeIcons.arrowLeft,
-                            color: Colors.blue,
-                            size: 20,
+                          child: const Icon(
+                            Icons.arrow_back_ios_new,
+                            color: Colors.blue,  // White color for the icon inside the circle
+                            size: 18,
                           ),
                         ),
                       ),
@@ -103,17 +103,18 @@ class _StoreDetailState extends State<StoreDetail> {
                         ),
 
                         // Store Info
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Row(
-                                children: const [
+                                children: [
                                   FaIcon(
-                                    FontAwesomeIcons.mapMarkerAlt,
+                                    FontAwesomeIcons.locationDot,
                                     color: Colors.blue,
                                     size: 16,
+
                                   ),
                                   SizedBox(width: 4),
                                   Text(
@@ -125,9 +126,9 @@ class _StoreDetailState extends State<StoreDetail> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(width: 24),
+                              SizedBox(width: 24),
                               Row(
-                                children: const [
+                                children: [
                                   FaIcon(
                                     FontAwesomeIcons.star,
                                     color: Colors.blue,

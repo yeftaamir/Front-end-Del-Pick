@@ -53,7 +53,22 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> {
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black54),
+          icon: Container(
+            padding: const EdgeInsets.all(4.0), // Add padding to create the circle
+            decoration: BoxDecoration(
+              color: Colors.transparent,  // Blue color for the circle
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.blue,  // Border color
+                width: 1.0,  // Border width
+              ),
+            ),
+            child: const Icon(
+              Icons.arrow_back_ios_new,
+              color: Colors.blue,
+              size: 18,
+            ),
+          ),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -164,7 +179,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> {
                 child: Text(
                   'Kirim Ulasan',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),

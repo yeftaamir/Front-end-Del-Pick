@@ -58,9 +58,10 @@ class _CartScreenState extends State<CartScreen> {
               Text(
                 'Alamat Pengiriman',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                   fontFamily: GlobalStyle.fontFamily,
+                  color: Colors.black
                 ),
               ),
               const SizedBox(height: 8),
@@ -68,8 +69,14 @@ class _CartScreenState extends State<CartScreen> {
               _deliveryAddress == null
                   ? ElevatedButton.icon(
                 onPressed: _handleLocationAccess,
-                icon: const Icon(Icons.location_on),
-                label: const Text('Allow Location Access'),
+                icon: const Icon(Icons.location_on,
+                      color: Colors.white),
+                label: const Text('Allow Location Access',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  ),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   shape: RoundedRectangleBorder(
@@ -112,7 +119,7 @@ class _CartScreenState extends State<CartScreen> {
               const Text(
                 'Nama Toko',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -170,8 +177,8 @@ class _CartScreenState extends State<CartScreen> {
               const Divider(height: 32),
 
               // Payment Details Section
-              Row(
-                children: const [
+              const Row(
+                children: [
                   FaIcon(
                     FontAwesomeIcons.clipboardCheck,
                     color: Colors.blue,
@@ -181,7 +188,7 @@ class _CartScreenState extends State<CartScreen> {
                   Text(
                     'Rincian Pembayaran',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
