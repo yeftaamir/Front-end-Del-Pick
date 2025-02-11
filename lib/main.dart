@@ -16,6 +16,9 @@ import 'Views/Customers/history_detail.dart';
 import 'Views/Customers/rating_cust.dart';
 import 'Views/Store/home_store.dart';
 import 'Views/Store/add_item.dart';
+import 'Views/Store/history_store.dart';
+import 'Views/Store/historystore_detail.dart';
+import 'Views/Store/add_edit_items.dart';
 
 void main() {
   runApp(const MyApp());
@@ -88,6 +91,17 @@ class MyApp extends StatelessWidget {
         // Store routes
         '/Store/HomePage': (context) => const HomeStore(),
         '/Store/AddItem': (context) => const AddItemPage(),
+        HistoryStorePage.route: (context) => const HistoryStorePage(),
+        HistoryStoreDetailPage.route: (context) => const HistoryStoreDetailPage(
+          orderDetail: {
+            'customerName': 'Customer Name',
+            'date': '2022-01-01T00:00:00.000Z',
+            'status': 'Delivered',
+            'amount': 100000,
+            'icon': 'https://via.placeholder.com/150',
+          },
+        ),
+        AddEditItemForm.route: (context) => const AddEditItemForm(),
       },
     );
   }

@@ -1,12 +1,11 @@
-// lib/components/bottom_navigation.dart
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Store/add_item.dart';
+import 'package:del_pick/Views/Store/history_store.dart'; // Added import for history page
 
 class BottomNavigationComponent extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTap;
-
   const BottomNavigationComponent({
     Key? key,
     required this.currentIndex,
@@ -15,10 +14,8 @@ class BottomNavigationComponent extends StatelessWidget {
 
   void _handleNavigation(BuildContext context, int index) {
     onTap(index);
-
     // Prevent navigation if we're already on the selected page
     if (index == currentIndex) return;
-
     switch (index) {
       case 0:
         Navigator.pushReplacementNamed(context, '/Store/HomePage');
@@ -27,7 +24,7 @@ class BottomNavigationComponent extends StatelessWidget {
         Navigator.pushReplacementNamed(context, AddItemPage.route);
         break;
       case 2:
-      // TODO: Implement history navigation when available
+        Navigator.pushReplacementNamed(context, HistoryStorePage.route); // Updated to use history page route
         break;
     }
   }
