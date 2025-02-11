@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../Common/global_style.dart';
 import '../../Models/item_model.dart';
 import '../Component/bottom_navigation.dart';
+import 'add_edit_items.dart';
 
 class AddItemPage extends StatefulWidget {
   static const String route = '/Store/AddItem';
@@ -13,7 +14,7 @@ class AddItemPage extends StatefulWidget {
 }
 
 class _AddItemPageState extends State<AddItemPage> {
-  int _currentIndex = 1; // Set to 1 for Add Item tab
+  int _currentIndex = 1;
 
   final List<Item> _items = [
     Item(
@@ -23,8 +24,16 @@ class _AddItemPageState extends State<AddItemPage> {
       quantity: 10,
       imageUrl: 'assets/images/menu_item.jpg',
     ),
-    // Add more items as needed
   ];
+
+  void _navigateToAddEditForm({Item? item}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddEditItemForm(item: item),
+      ),
+    );
+  }
 
   void _showDeleteConfirmation(Item item) {
     showDialog(
@@ -39,93 +48,15 @@ class _AddItemPageState extends State<AddItemPage> {
           ),
           TextButton(
             onPressed: () {
-              // Add delete logic here
+              setState(() {
+                _items.removeWhere((element) => element.id == item.id);
+              });
               Navigator.pop(context);
             },
             style: TextButton.styleFrom(
               foregroundColor: Colors.red,
             ),
             child: const Text('Hapus'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showItemModal({Item? item}) {
-    final isEditing = item != null;
-    final nameController = TextEditingController(text: item?.name);
-    final priceController = TextEditingController(
-      text: item?.price.toString() ?? '',
-    );
-    final quantityController = TextEditingController(
-      text: item?.quantity.toString() ?? '',
-    );
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isEditing ? 'Edit Item' : 'Tambah Item'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                height: 100,
-                width: 100,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.add_photo_alternate,
-                    size: 40,
-                    color: GlobalStyle.primaryColor,
-                  ),
-                ),
-              ),
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nama Item',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              TextField(
-                controller: priceController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Harga',
-                  border: OutlineInputBorder(),
-                  prefixText: 'Rp ',
-                ),
-              ),
-              TextField(
-                controller: quantityController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Kuantitas',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          TextButton(
-            onPressed: () {
-              // Add save logic here
-              Navigator.pop(context);
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: GlobalStyle.primaryColor,
-            ),
-            child: const Text('Simpan'),
           ),
         ],
       ),
@@ -148,15 +79,20 @@ class _AddItemPageState extends State<AddItemPage> {
         actions: [
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: ElevatedButton(
-              onPressed: () => _showItemModal(),
+            child: ElevatedButton.icon(
+              onPressed: () => _navigateToAddEditForm(),
+              icon: const Icon(Icons.add),
+              label: const Text('Add Item'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
               ),
-              child: const Text('Add Item'),
             ),
           ),
         ],
@@ -231,14 +167,14 @@ class _AddItemPageState extends State<AddItemPage> {
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             IconButton(
+                              icon: const Icon(Icons.edit),
+                              color: GlobalStyle.primaryColor,
+                              onPressed: () => _navigateToAddEditForm(item: item),
+                            ),
+                            IconButton(
                               icon: const Icon(Icons.delete),
                               color: Colors.red,
                               onPressed: () => _showDeleteConfirmation(item),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.edit),
-                              color: GlobalStyle.primaryColor,
-                              onPressed: () => _showItemModal(item: item),
                             ),
                           ],
                         ),
@@ -255,7 +191,6 @@ class _AddItemPageState extends State<AddItemPage> {
         currentIndex: _currentIndex,
         onTap: (index) {
           setState(() => _currentIndex = index);
-          // Add navigation logic here
         },
       ),
     );

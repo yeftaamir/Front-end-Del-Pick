@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Common/global_style.dart';
-import 'add_item.dart';
+import 'package:del_pick/Views/Store/historystore_detail.dart';
+import 'package:del_pick/Views/Store/profil_store.dart';
 
 class HomeStore extends StatefulWidget {
   const HomeStore({Key? key}) : super(key: key);
@@ -14,56 +15,113 @@ class HomeStore extends StatefulWidget {
 class _HomeStoreState extends State<HomeStore> {
   int _currentIndex = 0;
 
-  // Dummy data for demonstration
-  final List<Map<String, dynamic>> _newOrders = [
+  // Dummy data with status field
+  final List<Map<String, dynamic>> _orders = [
     {
       'customerName': 'John Doe',
       'orderTime': DateTime.now(),
       'totalPrice': 150000,
+      'status': 'processed',
+      'items': [
+        {
+          'name': 'Product 1',
+          'quantity': 2,
+          'price': 75000,
+          'image': 'https://example.com/image1.jpg'
+        }
+      ],
+      'deliveryFee': 10000,
+      'amount': 160000,
+      'storeAddress': 'Store Address 1',
+      'customerAddress': 'Customer Address 1',
+      'phoneNumber': '6281234567890'
     },
-    // Add more orders as needed
-  ];
-
-  final List<Map<String, dynamic>> _processedOrders = [
     {
       'customerName': 'Jane Smith',
       'orderTime': DateTime.now().subtract(const Duration(hours: 2)),
       'totalPrice': 75000,
+      'status': 'detained',
+      'items': [
+        {
+          'name': 'Product 2',
+          'quantity': 1,
+          'price': 75000,
+          'image': 'https://example.com/image2.jpg'
+        }
+      ],
+      'deliveryFee': 10000,
+      'amount': 85000,
+      'storeAddress': 'Store Address 2',
+      'customerAddress': 'Customer Address 2',
+      'phoneNumber': '6281234567891'
     },
-    // Add more processed orders
+    {
+      'customerName': 'Bob Wilson',
+      'orderTime': DateTime.now().subtract(const Duration(hours: 4)),
+      'totalPrice': 200000,
+      'status': 'picked_up',
+      'items': [
+        {
+          'name': 'Product 3',
+          'quantity': 2,
+          'price': 100000,
+          'image': 'https://example.com/image3.jpg'
+        }
+      ],
+      'deliveryFee': 10000,
+      'amount': 210000,
+      'storeAddress': 'Store Address 3',
+      'customerAddress': 'Customer Address 3',
+      'phoneNumber': '6281234567892'
+    }
   ];
 
-  Widget _buildOrderCard(Map<String, dynamic> order, bool isNew) {
+  List<Map<String, dynamic>> get filteredOrders {
+    return _orders.where((order) =>
+        ['processed', 'detained', 'picked_up'].contains(order['status'])
+    ).toList();
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'processed':
+        return Colors.blue;
+      case 'detained':
+        return Colors.orange;
+      case 'picked_up':
+        return Colors.purple;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getStatusLabel(String status) {
+    switch (status) {
+      case 'processed':
+        return 'Processed';
+      case 'detained':
+        return 'Detained';
+      case 'picked_up':
+        return 'Picked Up';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  Widget _buildOrderCard(Map<String, dynamic> order) {
+    String status = order['status'] as String;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: isNew ? GlobalStyle.borderColor : Colors.grey[100],
+        color: Colors.grey[100],
         borderRadius: BorderRadius.circular(12),
-        border: isNew
-            ? Border.all(color: GlobalStyle.primaryColor, width: 1)
-            : null,
       ),
-      child: Stack(
-        children: [
-          if (isNew)
-            Positioned(
-              right: 8,
-              top: 9,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: GlobalStyle.newInfo,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'New',
-                  style: TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
@@ -94,29 +152,48 @@ class _HomeStoreState extends State<HomeStore> {
                     ],
                   ),
                 ),
-                ElevatedButton(
-                  onPressed: () {
-                    // Handle view detail
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: GlobalStyle.primaryColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-
-                    ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(status),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Text(
-                    'Lihat Detail',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
+                  child: Text(
+                    _getStatusLabel(status),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => HistoryStoreDetailPage(
+                      orderDetail: order,
+                    ),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GlobalStyle.primaryColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                minimumSize: const Size(double.infinity, 36),
+              ),
+              child: const Text(
+                'Lihat Detail',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -133,7 +210,7 @@ class _HomeStoreState extends State<HomeStore> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Belum ada pesanan masuk',
+            'Tidak ada pesanan yang diproses',
             style: TextStyle(
               color: GlobalStyle.fontColor,
               fontSize: 16,
@@ -146,6 +223,8 @@ class _HomeStoreState extends State<HomeStore> {
 
   @override
   Widget build(BuildContext context) {
+    final orders = filteredOrders;
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -165,7 +244,12 @@ class _HomeStoreState extends State<HomeStore> {
               color: GlobalStyle.fontColor,
             ),
             onPressed: () {
-              // Handle profile action
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ProfileStore(),
+                ),
+              );
             },
           ),
         ],
@@ -175,32 +259,18 @@ class _HomeStoreState extends State<HomeStore> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (_newOrders.isNotEmpty) ...[
-              Text(
-                'Pesanan Baru',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: GlobalStyle.primaryColor,
-                ),
+            const Text(
+              'Daftar Pesanan',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(height: 12),
-              ..._newOrders.map((order) => _buildOrderCard(order, true)),
-              const SizedBox(height: 24),
-            ],
-            if (_processedOrders.isNotEmpty) ...[
-              const Text(
-                'Sedang Diproses',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ..._processedOrders.map((order) => _buildOrderCard(order, false)),
-            ],
-            if (_newOrders.isEmpty && _processedOrders.isEmpty)
-              _buildEmptyState(),
+            ),
+            const SizedBox(height: 12),
+            if (orders.isEmpty)
+              _buildEmptyState()
+            else
+              ...orders.map(_buildOrderCard),
           ],
         ),
       ),
