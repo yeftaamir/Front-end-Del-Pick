@@ -32,10 +32,13 @@ dependencies:
     sdk: flutter
   intl: ^0.18.0
   flutter_lints: ^4.0.0
-  geolocator: ^9.0.2
+  geolocator: ^13.0.2
   flutter_rating_bar: ^4.0.1
   url_launcher: ^6.1.14
   dotted_border: ^2.0.3
+  font_awesome_flutter: ^10.5.0
+  mapbox_maps_flutter: ^2.5.2
+  flutter_dotenv: ^5.2.1
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -44,7 +47,6 @@ dependencies:
   lucide_icons: ^0.257.0
 
 dev_dependencies:
-  font_awesome_flutter: ^10.5.0
   flutter_test:
     sdk: flutter
 
@@ -66,6 +68,10 @@ flutter:
     - assets/icons/
     - assets/images/store_front.jpg
     - assets/images/menu_item.jpg
+    - .env
+    - assets/images/marker_red.png
+    - assets/images/marker_blue.png
+    - assets/images/marker_green.png
 
 
   # The following line ensures that the Material Icons font is

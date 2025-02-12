@@ -1,29 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Common/global_style.dart';
-import 'package:del_pick/Views/Store/historystore_detail.dart';
-import 'package:del_pick/Views/Store/profil_store.dart';
+import 'package:del_pick/Views/Component/driver_bottom_navigation.dart';
+import 'package:del_pick/Views/Driver/history_driver_detail.dart';
 
-class HomeStore extends StatefulWidget {
-  static const String route = '/Store/HomePage';
-
-  const HomeStore({Key? key}) : super(key: key);
+class HomeDriverPage extends StatefulWidget {
+  static const String route = '/Driver/HomePage';
+  const HomeDriverPage({Key? key}) : super(key: key);
 
   @override
-  State<HomeStore> createState() => _HomeStoreState();
+  State<HomeDriverPage> createState() => _HomeDriverPageState();
 }
 
-class _HomeStoreState extends State<HomeStore> {
+class _HomeDriverPageState extends State<HomeDriverPage> {
   int _currentIndex = 0;
 
-  // Dummy data with status field
-  final List<Map<String, dynamic>> _orders = [
+  // Dummy data for driver's deliveries
+  final List<Map<String, dynamic>> _deliveries = [
     {
       'customerName': 'John Doe',
       'orderTime': DateTime.now(),
       'totalPrice': 150000,
-      'status': 'processed',
+      'status': 'assigned',
       'items': [
         {
           'name': 'Product 1',
@@ -36,13 +35,14 @@ class _HomeStoreState extends State<HomeStore> {
       'amount': 160000,
       'storeAddress': 'Store Address 1',
       'customerAddress': 'Customer Address 1',
-      'phoneNumber': '6281234567890'
+      'storePhone': '6281234567890',
+      'customerPhone': '6281234567891'
     },
     {
       'customerName': 'Jane Smith',
       'orderTime': DateTime.now().subtract(const Duration(hours: 2)),
       'totalPrice': 75000,
-      'status': 'detained',
+      'status': 'picking_up',
       'items': [
         {
           'name': 'Product 2',
@@ -55,13 +55,14 @@ class _HomeStoreState extends State<HomeStore> {
       'amount': 85000,
       'storeAddress': 'Store Address 2',
       'customerAddress': 'Customer Address 2',
-      'phoneNumber': '6281234567891'
+      'storePhone': '6281234567892',
+      'customerPhone': '6281234567893'
     },
     {
       'customerName': 'Bob Wilson',
       'orderTime': DateTime.now().subtract(const Duration(hours: 4)),
       'totalPrice': 200000,
-      'status': 'picked_up',
+      'status': 'delivering',
       'items': [
         {
           'name': 'Product 3',
@@ -74,23 +75,24 @@ class _HomeStoreState extends State<HomeStore> {
       'amount': 210000,
       'storeAddress': 'Store Address 3',
       'customerAddress': 'Customer Address 3',
-      'phoneNumber': '6281234567892'
+      'storePhone': '6281234567894',
+      'customerPhone': '6281234567895'
     }
   ];
 
-  List<Map<String, dynamic>> get filteredOrders {
-    return _orders.where((order) =>
-        ['processed', 'detained', 'picked_up'].contains(order['status'])
+  List<Map<String, dynamic>> get activeDeliveries {
+    return _deliveries.where((delivery) =>
+        ['assigned', 'picking_up', 'delivering'].contains(delivery['status'])
     ).toList();
   }
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'processed':
+      case 'assigned':
         return Colors.blue;
-      case 'detained':
+      case 'picking_up':
         return Colors.orange;
-      case 'picked_up':
+      case 'delivering':
         return Colors.purple;
       default:
         return Colors.grey;
@@ -99,24 +101,24 @@ class _HomeStoreState extends State<HomeStore> {
 
   String _getStatusLabel(String status) {
     switch (status) {
-      case 'processed':
-        return 'Processed';
-      case 'detained':
-        return 'Detained';
-      case 'picked_up':
-        return 'Picked Up';
+      case 'assigned':
+        return 'Assigned';
+      case 'picking_up':
+        return 'Picking Up';
+      case 'delivering':
+        return 'Delivering';
       default:
         return 'Unknown';
     }
   }
 
-  Widget _buildOrderCard(Map<String, dynamic> order) {
-    String status = order['status'] as String;
+  Widget _buildDeliveryCard(Map<String, dynamic> delivery) {
+    String status = delivery['status'] as String;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: GlobalStyle.lightColor.withOpacity(0.3),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Padding(
@@ -131,24 +133,29 @@ class _HomeStoreState extends State<HomeStore> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        order['customerName'],
-                        style: const TextStyle(
+                        delivery['customerName'],
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
+                          fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         DateFormat('dd MMM yyyy HH:mm')
-                            .format(order['orderTime']),
-                        style: TextStyle(color: GlobalStyle.fontColor),
+                            .format(delivery['orderTime']),
+                        style: TextStyle(
+                          color: GlobalStyle.fontColor,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Rp ${NumberFormat('#,###').format(order['totalPrice'])}',
+                        'Rp ${NumberFormat('#,###').format(delivery['totalPrice'])}',
                         style: TextStyle(
                           color: GlobalStyle.primaryColor,
                           fontWeight: FontWeight.bold,
+                          fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
                     ],
@@ -162,7 +169,11 @@ class _HomeStoreState extends State<HomeStore> {
                   ),
                   child: Text(
                     _getStatusLabel(status),
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
                   ),
                 ),
               ],
@@ -173,8 +184,8 @@ class _HomeStoreState extends State<HomeStore> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => HistoryStoreDetailPage(
-                      orderDetail: order,
+                    builder: (context) => HistoryDriverDetailPage(
+                      orderDetail: delivery,
                     ),
                   ),
                 );
@@ -186,11 +197,12 @@ class _HomeStoreState extends State<HomeStore> {
                 ),
                 minimumSize: const Size(double.infinity, 36),
               ),
-              child: const Text(
+              child: Text(
                 'Lihat Detail',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 14,
+                  fontFamily: GlobalStyle.fontFamily,
                 ),
               ),
             ),
@@ -206,16 +218,17 @@ class _HomeStoreState extends State<HomeStore> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.inbox_rounded,
+            Icons.local_shipping_outlined,
             size: 80,
             color: GlobalStyle.disableColor,
           ),
           const SizedBox(height: 16),
           Text(
-            'Tidak ada pesanan yang diproses',
+            'Tidak ada pengiriman aktif',
             style: TextStyle(
               color: GlobalStyle.fontColor,
               fontSize: 16,
+              fontFamily: GlobalStyle.fontFamily,
             ),
           ),
         ],
@@ -225,61 +238,54 @@ class _HomeStoreState extends State<HomeStore> {
 
   @override
   Widget build(BuildContext context) {
-    final orders = filteredOrders;
+    final deliveries = activeDeliveries;
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text(
-          'Delivery',
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(
-              Icons.person,
-              color: GlobalStyle.fontColor,
-            ),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ProfileStore(),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Daftar Pesanan',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Delivery',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                  FaIcon(
+                    FontAwesomeIcons.user,
+                    size: 24,
+                    color: GlobalStyle.fontColor,
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            if (orders.isEmpty)
-              _buildEmptyState()
-            else
-              ...orders.map(_buildOrderCard),
-          ],
+              const SizedBox(height: 16),
+              // Delivery List
+              Expanded(
+                child: deliveries.isEmpty
+                    ? _buildEmptyState()
+                    : ListView(
+                  children: deliveries.map(_buildDeliveryCard).toList(),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      bottomNavigationBar: BottomNavigationComponent(
+      bottomNavigationBar: DriverBottomNavigation(
         currentIndex: _currentIndex,
         onTap: (index) {
-          setState(() => _currentIndex = index);
+          setState(() {
+            _currentIndex = index;
+          });
         },
       ),
     );
