@@ -1,4 +1,3 @@
-// ignore: file_names
 import 'package:del_pick/Common/global_style.dart';
 import 'package:flutter/material.dart';
 
