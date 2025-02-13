@@ -249,7 +249,7 @@ class _HomeStoreState extends State<HomeStore> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const ProfileStore(),
+                  builder: (context) => const ProfileStorePage(),
                 ),
               );
             },

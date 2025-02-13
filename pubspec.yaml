@@ -39,6 +39,8 @@ dependencies:
   font_awesome_flutter: ^10.5.0
   mapbox_maps_flutter: ^2.5.2
   flutter_dotenv: ^5.2.1
+  lottie: ^2.3.2
+  geocoding: ^2.1.0
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -72,6 +74,7 @@ flutter:
     - assets/images/marker_red.png
     - assets/images/marker_blue.png
     - assets/images/marker_green.png
+    - assets/animations/check_animation.json
 
 
   # The following line ensures that the Material Icons font is

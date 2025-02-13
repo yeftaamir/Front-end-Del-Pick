@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
@@ -18,6 +19,7 @@ class _CartScreenState extends State<CartScreen> {
   final double serviceCharge = 30000;
   String? _deliveryAddress;
   String? _errorMessage;
+  bool _orderCreated = false;
 
   double get subtotal {
     return widget.cartItems.fold(0, (sum, item) => sum + (item.price * item.quantity));
@@ -39,6 +41,51 @@ class _CartScreenState extends State<CartScreen> {
     }
   }
 
+  Future<void> _showOrderSuccess() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/check_animation.json',
+                  width: 200,
+                  height: 200,
+                  repeat: false,
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  "Pesanan anda berhasil dibuat",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    setState(() {
+      _orderCreated = true;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -58,10 +105,10 @@ class _CartScreenState extends State<CartScreen> {
               Text(
                 'Alamat Pengiriman',
                 style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: GlobalStyle.fontFamily,
-                  color: Colors.black
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: GlobalStyle.fontFamily,
+                    color: Colors.black
                 ),
               ),
               const SizedBox(height: 8),
@@ -69,12 +116,12 @@ class _CartScreenState extends State<CartScreen> {
               _deliveryAddress == null
                   ? ElevatedButton.icon(
                 onPressed: _handleLocationAccess,
-                icon: const Icon(Icons.location_on,
-                      color: Colors.white),
-                label: const Text('Allow Location Access',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
+                icon: const Icon(Icons.location_on, color: Colors.white),
+                label: const Text(
+                  'Allow Location Access',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -126,53 +173,51 @@ class _CartScreenState extends State<CartScreen> {
               const SizedBox(height: 16),
 
               // Cart Items List
-              if (widget.cartItems != null) ...[
-                ...widget.cartItems!
-                    .where((item) => item.quantity > 0)
-                    .map((item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.asset(
-                          'assets/images/menu_item.jpg',
-                          width: 48,
-                          height: 48,
-                          fit: BoxFit.cover,
-                        ),
+              ...widget.cartItems
+                  .where((item) => item.quantity > 0)
+                  .map((item) => Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.asset(
+                        'assets/images/menu_item.jpg',
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
                             ),
-                            Text(
-                              'x${item.quantity}',
-                              style: const TextStyle(
-                                color: Colors.grey,
-                              ),
+                          ),
+                          Text(
+                            'x${item.quantity}',
+                            style: const TextStyle(
+                              color: Colors.grey,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        'Rp ${(item.price * item.quantity).toStringAsFixed(0)}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    ),
+                    Text(
+                      'Rp ${(item.price * item.quantity).toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
                       ),
-                    ],
-                  ),
-                ))
-                    .toList(),
-              ],
+                    ),
+                  ],
+                ),
+              ))
+                  .toList(),
 
               const Divider(height: 32),
 
@@ -243,13 +288,18 @@ class _CartScreenState extends State<CartScreen> {
           ],
         ),
         child: ElevatedButton(
-          onPressed: () {
+          onPressed: _orderCreated
+              ? () {
+            // Navigate to order tracking screen
+            // Add your navigation logic here
+          }
+              : () async {
             if (_deliveryAddress == null) {
               setState(() {
                 _errorMessage = 'Please select a delivery address';
               });
             } else {
-              // Handle order creation
+              await _showOrderSuccess();
             }
           },
           style: ElevatedButton.styleFrom(
@@ -259,11 +309,12 @@ class _CartScreenState extends State<CartScreen> {
               borderRadius: BorderRadius.circular(24),
             ),
           ),
-          child: const Text(
-            'Buat Pesanan',
-            style: TextStyle(
+          child: Text(
+            _orderCreated ? 'Lacak Pesanan' : 'Buat Pesanan',
+            style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
+              color: Colors.white,
             ),
           ),
         ),
