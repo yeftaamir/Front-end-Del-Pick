@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Driver/track_order.dart';
+import 'package:lottie/lottie.dart';
 
 class HistoryDriverDetailPage extends StatefulWidget {
   static const String route = '/Driver/HistoryDriverDetail';
@@ -51,6 +52,49 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
     selectedStatus = status ?? statusOptions.first['value'] as String;
   }
 
+  void _showCompletionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/check_animation.json',
+                  width: 200,
+                  height: 200,
+                  repeat: false,
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Delivery Completed!',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pushNamedAndRemoveUntil(
+                      '/Driver/HomePage',
+                          (Route<dynamic> route) => false,
+                    );
+                  },
+                  child: const Text('Back to Home'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showPickupConfirmationDialog() {
     showDialog(
       context: context,
@@ -84,13 +128,21 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
     );
   }
 
-  void _navigateToTrackOrder() {
-    Navigator.push(
+  void _navigateToTrackOrder() async {
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => const TrackOrderScreen(),
       ),
     );
+
+    if (result == 'completed') {
+      setState(() {
+        selectedStatus = 'completed';
+        widget.orderDetail['status'] = 'completed';
+      });
+      _showCompletionDialog();
+    }
   }
 
   Future<void> _openWhatsApp(String phoneNumber) async {
@@ -108,63 +160,34 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
     }
   }
 
-  void _handleStatusChange(String? newValue) {
-    if (newValue != null) {
-      setState(() {
-        selectedStatus = newValue;
-        widget.orderDetail['status'] = newValue;
-      });
-
-      final selectedStatusOption = statusOptions.firstWhere(
-            (status) => status['value'] == newValue,
-        orElse: () => statusOptions.first,
-      );
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Status updated to ${selectedStatusOption['label']}'),
-        ),
-      );
-    }
-  }
-
-  Widget _buildStatusDropdown() {
-    if (selectedStatus == null ||
-        !statusOptions.any((status) => status['value'] == selectedStatus)) {
-      selectedStatus = statusOptions.first['value'] as String;
-    }
+  Widget _buildStatusIndicator() {
+    final statusOption = statusOptions.firstWhere(
+          (status) => status['value'] == selectedStatus,
+      orElse: () => statusOptions.first,
+    );
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: GlobalStyle.borderColor),
       ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: selectedStatus,
-          isExpanded: true,
-          items: statusOptions.map((status) {
-            return DropdownMenuItem<String>(
-              value: status['value'] as String,
-              child: Row(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: status['color'] as Color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  Text(status['label'] as String),
-                ],
-              ),
-            );
-          }).toList(),
-          onChanged: _handleStatusChange,
-        ),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: statusOption['color'] as Color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          Text(
+            statusOption['label'] as String,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ],
       ),
     );
   }
@@ -260,7 +283,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
       );
     }
 
-    return const SizedBox.shrink(); // Return empty widget for completed/cancelled status
+    return const SizedBox.shrink();
   }
 
   @override
@@ -270,176 +293,86 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
     final deliveryFee = widget.orderDetail['deliveryFee'];
 
     return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+        body: SafeArea(
+            child: SingleChildScrollView(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                 Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      color: GlobalStyle.primaryColor,
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    const Text(
-                      'Delivery Details',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+                children: [
+                IconButton(
+                icon: const Icon(Icons.arrow_back),
+                color: GlobalStyle.primaryColor,
+                onPressed: () => Navigator.pop(context),
+              ),
+              const Text(
+                'Delivery Details',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
                 ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Delivery Status',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+              ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Delivery Status',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildStatusIndicator(),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: GlobalStyle.borderColor),
+                  bottom: BorderSide(color: GlobalStyle.borderColor),
                 ),
-                const SizedBox(height: 8),
-                _buildStatusDropdown(),
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      top: BorderSide(color: GlobalStyle.borderColor),
-                      bottom: BorderSide(color: GlobalStyle.borderColor),
-                    ),
-                  ),
-                  child: Column(
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 12,
-                            height: 12,
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            margin: const EdgeInsets.only(top: 4),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Pickup Location',
-                                      style: TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.chat, size: 20),
-                                      onPressed: () => _openWhatsApp(widget.orderDetail['storePhone']),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: Colors.blue.shade100,
-                                        foregroundColor: Colors.blue,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  widget.orderDetail['storeAddress'] ?? '',
-                                  style: TextStyle(
-                                    color: GlobalStyle.fontColor,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        margin: const EdgeInsets.only(top: 4),
                       ),
-                      const SizedBox(height: 16),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 12,
-                            height: 12,
-                            decoration: const BoxDecoration(
-                              color: Colors.green,
-                              shape: BoxShape.circle,
-                            ),
-                            margin: const EdgeInsets.only(top: 4),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      widget.orderDetail['customerName'] ?? '',
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.chat, size: 20),
-                                      onPressed: () => _openWhatsApp(widget.orderDetail['customerPhone']),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: Colors.blue.shade100,
-                                        foregroundColor: Colors.blue,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  widget.orderDetail['customerAddress'] ?? '',
-                                  style: TextStyle(
-                                    color: GlobalStyle.fontColor,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                ...items.map((item) => Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  child: Row(
-                    children: [
-                      Image.network(
-                        item['image'] ?? '',
-                        width: 50,
-                        height: 50,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 50,
-                            height: 50,
-                            color: Colors.grey[300],
-                            child: const Icon(Icons.error),
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              item['name'] ?? '',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Pickup Location',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.chat, size: 20),
+                                  onPressed: () => _openWhatsApp(widget.orderDetail['storePhone']),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.blue.shade100,
+                                    foregroundColor: Colors.blue,
+                                  ),
+                                ),
+                              ],
                             ),
                             Text(
-                              'x${item['quantity'] ?? 0}',
+                              widget.orderDetail['storeAddress'] ?? '',
                               style: TextStyle(
                                 color: GlobalStyle.fontColor,
                                 fontSize: 14,
@@ -450,45 +383,135 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
                       ),
                     ],
                   ),
-                )).toList(),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Delivery Fee',
-                      style: TextStyle(
-                        color: GlobalStyle.fontColor,
-                        fontSize: 14,
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                        ),
+                        margin: const EdgeInsets.only(top: 4),
                       ),
-                    ),
-                    Text(
-                      'Rp. $deliveryFee',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Amount',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      'Rp. $totalAmount',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                _buildActionButtons(),
-              ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  widget.orderDetail['customerName'] ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.chat, size: 20),
+                                  onPressed: () => _openWhatsApp(widget.orderDetail['customerPhone']),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.blue.shade100,
+                                    foregroundColor: Colors.blue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              widget.orderDetail['customerAddress'] ?? '',
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
-      ),
+            const SizedBox(height: 20),
+            ...items.map((item) => Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    child: Row(
+    children: [
+    Image.network(
+    item['image'] ?? '',
+    width: 50,
+    height: 50,
+    fit: BoxFit.cover,
+    errorBuilder: (context, error, stackTrace) {
+    return Container(
+    width: 50,
+    height: 50,
+    color: Colors.grey[300],
+    child: const Icon(Icons.error),
+    );
+    },
+    ),
+    const SizedBox(width: 16),
+    Expanded(
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Text(
+    item['name'] ?? '',
+    style: const TextStyle(fontWeight: FontWeight.bold),
+    ),
+    Text(
+    'x${item['quantity'] ?? 0}',
+    style: TextStyle(
+    color: GlobalStyle.fontColor,
+    fontSize: 14,
+    ),
+    ),
+    ],
+    ),
+    ),
+    ],
+    ),
+    )).toList(),
+    const SizedBox(height: 8),
+    Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+    Text(
+    'Delivery Fee',
+    style: TextStyle(
+    color: GlobalStyle.fontColor,
+    fontSize: 14,
+    ),
+    ),
+    Text(
+    'Rp. $deliveryFee',
+    style: const TextStyle(fontWeight: FontWeight.bold),
+    ),
+    ],
+    ),
+    const SizedBox(height: 8),
+    Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+    const Text(
+    'Total Amount',
+    style: TextStyle(fontWeight: FontWeight.bold),
+    ),
+    Text(
+    'Rp. $totalAmount',
+    style: const TextStyle(fontWeight: FontWeight.bold),
+    ),
+    ],
+    ),
+    const SizedBox(height: 20),
+    _buildActionButtons(),
+    ],
+    ),
+    ),
+    ),
+    ),
     );
   }
 }

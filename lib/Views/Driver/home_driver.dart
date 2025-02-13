@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/driver_bottom_navigation.dart';
 import 'package:del_pick/Views/Driver/history_driver_detail.dart';
+import 'package:del_pick/Views/Driver/profil_driver.dart';
 
 class HomeDriverPage extends StatefulWidget {
   static const String route = '/Driver/HomePage';
@@ -260,10 +261,15 @@ class _HomeDriverPageState extends State<HomeDriverPage> {
                       fontFamily: GlobalStyle.fontFamily,
                     ),
                   ),
-                  FaIcon(
-                    FontAwesomeIcons.user,
-                    size: 24,
-                    color: GlobalStyle.fontColor,
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.pushNamed(context, ProfileDriverPage.route);
+                    },
+                    child: FaIcon(
+                      FontAwesomeIcons.user,
+                      size: 24,
+                      color: GlobalStyle.fontColor,
+                    ),
                   ),
                 ],
               ),

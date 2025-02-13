@@ -1,3 +1,4 @@
+import 'package:del_pick/Views/Store/profil_store.dart';
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -22,6 +23,7 @@ import 'Views/Store/add_edit_items.dart';
 import 'Views/Driver/home_driver.dart';
 import 'Views/Driver/history_driver_detail.dart';
 import 'Views/Driver/history_driver.dart';
+import 'Views/Driver/profil_driver.dart';
 
 Future<void> main() async {
   try {
@@ -124,7 +126,14 @@ class MyApp extends StatelessWidget {
       ProfilePage.route: (context) => const ProfilePage(),
       HistoryCustomer.route: (context) => const HistoryCustomer(),
       CartScreen.route: (context) => const CartScreen(cartItems: []),
-      LocationAccessScreen.route: (context) => const LocationAccessScreen(),
+      LocationAccessScreen.route: (context) => LocationAccessScreen(
+        onLocationSelected: (String location) {
+          // Handle the selected location
+          print('Selected location: $location');
+          // You can navigate back or handle the location as needed
+          Navigator.pop(context);
+        },
+      ),
       HistoryDetailPage.route: (context) => const HistoryDetailPage(
         storeName: 'Store Name',
         date: '2022-01-01T00:00:00.000Z',
@@ -154,6 +163,7 @@ class MyApp extends StatelessWidget {
           'icon': 'https://via.placeholder.com/150',
         },
       ),
+      ProfileDriverPage.route: (context) => const ProfileDriverPage(),
 
       // Store routes
       '/Store/HomePage': (context) => const HomeStore(),
@@ -169,6 +179,7 @@ class MyApp extends StatelessWidget {
         },
       ),
       AddEditItemForm.route: (context) => const AddEditItemForm(),
+      ProfileStorePage.route: (context) => const ProfileStorePage(),
     };
   }
 

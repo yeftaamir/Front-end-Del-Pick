@@ -7,13 +7,17 @@ import 'history_cust.dart';
 
 class Store {
   final String name;
+  final String address;
+  final String imageUrl;
+  final double rating;
   final String category;
-  final IconData icon;
 
   Store({
     required this.name,
+    required this.address,
+    required this.imageUrl,
+    this.rating = 0.0,
     required this.category,
-    required this.icon,
   });
 }
 
@@ -32,9 +36,27 @@ class HomePageState extends State<HomePage> {
   String _searchQuery = '';
 
   final List<Store> _stores = [
-    Store(name: 'Nama Toko', category: 'Kategori', icon: Icons.home),
-    Store(name: 'Nama Rumah Makan', category: 'Kategori', icon: Icons.restaurant),
-    Store(name: 'Nama Minimarket', category: 'Kategori', icon: Icons.store),
+    Store(
+      name: 'Nama Toko',
+      address: 'Alamat Toko',
+      imageUrl: 'assets/store_placeholder.png',
+      rating: 4.5,
+      category: 'Restaurant',
+    ),
+    Store(
+      name: 'Nama Toko',
+      address: 'Alamat Toko',
+      imageUrl: 'assets/store_placeholder.png',
+      rating: 4.8,
+      category: 'Cafe',
+    ),
+    Store(
+      name: 'Nama Toko',
+      address: 'Alamat Toko',
+      imageUrl: 'assets/store_placeholder.png',
+      rating: 4.2,
+      category: 'Shop',
+    ),
   ];
 
   List<Store> get filteredStores {
@@ -44,25 +66,16 @@ class HomePageState extends State<HomePage> {
     return _stores
         .where((store) =>
     store.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-        store.category.toLowerCase().contains(_searchQuery.toLowerCase()))
+        store.address.toLowerCase().contains(_searchQuery.toLowerCase()))
         .toList();
   }
-
-  String _capitalizeEachWord(String text) {
-  return text.split(' ').map((word) {
-    return word.isNotEmpty
-        ? word[0].toUpperCase() + word.substring(1).toLowerCase()
-        : '';
-  }).join(' ');
-}
 
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
       if (index == 1) {
-        // Index 1 is the 'Search' button
         _startSearch();
-      } else if (index == 2) { // Index 2 is the 'History' button
+      } else if (index == 2) {
         Navigator.pushNamed(context, HistoryCustomer.route);
       }
     });
@@ -93,8 +106,9 @@ class HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        elevation: 0,
+        elevation: 0.5,
         backgroundColor: Colors.white,
         leading: _isSearching
             ? IconButton(
@@ -118,7 +132,7 @@ class HomePageState extends State<HomePage> {
           controller: _searchController,
           autofocus: true,
           decoration: InputDecoration(
-            hintText: 'Search stores...',
+            hintText: 'Cari toko...',
             border: InputBorder.none,
             hintStyle: TextStyle(
               color: GlobalStyle.fontColor,
@@ -130,7 +144,13 @@ class HomePageState extends State<HomePage> {
             fontSize: GlobalStyle.fontSize,
           ),
         )
-            : null,
+            : const Text(
+          'Del Pick',
+          style: TextStyle(
+            color: Colors.black87,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
@@ -143,103 +163,198 @@ class HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            if (_isSearching && _searchQuery.isEmpty)
-              const Center(
+      body: Column(
+        children: [
+          if (_isSearching && _searchQuery.isEmpty)
+            const Expanded(
+              child: Center(
                 child: Text(
-                  'Type to search stores...',
+                  'Ketik untuk mencari toko...',
                   style: TextStyle(
                     color: Colors.grey,
                     fontSize: 16,
                   ),
                 ),
               ),
-            if (!_isSearching || _searchQuery.isNotEmpty)
-              Expanded(
-                child: ListView.builder(
-                  itemCount: filteredStores.length,
-                  itemBuilder: (context, index) {
-                    final store = filteredStores[index];
-                    return buildInfoCard(store);
-                  },
-                ),
+            ),
+          if (!_isSearching || _searchQuery.isNotEmpty)
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16.0),
+                itemCount: filteredStores.length,
+                itemBuilder: (context, index) {
+                  final store = filteredStores[index];
+                  return buildStoreCard(store);
+                },
               ),
+            ),
+        ],
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
+            ),
           ],
         ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        selectedItemColor: GlobalStyle.primaryColor,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(LucideIcons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(LucideIcons.search),
-            label: 'Search',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(LucideIcons.history),
-            label: 'History',
-          ),
-        ],
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          selectedItemColor: Colors.blue,
+          unselectedItemColor: Colors.grey,
+          showUnselectedLabels: true,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(LucideIcons.home),
+              label: 'Home',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(LucideIcons.search),
+              label: 'Search',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(LucideIcons.history),
+              label: 'History',
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget buildInfoCard(Store store) {
-  return Padding(
-    padding: const EdgeInsets.only(bottom: 15.0),
-    child: Card(
+  Widget buildStoreCard(Store store) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16.0),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12.0),
       ),
-      color: Colors.blue[50],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Icon(store.icon, size: 50.0, color: Colors.blue),
-            const SizedBox(width: 18.0),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _capitalizeEachWord(store.name),
-                    style: const TextStyle(
-                      fontSize: 15.0,
-                      fontWeight: FontWeight.normal,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 4.0),
-                  Text(
-                    store.category,
-                    style: const TextStyle(
-                      fontSize: 12.0,
-                      color: Colors.black54,
-                    ),
-                  ),
-                ],
+      elevation: 0,
+      child: InkWell(
+        onTap: () {
+          Navigator.pushNamed(context, StoreDetail.route);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            children: [
+              // Store Image
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8.0),
+                  color: Colors.grey[200],
+                ),
+                child: const Icon(
+                  Icons.store,
+                  size: 40,
+                  color: Colors.grey,
+                ),
               ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.arrow_forward_ios, size: 16.0, color: Colors.blue),
-              onPressed: () {
-                Navigator.pushNamed(context, StoreDetail.route);
-              },
-            ),
-          ],
+              const SizedBox(width: 12.0),
+              // Store Details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      store.name,
+                      style: const TextStyle(
+                        fontSize: 16.0,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4.0),
+                    Text(
+                      store.address,
+                      style: TextStyle(
+                        fontSize: 14.0,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 8.0),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8.0,
+                            vertical: 4.0,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(4.0),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.star,
+                                size: 16.0,
+                                color: Colors.blue[700],
+                              ),
+                              const SizedBox(width: 4.0),
+                              Text(
+                                store.rating.toString(),
+                                style: TextStyle(
+                                  fontSize: 12.0,
+                                  color: Colors.blue[700],
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8.0),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8.0,
+                            vertical: 4.0,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(4.0),
+                          ),
+                          child: Text(
+                            store.category,
+                            style: TextStyle(
+                              fontSize: 12.0,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // Visit Button
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 12.0,
+                    vertical: 8.0,
+                  ),
+                  child: Text(
+                    'Kunjungi Toko',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.0,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
