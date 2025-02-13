@@ -1,8 +1,7 @@
-import 'package:del_pick/Views/Store/profil_store.dart';
 import 'package:flutter/material.dart';
-import 'package:del_pick/Common/global_style.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:del_pick/Common/global_style.dart';
 
 // Import views
 import 'Views/Controls/login_page.dart';
@@ -15,6 +14,7 @@ import 'Views/Customers/cart_screen.dart';
 import 'Views/Customers/location_access.dart';
 import 'Views/Customers/history_detail.dart';
 import 'Views/Customers/rating_cust.dart';
+import 'Views/Customers/track_cust_order.dart';
 import 'Views/Store/home_store.dart';
 import 'Views/Store/add_item.dart';
 import 'Views/Store/history_store.dart';
@@ -24,6 +24,8 @@ import 'Views/Driver/home_driver.dart';
 import 'Views/Driver/history_driver_detail.dart';
 import 'Views/Driver/history_driver.dart';
 import 'Views/Driver/profil_driver.dart';
+import 'Views/Store/profil_store.dart';
+import 'Views/SplashScreen/splash_screen.dart';
 
 Future<void> main() async {
   try {
@@ -39,13 +41,13 @@ Future<void> main() async {
 
     // Get and verify Mapbox token
     final mapboxToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
-    print("Loaded token: ${mapboxToken?.substring(0, 10)}..."); // Print first 10 chars for debugging
+    print("Loaded token: ${mapboxToken?.substring(0, 10)}...");
 
     if (mapboxToken == null || mapboxToken.isEmpty) {
       throw Exception('MAPBOX_ACCESS_TOKEN not found in .env file');
     }
 
-    // Set Mapbox access token (removed await since it's void)
+    // Set Mapbox access token
     MapboxOptions.setAccessToken(mapboxToken);
     print("Mapbox token set successfully");
 
@@ -116,6 +118,9 @@ class MyApp extends StatelessWidget {
 
   Map<String, Widget Function(BuildContext)> _buildRoutes() {
     return {
+      // Add splash screen route
+      '/': (context) => const SplashScreen(),
+
       // Control routes
       Login.route: (context) => const Login(),
 
@@ -128,12 +133,11 @@ class MyApp extends StatelessWidget {
       CartScreen.route: (context) => const CartScreen(cartItems: []),
       LocationAccessScreen.route: (context) => LocationAccessScreen(
         onLocationSelected: (String location) {
-          // Handle the selected location
           print('Selected location: $location');
-          // You can navigate back or handle the location as needed
           Navigator.pop(context);
         },
       ),
+      TrackCustOrderScreen.route: (context) => const TrackCustOrderScreen(),
       HistoryDetailPage.route: (context) => const HistoryDetailPage(
         storeName: 'Store Name',
         date: '2022-01-01T00:00:00.000Z',
@@ -189,7 +193,7 @@ class MyApp extends StatelessWidget {
       title: 'Del Pick',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
-      initialRoute: Login.route,
+      initialRoute: '/', // Changed to start with splash screen
       routes: _buildRoutes(),
     );
   }

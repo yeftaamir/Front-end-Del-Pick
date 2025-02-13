@@ -4,6 +4,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/location_access.dart';
+import 'package:del_pick/Views/Customers/track_cust_order.dart';
 
 class CartScreen extends StatefulWidget {
   static const String route = "/Customers/Cart";
@@ -84,6 +85,13 @@ class _CartScreenState extends State<CartScreen> {
     setState(() {
       _orderCreated = true;
     });
+  }
+
+  void _navigateToTrackOrder() {
+    Navigator.pushNamed(
+      context,
+      TrackCustOrderScreen.route,
+    );
   }
 
   @override
@@ -289,10 +297,7 @@ class _CartScreenState extends State<CartScreen> {
         ),
         child: ElevatedButton(
           onPressed: _orderCreated
-              ? () {
-            // Navigate to order tracking screen
-            // Add your navigation logic here
-          }
+              ? _navigateToTrackOrder
               : () async {
             if (_deliveryAddress == null) {
               setState(() {
