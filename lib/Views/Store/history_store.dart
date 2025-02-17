@@ -1,3 +1,4 @@
+import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
@@ -128,6 +129,24 @@ class _HistoryStorePageState extends State<HistoryStorePage> {
               fontWeight: FontWeight.bold,
               color: Colors.black,
             )
+        ),
+        leading: IconButton(
+          icon: Container(
+            padding: const EdgeInsets.all(4.0),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.blue, width: 1.0),
+            ),
+            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+          ),
+          onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const HomeStore(),
+                ),
+              );
+            },
         ),
         backgroundColor: Colors.white,
         elevation: 0,

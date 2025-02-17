@@ -1,3 +1,4 @@
+import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:flutter/material.dart';
 import '../../Common/global_style.dart';
 import '../../Models/item_model.dart';
@@ -74,6 +75,24 @@ class _AddItemPageState extends State<AddItemPage> {
             fontWeight: FontWeight.bold,
           ),
         ),
+        leading: IconButton(
+          icon: Container(
+            padding: const EdgeInsets.all(4.0),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.blue, width: 1.0),
+            ),
+            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+          ),
+          onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const HomeStore(),
+                ),
+              );
+            },
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
         actions: [
@@ -85,6 +104,7 @@ class _AddItemPageState extends State<AddItemPage> {
               label: const Text('Add Item'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
+                foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
