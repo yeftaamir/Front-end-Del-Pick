@@ -7,6 +7,7 @@ class GlobalStyle {
   static Color disableColor = const Color(0xffDEDEDE);
   static Color fontColor = const Color(0xff686262);
   static Color newInfo = const Color(0xFF16C47F);
+  static Color cardColor = const Color.fromARGB(255, 150, 177, 209);
 
   static String fontFamily = "Poppins-Medium";
   static double fontSize = 12;

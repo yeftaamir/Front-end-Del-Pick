@@ -98,6 +98,7 @@ class _CartScreenState extends State<CartScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.white,
         title: const Text('Cart'),
         leading: IconButton(
           icon: const FaIcon(FontAwesomeIcons.arrowLeft),

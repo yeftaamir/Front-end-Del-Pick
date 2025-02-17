@@ -106,7 +106,7 @@ class HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: Colors.white,
       appBar: AppBar(
         elevation: 0.5,
         backgroundColor: Colors.white,
@@ -232,6 +232,7 @@ class HomePageState extends State<HomePage> {
         borderRadius: BorderRadius.circular(12.0),
       ),
       elevation: 0,
+      color: const Color.fromARGB(255, 177, 215, 235),
       child: InkWell(
         onTap: () {
           Navigator.pushNamed(context, StoreDetail.route);

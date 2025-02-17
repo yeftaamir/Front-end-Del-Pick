@@ -41,7 +41,14 @@ class _AddEditItemFormState extends State<AddEditItemForm> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: GlobalStyle.primaryColor),
+          icon: Container(
+            padding: const EdgeInsets.all(5.0),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.blue, width: 1.0),
+            ),
+            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
@@ -142,6 +149,7 @@ class _AddEditItemFormState extends State<AddEditItemForm> {
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(30),

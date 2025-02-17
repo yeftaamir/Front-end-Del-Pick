@@ -144,7 +144,14 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> {
           backgroundColor: Colors.white,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            icon: Container(
+            padding: const EdgeInsets.all(4.0),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.blue, width: 1.0),
+            ),
+            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+          ),
             onPressed: () {
               Navigator.pushNamedAndRemoveUntil(
                 context,

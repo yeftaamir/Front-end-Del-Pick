@@ -15,7 +15,7 @@ class DriverBottomNavigation extends StatelessWidget {
   void _handleNavigation(BuildContext context, int index) {
     if (currentIndex != index) {
       onTap(index);
-
+       backgroundColor: Colors.white;
       switch (index) {
         case 0: // Home tab
           Navigator.pushNamedAndRemoveUntil(
