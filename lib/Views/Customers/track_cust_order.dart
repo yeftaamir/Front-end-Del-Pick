@@ -46,7 +46,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
             child: CircleAvatar(
               backgroundColor: Colors.white,
               child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.black),
+                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
                 onPressed: () => Navigator.pop(context),
               ),
             ),

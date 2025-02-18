@@ -110,17 +110,23 @@ class HomePageState extends State<HomePage> {
       appBar: AppBar(
         elevation: 0.5,
         backgroundColor: Colors.white,
-        leading: _isSearching
-            ? IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black54),
-          onPressed: () {
-            setState(() {
-              _isSearching = false;
-              _searchController.clear();
-              _searchQuery = '';
-            });
-          },
-        )
+        leading: _isSearching ? IconButton(
+        icon: Container(
+                  padding: const EdgeInsets.all(7.0),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue, width: 1.0),
+                  ),
+                  child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+                ),
+                onPressed: () {
+                  setState(() {
+                    _isSearching = false;
+                    _searchController.clear();
+                    _searchQuery = '';
+                  });
+                },
+              )
             : IconButton(
           icon: const Icon(Icons.search, color: Colors.black54),
           onPressed: () {

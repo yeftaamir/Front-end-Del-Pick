@@ -101,9 +101,16 @@ class _CartScreenState extends State<CartScreen> {
         backgroundColor: Colors.white,
         title: const Text('Cart'),
         leading: IconButton(
-          icon: const FaIcon(FontAwesomeIcons.arrowLeft),
-          onPressed: () => Navigator.pop(context),
-        ),
+                    icon: Container(
+                    padding: const EdgeInsets.all(7.0),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.blue, width: 1.0),
+                    ),
+                    child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                ),
       ),
       body: SingleChildScrollView(
         child: Padding(
