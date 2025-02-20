@@ -1,4 +1,3 @@
-// splash_screen.dart
 import 'package:flutter/material.dart';
 import 'dart:async';
 
@@ -22,7 +21,6 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   void initState() {
     super.initState();
 
-    // Slide animation from left to center
     _slideController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -36,7 +34,6 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       curve: Curves.easeOutCubic,
     ));
 
-    // Bounce animation for "brake" effect
     _bounceController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
@@ -50,7 +47,6 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       curve: Curves.elasticOut,
     ));
 
-    // Fade out animation
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
@@ -64,7 +60,6 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       curve: Curves.easeOut,
     ));
 
-    // Loading animation
     _loadingAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
@@ -73,7 +68,6 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       curve: Curves.linear,
     ));
 
-    // Run animations sequence
     _runAnimationSequence();
   }
 

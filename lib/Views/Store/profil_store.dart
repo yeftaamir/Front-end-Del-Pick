@@ -1,11 +1,65 @@
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
 
 class ProfileStorePage extends StatelessWidget {
   static const String route = "/Store/Profile";
 
   const ProfileStorePage({super.key});
+
+  void _handleLogout(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Konfirmasi Logout',
+            style: TextStyle(
+              fontFamily: GlobalStyle.fontFamily,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'Apakah Anda yakin ingin keluar?',
+            style: TextStyle(
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Batal',
+                style: TextStyle(
+                  fontFamily: GlobalStyle.fontFamily,
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context); // Close dialog
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SplashScreen()),
+                      (route) => false, // Remove all previous routes
+                );
+              },
+              child: Text(
+                'Logout',
+                style: TextStyle(
+                  fontFamily: GlobalStyle.fontFamily,
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -14,7 +68,6 @@ class ProfileStorePage extends StatelessWidget {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              // Header dengan judul terpusat
               Padding(
                 padding: const EdgeInsets.all(24),
                 child: Stack(
@@ -32,7 +85,7 @@ class ProfileStorePage extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                        icon: Container(
+                      icon: Container(
                         padding: const EdgeInsets.all(7.0),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
@@ -46,7 +99,6 @@ class ProfileStorePage extends StatelessWidget {
                 ),
               ),
 
-              // Store Image
               ClipRRect(
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(0),
@@ -62,7 +114,6 @@ class ProfileStorePage extends StatelessWidget {
 
               const SizedBox(height: 32),
 
-              // Container informasi profil
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Container(
@@ -111,6 +162,42 @@ class ProfileStorePage extends StatelessWidget {
                         isDescription: true,
                       ),
                     ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: ElevatedButton(
+                    onPressed: () => _handleLogout(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.logout, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Logout',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
