@@ -1,11 +1,65 @@
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
 
 class ProfileDriverPage extends StatelessWidget {
   static const String route = "/Driver/Profile";
 
   const ProfileDriverPage({super.key});
+
+  void _handleLogout(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Konfirmasi Logout',
+            style: TextStyle(
+              fontFamily: GlobalStyle.fontFamily,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'Apakah Anda yakin ingin keluar?',
+            style: TextStyle(
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Batal',
+                style: TextStyle(
+                  fontFamily: GlobalStyle.fontFamily,
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context); // Tutup dialog
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SplashScreen()),
+                      (route) => false, // Hapus semua route sebelumnya
+                );
+              },
+              child: Text(
+                'Logout',
+                style: TextStyle(
+                  fontFamily: GlobalStyle.fontFamily,
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,21 +85,20 @@ class ProfileDriverPage extends StatelessWidget {
                   ),
                   IconButton(
                     icon: Container(
-                    padding: const EdgeInsets.all(7.0),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.blue, width: 1.0),
+                      padding: const EdgeInsets.all(7.0),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.blue, width: 1.0),
+                      ),
+                      child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
                     ),
-                    child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+                    onPressed: () => Navigator.pop(context),
                   ),
-                  onPressed: () => Navigator.pop(context),
-                ),
                 ],
               ),
 
               const SizedBox(height: 32),
 
-              // Foto profil dengan border
               Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
@@ -114,6 +167,40 @@ class ProfileDriverPage extends StatelessWidget {
                       value: 'hermawan@gmail.com',
                     ),
                   ],
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // Tombol Logout
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ElevatedButton(
+                  onPressed: () => _handleLogout(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.logout, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Logout',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
