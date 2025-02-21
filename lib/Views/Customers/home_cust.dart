@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:del_pick/Common/global_style.dart';
+import 'package:del_pick/Views/Customers/profile_cust.dart';
 import 'store_detail.dart';
 import 'profile_cust.dart';
 import 'history_cust.dart';
@@ -11,6 +12,7 @@ class Store {
   final String imageUrl;
   final double rating;
   final String category;
+  final String description;
 
   Store({
     required this.name,
@@ -18,6 +20,7 @@ class Store {
     required this.imageUrl,
     this.rating = 0.0,
     required this.category,
+    required this.description,
   });
 }
 
@@ -29,37 +32,48 @@ class HomePage extends StatefulWidget {
   createState() => HomePageState();
 }
 
-class HomePageState extends State<HomePage> {
+class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _selectedIndex = 0;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late AnimationController _scaleController;
+
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+  late Animation<double> _scaleAnimation;
+
   final List<Store> _stores = [
     Store(
-      name: 'Nama Toko',
-      address: 'Alamat Toko',
-      imageUrl: 'assets/store_placeholder.png',
-      rating: 4.5,
-      category: 'Restaurant',
-    ),
-    Store(
-      name: 'Nama Toko',
-      address: 'Alamat Toko',
-      imageUrl: 'assets/store_placeholder.png',
+      name: 'Ayam Geprek SH, Umbulmartani',
+      address: 'Umbulmartani, Sleman',
+      imageUrl: 'assets/images/store_front.jpg',
       rating: 4.8,
-      category: 'Cafe',
+      category: 'Restaurant',
+      description: 'Bakmie, Ayam & bebek, Minuman',
     ),
     Store(
-      name: 'Nama Toko',
-      address: 'Alamat Toko',
-      imageUrl: 'assets/store_placeholder.png',
-      rating: 4.2,
-      category: 'Shop',
+      name: 'McDonald\'s Yogyakarta',
+      address: 'Jl. Malioboro No. 123, Yogyakarta',
+      imageUrl: 'assets/images/mcd.jpg',
+      rating: 4.5,
+      category: 'Fast Food',
+      description: 'Burger, Ayam Goreng, Minuman Soda',
+    ),
+    Store(
+      name: 'KFC Adisucipto',
+      address: 'Jl. Laksda Adisucipto No. 45, Yogyakarta',
+      imageUrl: 'assets/images/kfc.jpg',
+      rating: 4.6,
+      category: 'Fast Food',
+      description: 'Ayam Goreng, Burger, Minuman',
     ),
   ];
 
-  List<Store> get filteredStores {
+  List<Store> get _filteredStores {
     if (_searchQuery.isEmpty && !_isSearching) {
       return _stores;
     }
@@ -85,6 +99,12 @@ class HomePageState extends State<HomePage> {
     setState(() {
       _isSearching = true;
     });
+    _fadeController.reset();
+    _slideController.reset();
+    _scaleController.reset();
+    _fadeController.forward();
+    _slideController.forward();
+    _scaleController.forward();
   }
 
   @override
@@ -95,43 +115,89 @@ class HomePageState extends State<HomePage> {
         _searchQuery = _searchController.text;
       });
     });
+
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _scaleController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _fadeController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(1.0, 0.0),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _slideController,
+        curve: Curves.elasticOut,
+      ),
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _scaleController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+
+    _fadeController.forward();
+    _slideController.forward();
+    _scaleController.forward();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _fadeController.dispose();
+    _slideController.dispose();
+    _scaleController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         elevation: 0.5,
         backgroundColor: Colors.white,
-        leading: _isSearching ? IconButton(
-        icon: Container(
-                  padding: const EdgeInsets.all(7.0),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.blue, width: 1.0),
-                  ),
-                  child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
-                ),
-                onPressed: () {
-                  setState(() {
-                    _isSearching = false;
-                    _searchController.clear();
-                    _searchQuery = '';
-                  });
-                },
-              )
+        leading: _isSearching
+            ? IconButton(
+          icon: Container(
+            padding: const EdgeInsets.all(7.0),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
+            ),
+            child: Icon(Icons.arrow_back_ios_new,
+                color: GlobalStyle.primaryColor, size: 18),
+          ),
+          onPressed: () {
+            setState(() {
+              _isSearching = false;
+              _searchController.clear();
+              _searchQuery = '';
+            });
+          },
+        )
             : IconButton(
           icon: const Icon(Icons.search, color: Colors.black54),
-          onPressed: () {
-            _startSearch();
-          },
+          onPressed: _startSearch,
         ),
         title: _isSearching
             ? TextField(
@@ -187,178 +253,175 @@ class HomePageState extends State<HomePage> {
             Expanded(
               child: ListView.builder(
                 padding: const EdgeInsets.all(16.0),
-                itemCount: filteredStores.length,
+                itemCount: _filteredStores.length,
                 itemBuilder: (context, index) {
-                  final store = filteredStores[index];
-                  return buildStoreCard(store);
+                  final store = _filteredStores[index];
+                  return AnimatedBuilder(
+                    animation: _slideController,
+                    builder: (context, child) {
+                      final delay = index * 0.2;
+                      final slideAnimation = Tween<Offset>(
+                        begin: const Offset(1.0, 0.0),
+                        end: Offset.zero,
+                      ).animate(
+                        CurvedAnimation(
+                          parent: _slideController,
+                          curve: Interval(
+                            delay.clamp(0.0, 1.0),
+                            (delay + 0.4).clamp(0.0, 1.0),
+                            curve: Curves.elasticOut,
+                          ),
+                        ),
+                      );
+                      return SlideTransition(
+                        position: slideAnimation,
+                        child: _buildStoreCard(store),
+                      );
+                    },
+                  );
                 },
               ),
             ),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.2),
-              blurRadius: 10,
-              offset: const Offset(0, -5),
-            ),
-          ],
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: _onItemTapped,
-          selectedItemColor: Colors.blue,
-          unselectedItemColor: Colors.grey,
-          showUnselectedLabels: true,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(LucideIcons.home),
-              label: 'Home',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(LucideIcons.search),
-              label: 'Search',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(LucideIcons.history),
-              label: 'History',
-            ),
-          ],
-        ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        selectedItemColor: GlobalStyle.primaryColor,
+        unselectedItemColor: Colors.grey,
+        showUnselectedLabels: true,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(LucideIcons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(LucideIcons.search),
+            label: 'Search',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(LucideIcons.history),
+            label: 'History',
+          ),
+        ],
       ),
     );
   }
 
-  Widget buildStoreCard(Store store) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16.0),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12.0),
-      ),
-      elevation: 0,
-      color: const Color.fromARGB(255, 177, 215, 235),
-      child: InkWell(
-        onTap: () {
-          Navigator.pushNamed(context, StoreDetail.route);
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Row(
-            children: [
-              // Store Image
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8.0),
-                  color: Colors.grey[200],
-                ),
-                child: const Icon(
-                  Icons.store,
-                  size: 40,
-                  color: Colors.grey,
-                ),
-              ),
-              const SizedBox(width: 12.0),
-              // Store Details
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildStoreCard(Store store) {
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: Card(
+          margin: const EdgeInsets.only(bottom: 16.0),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.0),
+          ),
+          elevation: 2,
+          child: InkWell(
+            onTap: () {
+              Navigator.pushNamed(context, StoreDetail.route);
+            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Stack(
                   children: [
-                    Text(
-                      store.name,
-                      style: const TextStyle(
-                        fontSize: 16.0,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 4.0),
-                    Text(
-                      store.address,
-                      style: TextStyle(
-                        fontSize: 14.0,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    const SizedBox(height: 8.0),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8.0,
-                            vertical: 4.0,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue[50],
-                            borderRadius: BorderRadius.circular(4.0),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.star,
-                                size: 16.0,
-                                color: Colors.blue[700],
-                              ),
-                              const SizedBox(width: 4.0),
-                              Text(
-                                store.rating.toString(),
-                                style: TextStyle(
-                                  fontSize: 12.0,
-                                  color: Colors.blue[700],
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
+                    Hero(
+                      tag: 'store-${store.name}',
+                      child: ClipRRect(
+                        borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(12.0)),
+                        child: Image.asset(
+                          store.imageUrl,
+                          height: 200,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
                         ),
-                        const SizedBox(width: 8.0),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8.0,
-                            vertical: 4.0,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(4.0),
-                          ),
-                          child: Text(
-                            store.category,
-                            style: TextStyle(
-                              fontSize: 12.0,
-                              color: Colors.grey[700],
+                      ),
+                    ),
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8.0,
+                          vertical: 4.0,
+                        ),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.primaryColor,
+                          borderRadius: BorderRadius.circular(16.0),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.star,
+                              color: Colors.white,
+                              size: 16,
                             ),
-                          ),
+                            const SizedBox(width: 4),
+                            Text(
+                              store.rating.toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-              // Visit Button
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.blue,
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 12.0,
-                    vertical: 8.0,
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        store.name,
+                        style: const TextStyle(
+                          fontSize: 18.0,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        store.description,
+                        style: TextStyle(
+                          fontSize: 14.0,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on,
+                            size: 16,
+                            color: Colors.grey[600],
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              store.address,
+                              style: TextStyle(
+                                fontSize: 14.0,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  child: Text(
-                    'Kunjungi Toko',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12.0,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

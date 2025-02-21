@@ -7,7 +7,6 @@ import 'package:del_pick/Common/global_style.dart';
 import 'Views/Controls/login_page.dart';
 import 'Views/Customers/home_cust.dart';
 import 'Views/Customers/store_detail.dart';
-import 'Views/Customers/list_store.dart';
 import 'Views/Customers/profile_cust.dart';
 import 'Views/Customers/history_cust.dart';
 import 'Views/Customers/cart_screen.dart';
@@ -127,7 +126,6 @@ class MyApp extends StatelessWidget {
       // Customer routes
       HomePage.route: (context) => const HomePage(),
       StoreDetail.route: (context) => const StoreDetail(),
-      ListStore.route: (context) => const ListStore(),
       ProfilePage.route: (context) => const ProfilePage(),
       HistoryCustomer.route: (context) => const HistoryCustomer(),
       CartScreen.route: (context) => const CartScreen(cartItems: []),
