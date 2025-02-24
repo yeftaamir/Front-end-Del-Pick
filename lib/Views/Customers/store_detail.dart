@@ -4,7 +4,6 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/cart_screen.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class StoreDetail extends StatefulWidget {
   static const String route = "/Customers/StoreDetail";
@@ -22,10 +21,8 @@ class _StoreDetailState extends State<StoreDetail> {
   late PageController _pageController;
   late Timer _timer;
   int _currentPage = 0;
-  MenuItem? _selectedItem;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
-  Timer? _debounce;
 
   @override
   void initState() {
@@ -37,26 +34,21 @@ class _StoreDetailState extends State<StoreDetail> {
       MenuItem(name: 'Ayam Saos Hot Bbq + Nasi + Es Teh', price: 23800),
       MenuItem(name: 'Ayam Geprek Tanpa Nasi', price: 19800),
     ];
-    filteredItems = List.from(menuItems);
+    filteredItems = List<MenuItem>.from(menuItems);
     _pageController = PageController(viewportFraction: 0.8, initialPage: 0);
     _startAutoScroll();
   }
 
-  void _filterItems(String query) {
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      setState(() {
-        if (query.isEmpty) {
-          filteredItems = List.from(menuItems);
-        } else {
-          filteredItems = menuItems
-              .where((item) =>
-              item.name.toLowerCase().contains(query.toLowerCase()))
-              .toList();
-          _showSearchResults(filteredItems);
-        }
-      });
-    });
+  void _performSearch() {
+    final query = _searchController.text;
+    final results = query.isEmpty
+        ? List<MenuItem>.from(menuItems)
+        : menuItems
+        .where((item) =>
+        item.name.toLowerCase().contains(query.toLowerCase()))
+        .toList();
+
+    _showSearchResults(results);
   }
 
   void _showSearchResults(List<MenuItem> results) {
@@ -192,21 +184,10 @@ class _StoreDetailState extends State<StoreDetail> {
     _pageController.dispose();
     _timer.cancel();
     _searchController.dispose();
-    _debounce?.cancel();
     super.dispose();
   }
 
-  void _updateQuantity(MenuItem item, int delta) {
-    setState(() {
-      final newQuantity = item.quantity + delta;
-      if (newQuantity >= 0) {
-        item.quantity = newQuantity;
-      }
-    });
-  }
-
   void _showItemDetail(MenuItem item) {
-    setState(() => _selectedItem = item);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -219,7 +200,7 @@ class _StoreDetailState extends State<StoreDetail> {
           });
         },
       ),
-    ).then((_) => setState(() => _selectedItem = null));
+    );
   }
 
   bool get hasItemsInCart => menuItems.any((item) => item.quantity > 0);
@@ -298,16 +279,16 @@ class _StoreDetailState extends State<StoreDetail> {
                         child: Center(
                           child: InkWell(
                             onTap: () {
-                              setState(() {
-                                _isSearching = !_isSearching;
-                                if (!_isSearching) {
-                                  _searchController.clear();
-                                  _filterItems('');
-                                }
-                              });
+                              if (_isSearching) {
+                                _performSearch();
+                              } else {
+                                setState(() {
+                                  _isSearching = true;
+                                });
+                              }
                             },
                             child: Icon(
-                              _isSearching ? Icons.close : Icons.search,
+                              _isSearching ? Icons.search : Icons.search,
                               color: Colors.blue,
                             ),
                           ),
@@ -318,15 +299,29 @@ class _StoreDetailState extends State<StoreDetail> {
                           duration: const Duration(milliseconds: 300),
                           opacity: _isSearching ? 1.0 : 0.0,
                           child: _isSearching
-                              ? TextField(
-                            controller: _searchController,
-                            onChanged: _filterItems,
-                            decoration: const InputDecoration(
-                              hintText: 'Search menu...',
-                              border: InputBorder.none,
-                              contentPadding:
-                              EdgeInsets.symmetric(horizontal: 8),
-                            ),
+                              ? Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _searchController,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Search menu...',
+                                    border: InputBorder.none,
+                                    contentPadding:
+                                    EdgeInsets.symmetric(horizontal: 8),
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () {
+                                  setState(() {
+                                    _isSearching = false;
+                                    _searchController.clear();
+                                  });
+                                },
+                              ),
+                            ],
                           )
                               : const SizedBox(),
                         ),
@@ -413,7 +408,7 @@ class _StoreDetailState extends State<StoreDetail> {
 
   Widget _buildCarouselMenu() {
     return SizedBox(
-      height: 270, // Increased height to accommodate longer text
+      height: 270,
       child: PageView.builder(
         controller: _pageController,
         itemCount: filteredItems.length,
@@ -437,91 +432,87 @@ class _StoreDetailState extends State<StoreDetail> {
   }
 
   Widget _buildCarouselMenuItem(MenuItem item) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.2),
-                spreadRadius: 1,
-                blurRadius: 6,
-              ),
-            ],
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            spreadRadius: 1,
+            blurRadius: 6,
           ),
-          child: Column(
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  topRight: Radius.circular(12),
-                ),
-                child: Image.asset(
-                  'assets/images/menu_item.jpg',
-                  height: 120,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.name,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Rp ${item.price.toStringAsFixed(0)}',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: GlobalStyle.primaryColor,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 40, // Fixed height for button
-                        child: ElevatedButton(
-                          onPressed: () => _showItemDetail(item),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: GlobalStyle.primaryColor,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: const Text(
-                            'Tambah',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+        ],
+      ),
+      child: Column(
+          children: [
+      ClipRRect(
+      borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(12),
+      topRight: Radius.circular(12),
+    ),
+    child: Image.asset(
+    'assets/images/menu_item.jpg',
+    height: 120,
+    width: double.infinity,
+    fit: BoxFit.cover,
+    ),
+    ),
+    Expanded(
+    child: Padding(
+    padding: const EdgeInsets.all(12),
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Expanded(
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Text(
+    item.name,
+    style: const TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.bold,
+    ),
+    maxLines: 3,
+    overflow: TextOverflow.ellipsis,
+    ),
+    const SizedBox(height: 4),
+    Text(
+      'Rp ${item.price.toStringAsFixed(0)}',
+      style: TextStyle(
+        fontSize: 14,
+        color: GlobalStyle.primaryColor,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    ],
+    ),
+    ),
+      const SizedBox(height: 8),
+      SizedBox(
+        width: double.infinity,
+        height: 40,
+        child: ElevatedButton(
+          onPressed: () => _showItemDetail(item),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: GlobalStyle.primaryColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
-        );
-      },
+          child: const Text(
+            'Tambah',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      ),
+    ],
+    ),
+    ),
+    ),
+          ],
+      ),
     );
   }
 
@@ -554,85 +545,81 @@ class _StoreDetailState extends State<StoreDetail> {
 
   Widget _buildListMenuItem(MenuItem item) {
     return GestureDetector(
-        onTap: () => _showItemDetail(item),
-    child: Container(
-    height: 180,
-    decoration: BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(12),
-    boxShadow: [
-    BoxShadow(
-    color: Colors.grey.withOpacity(0.2),
-    spreadRadius: 1,
-    blurRadius: 6,
-    ),
-    ],
-    ),
-    child: Stack(
-    children: [
-    Row(
-    children: [
-    Expanded(
-    flex: 2,
-    child: Padding(
-    padding: const EdgeInsets.all(16),
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-    Text(
-    item.name,
-    style: const TextStyle(
-    fontSize: 18,
-    fontWeight: FontWeight.bold,
-    ),
-    maxLines: 2,
-    overflow: TextOverflow.ellipsis,
-    ),
-    const SizedBox(height: 8),
-    Text(
-    'Rp ${item.price.toStringAsFixed(0)}',
-    style: TextStyle(
-    fontSize: 16,
-    color: GlobalStyle.primaryColor,
-    fontWeight: FontWeight.w600,
-    ),
-    ),
-    const SizedBox(height: 16),
-    ElevatedButton(
-    onPressed: () => _showItemDetail(item),
-    style: ElevatedButton.styleFrom(
-    backgroundColor: GlobalStyle.primaryColor,
-    shape: RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(8),
-    ),
-    ),
-    child: const Text(
-    'Tambah',
-    style: TextStyle(color: Colors.white),
-    ),
-    ),
-    ],
-    ),
-    ),
-    ),
-    Expanded(
-    flex: 1,
-    child: ClipRRect(
-    borderRadius:
-    const BorderRadius.horizontal(right: Radius.circular(12)),
-    child: Image.asset(
-    'assets/images/menu_item.jpg',
-      height: 150,
-      fit: BoxFit.cover,
-    ),
-    ),
-    ),
-    ],
-    ),
-    ],
-    ),
-    ),
+      onTap: () => _showItemDetail(item),
+      child: Container(
+        height: 180,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 1,
+              blurRadius: 6,
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      item.name,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Rp ${item.price.toStringAsFixed(0)}',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: GlobalStyle.primaryColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => _showItemDetail(item),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Tambah',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 1,
+              child: ClipRRect(
+                borderRadius:
+                const BorderRadius.horizontal(right: Radius.circular(12)),
+                child: Image.asset(
+                  'assets/images/menu_item.jpg',
+                  height: 150,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -681,7 +668,8 @@ class _StoreDetailState extends State<StoreDetail> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  final cartItems = menuItems.where((item) => item.quantity > 0).toList();
+                  final cartItems =
+                  menuItems.where((item) => item.quantity > 0).toList();
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -871,7 +859,8 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: GlobalStyle.primaryColor,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                padding:
+                                const EdgeInsets.symmetric(vertical: 16),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),

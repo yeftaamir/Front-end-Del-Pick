@@ -75,6 +75,7 @@ flutter:
     - assets/images/marker_blue.png
     - assets/images/marker_green.png
     - assets/animations/check_animation.json
+    - assets/images/delpick.png
 
 
   # The following line ensures that the Material Icons font is

@@ -28,10 +28,8 @@ import 'Views/SplashScreen/splash_screen.dart';
 
 Future<void> main() async {
   try {
-    // Ensure Flutter bindings are initialized
     WidgetsFlutterBinding.ensureInitialized();
 
-    // Load environment variables
     await dotenv.load(fileName: ".env").then((_) {
       print("Environment file loaded successfully");
     }).catchError((error) {

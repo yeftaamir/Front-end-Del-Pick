@@ -14,9 +14,9 @@ class AddItemPage extends StatefulWidget {
   State<AddItemPage> createState() => _AddItemPageState();
 }
 
-class _AddItemPageState extends State<AddItemPage> {
+class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStateMixin {
   int _currentIndex = 1;
-
+  late AnimationController _controller;
   final List<Item> _items = [
     Item(
       id: '1',
@@ -24,8 +24,25 @@ class _AddItemPageState extends State<AddItemPage> {
       price: 25000,
       quantity: 10,
       imageUrl: 'assets/images/menu_item.jpg',
+      isAvailable: true,
     ),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   void _navigateToAddEditForm({Item? item}) {
     Navigator.push(
@@ -36,10 +53,20 @@ class _AddItemPageState extends State<AddItemPage> {
     );
   }
 
+  void _toggleItemStatus(Item item) {
+    setState(() {
+      final index = _items.indexWhere((element) => element.id == item.id);
+      if (index != -1) {
+        _items[index] = item.copyWith(isAvailable: !item.isAvailable);
+      }
+    });
+  }
+
   void _showDeleteConfirmation(Item item) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         title: const Text('Konfirmasi Hapus'),
         content: Text('Apakah Anda yakin ingin menghapus ${item.name}?'),
         actions: [
@@ -64,9 +91,19 @@ class _AddItemPageState extends State<AddItemPage> {
     );
   }
 
+  Color _getColorWithOpacity(Color color, double opacity) {
+    return Color.fromRGBO(
+      color.red,
+      color.green,
+      color.blue,
+      opacity,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text(
           'Items',
@@ -80,18 +117,21 @@ class _AddItemPageState extends State<AddItemPage> {
             padding: const EdgeInsets.all(4.0),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.blue, width: 1.0),
+              border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
             ),
-            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+            child: Icon(Icons.arrow_back_ios_new,
+                color: GlobalStyle.primaryColor,
+                size: 18
+            ),
           ),
           onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const HomeStore(),
-                ),
-              );
-            },
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const HomeStore(),
+              ),
+            );
+          },
         ),
         backgroundColor: Colors.white,
         elevation: 0,
@@ -105,6 +145,7 @@ class _AddItemPageState extends State<AddItemPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
                 foregroundColor: Colors.white,
+                elevation: 2,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -117,95 +158,207 @@ class _AddItemPageState extends State<AddItemPage> {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: GridView.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 0.6,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-          ),
-          itemCount: _items.length,
-          itemBuilder: (context, index) {
-            final item = _items[index];
-            return Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.2),
-                    spreadRadius: 1,
-                    blurRadius: 6,
+      body: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _items.length,
+        itemBuilder: (context, index) {
+          final item = _items[index];
+          return AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(1, 0),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: _controller,
+                  curve: Interval(
+                    index * 0.1,
+                    1.0,
+                    curve: Curves.easeOut,
                   ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      topRight: Radius.circular(12),
+                )),
+                child: child,
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _getColorWithOpacity(Colors.grey, 0.1),
+                      spreadRadius: 1,
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
                     ),
-                    child: Image.asset(
-                      item.imageUrl,
-                      height: 170,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.name,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          'Rp ${item.price.toStringAsFixed(0)}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: GlobalStyle.primaryColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          'Stok: ${item.quantity}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: GlobalStyle.fontColor,
-                          ),
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
+                  ],
+                ),
+                child: Stack(
+                  children: [
+                    Opacity(
+                      opacity: item.isAvailable ? 1.0 : 0.5,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(15),
+                        onTap: () => _navigateToAddEditForm(item: item),
+                        child: Row(
                           children: [
-                            IconButton(
-                              icon: const Icon(Icons.edit),
-                              color: GlobalStyle.primaryColor,
-                              onPressed: () => _navigateToAddEditForm(item: item),
+                            ClipRRect(
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(15),
+                                bottomLeft: Radius.circular(15),
+                              ),
+                              child: Image.asset(
+                                item.imageUrl,
+                                height: 120,
+                                width: 120,
+                                fit: BoxFit.cover,
+                              ),
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.delete),
-                              color: Colors.red,
-                              onPressed: () => _showDeleteConfirmation(item),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Rp ${item.price.toStringAsFixed(0)}',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        color: GlobalStyle.primaryColor,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Stok: ${item.quantity}',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: GlobalStyle.fontColor,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: item.isAvailable
+                                            ? _getColorWithOpacity(Colors.green, 0.1)
+                                            : _getColorWithOpacity(Colors.red, 0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            item.isAvailable
+                                                ? Icons.check_circle
+                                                : Icons.cancel,
+                                            size: 16,
+                                            color: item.isAvailable
+                                                ? Colors.green
+                                                : Colors.red,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            item.isAvailable ? 'Available' : 'Closed',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: item.isAvailable
+                                                  ? Colors.green
+                                                  : Colors.red,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                IconButton(
+                                  icon: Icon(
+                                    item.isAvailable
+                                        ? Icons.toggle_on
+                                        : Icons.toggle_off,
+                                    color: item.isAvailable
+                                        ? GlobalStyle.primaryColor
+                                        : Colors.grey,
+                                    size: 28,
+                                  ),
+                                  onPressed: () => _toggleItemStatus(item),
+                                ),
+                                IconButton(
+                                  icon: Icon(
+                                    Icons.edit,
+                                    color: GlobalStyle.primaryColor,
+                                  ),
+                                  onPressed: () => _navigateToAddEditForm(item: item),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () => _showDeleteConfirmation(item),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 8),
                           ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                    if (!item.isAvailable)
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        top: 0,
+                        right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _getColorWithOpacity(Colors.red, 0.9),
+                            borderRadius: const BorderRadius.only(
+                              topRight: Radius.circular(15),
+                              bottomLeft: Radius.circular(15),
+                            ),
+                          ),
+                          child: const Text(
+                            'CLOSED',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
       bottomNavigationBar: BottomNavigationComponent(
         currentIndex: _currentIndex,

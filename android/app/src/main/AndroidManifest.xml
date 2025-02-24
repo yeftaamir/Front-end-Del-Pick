@@ -7,9 +7,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
-        android:label="del_pick"
+        android:label="Del-Pick"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/delpick">
 
         <!-- Mapbox token configuration -->
         <meta-data

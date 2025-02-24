@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Customers/profile_cust.dart';
-import 'store_detail.dart';
-import 'profile_cust.dart';
-import 'history_cust.dart';
+import 'package:del_pick/Views/Customers/store_detail.dart';
+import 'package:del_pick/Views/Customers/profile_cust.dart';
+import 'package:del_pick/Views/Customers/history_cust.dart';
+import '../Component/cust_bottom_navigation.dart';
 
 class Store {
   final String name;
@@ -89,8 +90,6 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _selectedIndex = index;
       if (index == 1) {
         _startSearch();
-      } else if (index == 2) {
-        Navigator.pushNamed(context, HistoryCustomer.route);
       }
     });
   }
@@ -284,26 +283,9 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        selectedItemColor: GlobalStyle.primaryColor,
-        unselectedItemColor: Colors.grey,
-        showUnselectedLabels: true,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(LucideIcons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(LucideIcons.search),
-            label: 'Search',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(LucideIcons.history),
-            label: 'History',
-          ),
-        ],
+      bottomNavigationBar: CustomBottomNavigation(
+        selectedIndex: _selectedIndex,
+        onItemTapped: _onItemTapped,
       ),
     );
   }
