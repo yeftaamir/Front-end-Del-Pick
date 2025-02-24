@@ -14,10 +14,11 @@ class HomeDriverPage extends StatefulWidget {
   State<HomeDriverPage> createState() => _HomeDriverPageState();
 }
 
-class _HomeDriverPageState extends State<HomeDriverPage> {
+class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStateMixin {
   int _currentIndex = 0;
+  late List<AnimationController> _cardControllers;
+  late List<Animation<Offset>> _cardAnimations;
 
-  // Dummy data for driver's deliveries
   final List<Map<String, dynamic>> _deliveries = [
     {
       'customerName': 'John Doe',
@@ -81,6 +82,46 @@ class _HomeDriverPageState extends State<HomeDriverPage> {
     }
   ];
 
+  @override
+  void initState() {
+    super.initState();
+
+    // Initialize animation controllers for each delivery card
+    _cardControllers = List.generate(
+      _deliveries.length,
+          (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 200)),
+      ),
+    );
+
+    // Create slide animations for each card
+    _cardAnimations = _cardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0, 0.5),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+
+    // Start animations sequentially
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (var controller in _cardControllers) {
+        controller.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
   List<Map<String, dynamic>> get activeDeliveries {
     return _deliveries.where((delivery) =>
         ['assigned', 'picking_up', 'delivering'].contains(delivery['status'])
@@ -113,101 +154,164 @@ class _HomeDriverPageState extends State<HomeDriverPage> {
     }
   }
 
-  Widget _buildDeliveryCard(Map<String, dynamic> delivery) {
+  Widget _buildDeliveryCard(Map<String, dynamic> delivery, int index) {
     String status = delivery['status'] as String;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: GlobalStyle.lightColor.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        delivery['customerName'],
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        DateFormat('dd MMM yyyy HH:mm')
-                            .format(delivery['orderTime']),
-                        style: TextStyle(
-                          color: GlobalStyle.fontColor,
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Rp ${NumberFormat('#,###').format(delivery['totalPrice'])}',
-                        style: TextStyle(
-                          color: GlobalStyle.primaryColor,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(status),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _getStatusLabel(status),
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => HistoryDriverDetailPage(
-                      orderDetail: delivery,
-                    ),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GlobalStyle.primaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                minimumSize: const Size(double.infinity, 36),
-              ),
-              child: Text(
-                'Lihat Detail',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-              ),
+    return SlideTransition(
+      position: _cardAnimations[index],
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.person, color: GlobalStyle.primaryColor),
+                            const SizedBox(width: 8),
+                            Text(
+                              delivery['customerName'],
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(Icons.access_time, color: GlobalStyle.fontColor, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              DateFormat('dd MMM yyyy HH:mm').format(delivery['orderTime']),
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(Icons.payments, color: GlobalStyle.primaryColor, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Rp ${NumberFormat('#,###').format(delivery['totalPrice'])}',
+                              style: TextStyle(
+                                color: GlobalStyle.primaryColor,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(status),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _getStatusLabel(status),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: GlobalStyle.lightColor.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.location_on, color: GlobalStyle.primaryColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pickup: ${delivery['storeAddress']}',
+                            style: TextStyle(
+                              color: GlobalStyle.fontColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Delivery: ${delivery['customerAddress']}',
+                            style: TextStyle(
+                              color: GlobalStyle.fontColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => HistoryDriverDetailPage(
+                        orderDetail: delivery,
+                      ),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GlobalStyle.primaryColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  minimumSize: const Size(double.infinity, 40),
+                ),
+                child: Text(
+                  'Lihat Detail',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -218,10 +322,17 @@ class _HomeDriverPageState extends State<HomeDriverPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.local_shipping_outlined,
-            size: 80,
-            color: GlobalStyle.disableColor,
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: GlobalStyle.lightColor.withOpacity(0.3),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.local_shipping_outlined,
+              size: 80,
+              color: GlobalStyle.primaryColor,
+            ),
           ),
           const SizedBox(height: 16),
           Text(
@@ -229,6 +340,16 @@ class _HomeDriverPageState extends State<HomeDriverPage> {
             style: TextStyle(
               color: GlobalStyle.fontColor,
               fontSize: 16,
+              fontWeight: FontWeight.bold,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Anda akan melihat pengiriman aktif di sini',
+            style: TextStyle(
+              color: GlobalStyle.fontColor.withOpacity(0.7),
+              fontSize: 14,
               fontFamily: GlobalStyle.fontFamily,
             ),
           ),
@@ -242,7 +363,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> {
     final deliveries = activeDeliveries;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF5F5F5),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -250,36 +371,72 @@ class _HomeDriverPageState extends State<HomeDriverPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Delivery',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: GlobalStyle.fontFamily,
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.pushNamed(context, ProfileDriverPage.route);
-                    },
-                    child: FaIcon(
-                      FontAwesomeIcons.user,
-                      size: 24,
-                      color: GlobalStyle.fontColor,
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Delivery',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          DateFormat('EEEE, dd MMMM yyyy').format(DateTime.now()),
+                          style: TextStyle(
+                            color: GlobalStyle.fontColor,
+                            fontSize: 12,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pushNamed(context, ProfileDriverPage.route);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.lightColor.withOpacity(0.3),
+                          shape: BoxShape.circle,
+                        ),
+                        child: FaIcon(
+                          FontAwesomeIcons.user,
+                          size: 20,
+                          color: GlobalStyle.primaryColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
               // Delivery List
               Expanded(
                 child: deliveries.isEmpty
                     ? _buildEmptyState()
-                    : ListView(
-                  children: deliveries.map(_buildDeliveryCard).toList(),
+                    : ListView.builder(
+                  itemCount: deliveries.length,
+                  itemBuilder: (context, index) => _buildDeliveryCard(deliveries[index], index),
                 ),
               ),
             ],

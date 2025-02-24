@@ -3,8 +3,9 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:intl/intl.dart';
 import 'cart_screen.dart';
 import 'rating_cust.dart';
+import 'history_cust.dart';
 
-class HistoryDetailPage extends StatelessWidget {
+class HistoryDetailPage extends StatefulWidget {
   static const String route = "/Customers/HistoryDetailPage";
 
   final String storeName;
@@ -19,32 +20,97 @@ class HistoryDetailPage extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<HistoryDetailPage> createState() => _HistoryDetailPageState();
+}
+
+class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProviderStateMixin {
+  late List<AnimationController> _cardControllers;
+  late List<Animation<Offset>> _cardAnimations;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Initialize animation controllers for each card section
+    _cardControllers = List.generate(
+      4, // Number of card sections
+          (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 200)),
+      ),
+    );
+
+    // Create slide animations for each card
+    _cardAnimations = _cardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0, -0.5),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+
+    // Start animations sequentially
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (var controller in _cardControllers) {
+        controller.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Widget _buildCard({required Widget child, required int index}) {
+    return SlideTransition(
+      position: _cardAnimations[index],
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final parsedDate = DateTime.parse(date);
+    final parsedDate = DateTime.parse(widget.date);
     final formattedDate = DateFormat('dd MMM yyyy, hh.mm a').format(parsedDate);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
-        elevation: 0,
+        elevation: 0.5,
         backgroundColor: Colors.white,
         leading: IconButton(
           icon: Container(
-            padding: const EdgeInsets.all(4.0), // Add padding to create the circle
+            padding: const EdgeInsets.all(7.0),
             decoration: BoxDecoration(
-              color: Colors.transparent,  // Blue color for the circle
               shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.blue,  // Border color
-                width: 1.0,  // Border width
-              ),
+              border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
             ),
-            child: const Icon(
-              Icons.arrow_back_ios_new,
-              color: Colors.blue,
-              size: 18,
-            ),
+            child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
           ),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pushNamed(context, HistoryCustomer.route),
         ),
         title: Text(
           'Order Details',
@@ -63,66 +129,147 @@ class HistoryDetailPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Delivery Address Section
-              _buildSectionHeader('Alamat Pengiriman'),
-              Text(
-                'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
-                style: TextStyle(
-                  color: GlobalStyle.fontColor,
-                  fontFamily: GlobalStyle.fontFamily,
+              _buildCard(
+                index: 0,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.location_on, color: GlobalStyle.primaryColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Alamat Pengiriman',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: GlobalStyle.fontColor,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+                      style: TextStyle(
+                        color: GlobalStyle.fontColor,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
 
               // Driver Information Section
-              _buildSectionHeader('Informasi Driver'),
-              Text(
-                'Nama Driver\nPlat Nomor Kendaraan',
-                style: TextStyle(
-                  color: GlobalStyle.fontColor,
-                  fontFamily: GlobalStyle.fontFamily,
+              _buildCard(
+                index: 1,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.person, color: GlobalStyle.primaryColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Informasi Driver',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: GlobalStyle.fontColor,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Nama Driver\nPlat Nomor Kendaraan',
+                      style: TextStyle(
+                        color: GlobalStyle.fontColor,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
 
               // Store and Items Section
-              Text(
-                storeName,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: GlobalStyle.fontColor,
-                  fontFamily: GlobalStyle.fontFamily,
+              _buildCard(
+                index: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.store, color: GlobalStyle.primaryColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          widget.storeName,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: GlobalStyle.fontColor,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildOrderItem(
+                      'Nama Item 1',
+                      'https://storage.googleapis.com/a1aa/image/AHpMyzrtoOpMRqFBK3lhQ4JD3zLGRPF0QpMNs5_q-YQ.jpg',
+                      1,
+                      120000,
+                    ),
+                    _buildOrderItem(
+                      'Nama Item 2',
+                      'https://storage.googleapis.com/a1aa/image/uuP832OPNDUbpaSpsDcNn7EzZ9sSO6Q1fAI9sLloJZc.jpg',
+                      1,
+                      30000,
+                    ),
+                    _buildOrderItem(
+                      'Nama Item 3',
+                      'https://storage.googleapis.com/a1aa/image/3PLJlAYPI8CQvHjqfXqNtxLzx8XM-kpXNe756djbY0g.jpg',
+                      3,
+                      60000,
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 16),
-
-              // Order Items
-              _buildOrderItem(
-                'Nama Item 1',
-                'https://storage.googleapis.com/a1aa/image/AHpMyzrtoOpMRqFBK3lhQ4JD3zLGRPF0QpMNs5_q-YQ.jpg',
-                1,
-                120000,
-              ),
-              _buildOrderItem(
-                'Nama Item 2',
-                'https://storage.googleapis.com/a1aa/image/uuP832OPNDUbpaSpsDcNn7EzZ9sSO6Q1fAI9sLloJZc.jpg',
-                1,
-                30000,
-              ),
-              _buildOrderItem(
-                'Nama Item 3',
-                'https://storage.googleapis.com/a1aa/image/3PLJlAYPI8CQvHjqfXqNtxLzx8XM-kpXNe756djbY0g.jpg',
-                3,
-                60000,
               ),
 
               // Payment Details Section
-              const SizedBox(height: 16),
-              _buildSectionHeader('Rincian Pembayaran'),
-              _buildPaymentRow('Subtotal untuk Produk', 180000),
-              _buildPaymentRow('Biaya Layanan', 30000),
-              const Divider(thickness: 1),
-              _buildTotalPaymentRow(210000),
+              _buildCard(
+                index: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.payment, color: GlobalStyle.primaryColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Rincian Pembayaran',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: GlobalStyle.fontColor,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildPaymentRow('Subtotal untuk Produk', 180000),
+                    _buildPaymentRow('Biaya Layanan', 30000),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Divider(thickness: 1),
+                    ),
+                    _buildTotalPaymentRow(210000),
+                  ],
+                ),
+              ),
 
               // Action Buttons
               const SizedBox(height: 16),
@@ -142,6 +289,10 @@ class HistoryDetailPage extends StatelessWidget {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
                         foregroundColor: GlobalStyle.fontColor,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
                         side: BorderSide(color: GlobalStyle.borderColor),
                       ),
                       child: const Text('Beli Lagi'),
@@ -155,7 +306,7 @@ class HistoryDetailPage extends StatelessWidget {
                           context,
                           MaterialPageRoute(
                             builder: (context) => RatingCustomerPage(
-                              storeName: storeName,
+                              storeName: widget.storeName,
                               driverName: 'Nama Driver',
                               vehicleNumber: 'Plat Nomor Kendaraan',
                               orderItems: [
@@ -171,6 +322,10 @@ class HistoryDetailPage extends StatelessWidget {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: GlobalStyle.primaryColor,
                         foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
                       ),
                       child: const Text('Beri Rating'),
                     ),
@@ -184,36 +339,29 @@ class HistoryDetailPage extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: GlobalStyle.fontColor,
-          fontFamily: GlobalStyle.fontFamily,
-        ),
-      ),
-    );
-  }
-
   Widget _buildOrderItem(String name, String imageUrl, int quantity, int price) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        border: Border.all(color: GlobalStyle.borderColor),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(
             children: [
-              Image.network(
-                imageUrl,
-                width: 48,
-                height: 48,
-                fit: BoxFit.cover,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  imageUrl,
+                  width: 60,
+                  height: 60,
+                  fit: BoxFit.cover,
+                ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -225,11 +373,19 @@ class HistoryDetailPage extends StatelessWidget {
                       fontFamily: GlobalStyle.fontFamily,
                     ),
                   ),
-                  Text(
-                    'x$quantity',
-                    style: TextStyle(
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: GlobalStyle.lightColor,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'x$quantity',
+                      style: TextStyle(
+                        color: GlobalStyle.primaryColor,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
                     ),
                   ),
                 ],
@@ -239,7 +395,7 @@ class HistoryDetailPage extends StatelessWidget {
           Text(
             NumberFormat.currency(
               locale: 'id',
-              symbol: 'Rp. ',
+              symbol: 'Rp ',
               decimalDigits: 0,
             ).format(price),
             style: TextStyle(
@@ -269,11 +425,10 @@ class HistoryDetailPage extends StatelessWidget {
           Text(
             NumberFormat.currency(
               locale: 'id',
-              symbol: 'Rp. ',
+              symbol: 'Rp ',
               decimalDigits: 0,
             ).format(amount),
             style: TextStyle(
-              fontWeight: FontWeight.bold,
               color: GlobalStyle.fontColor,
               fontFamily: GlobalStyle.fontFamily,
             ),
@@ -284,35 +439,32 @@ class HistoryDetailPage extends StatelessWidget {
   }
 
   Widget _buildTotalPaymentRow(int amount) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            'Total Pembayaran',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: GlobalStyle.fontColor,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          'Total Pembayaran',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: GlobalStyle.fontColor,
+            fontFamily: GlobalStyle.fontFamily,
           ),
-          Text(
-            NumberFormat.currency(
-              locale: 'id',
-              symbol: 'Rp. ',
-              decimalDigits: 0,
-            ).format(amount),
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: GlobalStyle.fontColor,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
+        ),
+        Text(
+          NumberFormat.currency(
+            locale: 'id',
+            symbol: 'Rp ',
+            decimalDigits: 0,
+          ).format(amount),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: GlobalStyle.primaryColor,
+            fontFamily: GlobalStyle.fontFamily,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../Component/cust_bottom_navigation.dart';
 import 'cart_screen.dart';
 import 'history_detail.dart';
+import 'home_cust.dart';
 
 class HistoryCustomer extends StatefulWidget {
   static const String route = "/Customers/HistoryCustomer";
@@ -13,9 +14,13 @@ class HistoryCustomer extends StatefulWidget {
   State<HistoryCustomer> createState() => _HistoryCustomerState();
 }
 
-class _HistoryCustomerState extends State<HistoryCustomer> {
+class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderStateMixin {
   int? tappedIndex;
-  int _selectedIndex = 2; // Set to 2 for History tab
+  int _selectedIndex = 1;
+
+  // Animation controllers for cards
+  late List<AnimationController> _cardControllers;
+  late List<Animation<Offset>> _cardAnimations;
 
   // Sample order data with different statuses
   final List<Map<String, dynamic>> orders = [
@@ -42,6 +47,47 @@ class _HistoryCustomerState extends State<HistoryCustomer> {
     },
   ];
 
+  @override
+  void initState() {
+    super.initState();
+
+    // Initialize animation controllers for the maximum possible number of cards
+    final totalCards = orders.length;
+    _cardControllers = List.generate(
+      totalCards,
+          (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 100)),
+      ),
+    );
+
+    // Create slide animations for each card
+    _cardAnimations = _cardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0.5, 0),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+
+    // Start animations sequentially
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (var controller in _cardControllers) {
+        controller.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
   Map<String, List<Map<String, dynamic>>> groupedOrders() {
     return {
       'Selesai': orders.where((order) => order['status'] == 'Selesai').toList(),
@@ -66,6 +112,9 @@ class _HistoryCustomerState extends State<HistoryCustomer> {
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
+      if (index == 0) {
+        Navigator.pushReplacementNamed(context, HomePage.route);
+      }
     });
   }
 
@@ -74,140 +123,146 @@ class _HistoryCustomerState extends State<HistoryCustomer> {
     final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(parsedDate);
     final statusColor = getStatusColor(order['status']);
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => HistoryDetailPage(
-              storeName: order['storeName'],
-              date: order['date'],
-              amount: order['amount'],
+    return SlideTransition(
+      position: _cardAnimations[index],
+      child: GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => HistoryDetailPage(
+                storeName: order['storeName'],
+                date: order['date'],
+                amount: order['amount'],
+              ),
             ),
+          );
+        },
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.1),
+                spreadRadius: 1,
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-        );
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    image: const DecorationImage(
-                      image: AssetImage('assets/images/menu_item.jpg'),
-                      fit: BoxFit.cover,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      image: const DecorationImage(
+                        image: AssetImage('assets/images/menu_item.jpg'),
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        order['storeName'],
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text(
-                            formattedDate,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '•',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            order['status'],
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: statusColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        order['items'],
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        NumberFormat.currency(
-                          locale: 'id',
-                          symbol: 'Rp ',
-                          decimalDigits: 0,
-                        ).format(order['amount']),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (order['status'] == 'Selesai') ...[
-              const SizedBox(height: 16),
-              Row(
-                children: [
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pushAndRemoveUntil(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const CartScreen(cartItems: []),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          order['storeName'],
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
-                              (Route<dynamic> route) => false,
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black87,
-                        side: const BorderSide(color: Colors.grey),
-                      ),
-                      child: const Text('Beli Lagi'),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Text(
+                              formattedDate,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '•',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              order['status'],
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: statusColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          order['items'],
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          NumberFormat.currency(
+                            locale: 'id',
+                            symbol: 'Rp ',
+                            decimalDigits: 0,
+                          ).format(order['amount']),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
+              if (order['status'] == 'Selesai') ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => HistoryDetailPage(
+                                storeName: order['storeName'],
+                                date: order['date'],
+                                amount: order['amount'],
+                              ),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black87,
+                          side: const BorderSide(color: Colors.grey),
+                        ),
+                        child: const Text('Lihat'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -221,25 +276,6 @@ class _HistoryCustomerState extends State<HistoryCustomer> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Container(
-            padding: const EdgeInsets.all(4.0),
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.blue,
-                width: 1.0,
-              ),
-            ),
-            child: const Icon(
-              Icons.arrow_back_ios_new,
-              color: Colors.blue,
-              size: 18,
-            ),
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
         title: const Text(
           'Riwayat Pesanan',
           style: TextStyle(

@@ -1,6 +1,6 @@
-import 'package:del_pick/Views/Controls/login_page.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Store/historystore_detail.dart';
@@ -15,8 +15,10 @@ class HomeStore extends StatefulWidget {
   State<HomeStore> createState() => _HomeStoreState();
 }
 
-class _HomeStoreState extends State<HomeStore> {
+class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   int _currentIndex = 0;
+  late List<AnimationController> _cardControllers;
+  late List<Animation<Offset>> _cardAnimations;
 
   // Dummy data with status field
   final List<Map<String, dynamic>> _orders = [
@@ -79,6 +81,46 @@ class _HomeStoreState extends State<HomeStore> {
     }
   ];
 
+  @override
+  void initState() {
+    super.initState();
+
+    // Initialize animation controllers for each order card
+    _cardControllers = List.generate(
+      _orders.length,
+          (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 200)),
+      ),
+    );
+
+    // Create slide animations for each card
+    _cardAnimations = _cardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0, 0.5),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+
+    // Start animations sequentially
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (var controller in _cardControllers) {
+        controller.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
   List<Map<String, dynamic>> get filteredOrders {
     return _orders.where((order) =>
         ['processed', 'detained', 'picked_up'].contains(order['status'])
@@ -111,91 +153,165 @@ class _HomeStoreState extends State<HomeStore> {
     }
   }
 
-  Widget _buildOrderCard(Map<String, dynamic> order) {
+  Widget _buildOrderCard(Map<String, dynamic> order, int index) {
     String status = order['status'] as String;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        order['customerName'],
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        DateFormat('dd MMM yyyy HH:mm')
-                            .format(order['orderTime']),
-                        style: TextStyle(color: GlobalStyle.fontColor),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Rp ${NumberFormat('#,###').format(order['totalPrice'])}',
-                        style: TextStyle(
-                          color: GlobalStyle.primaryColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(status),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _getStatusLabel(status),
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => HistoryStoreDetailPage(
-                      orderDetail: order,
-                    ),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GlobalStyle.primaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                minimumSize: const Size(double.infinity, 36),
-              ),
-              child: const Text(
-                'Lihat Detail',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                ),
-              ),
+    return SlideTransition(
+      position: _cardAnimations[index],
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.person, color: GlobalStyle.primaryColor),
+                            const SizedBox(width: 8),
+                            Text(
+                              order['customerName'],
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(Icons.access_time, color: GlobalStyle.fontColor, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              DateFormat('dd MMM yyyy HH:mm').format(order['orderTime']),
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(Icons.payments, color: GlobalStyle.primaryColor, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Rp ${NumberFormat('#,###').format(order['totalPrice'])}',
+                              style: TextStyle(
+                                color: GlobalStyle.primaryColor,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(status),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _getStatusLabel(status),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: GlobalStyle.lightColor.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.shopping_basket, color: GlobalStyle.primaryColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Total Items: ${order['items'].length}',
+                            style: TextStyle(
+                              color: GlobalStyle.fontColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Phone: ${order['phoneNumber']}',
+                            style: TextStyle(
+                              color: GlobalStyle.fontColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => HistoryStoreDetailPage(
+                        orderDetail: order,
+                      ),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GlobalStyle.primaryColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  minimumSize: const Size(double.infinity, 40),
+                ),
+                child: Text(
+                  'Lihat Detail',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -206,10 +322,17 @@ class _HomeStoreState extends State<HomeStore> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.inbox_rounded,
-            size: 80,
-            color: GlobalStyle.disableColor,
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: GlobalStyle.lightColor.withOpacity(0.3),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.inbox_rounded,
+              size: 80,
+              color: GlobalStyle.primaryColor,
+            ),
           ),
           const SizedBox(height: 16),
           Text(
@@ -217,6 +340,17 @@ class _HomeStoreState extends State<HomeStore> {
             style: TextStyle(
               color: GlobalStyle.fontColor,
               fontSize: 16,
+              fontWeight: FontWeight.bold,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Pesanan baru akan muncul di sini',
+            style: TextStyle(
+              color: GlobalStyle.fontColor.withOpacity(0.7),
+              fontSize: 14,
+              fontFamily: GlobalStyle.fontFamily,
             ),
           ),
         ],
@@ -229,70 +363,84 @@ class _HomeStoreState extends State<HomeStore> {
     final orders = filteredOrders;
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text(
-          'Delivery',
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        leading: IconButton(
-          icon: Container(
-            padding: const EdgeInsets.all(4.0),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.blue, width: 1.0),
-            ),
-            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
-          ),
-          onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const Login(),
+      backgroundColor: const Color(0xFFF5F5F5),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-              );
-            },
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(
-              Icons.person,
-              color: GlobalStyle.fontColor,
-            ),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ProfileStorePage(),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Store Orders',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          DateFormat('EEEE, dd MMMM yyyy').format(DateTime.now()),
+                          style: TextStyle(
+                            color: GlobalStyle.fontColor,
+                            fontSize: 12,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pushNamed(context, ProfileStorePage.route);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.lightColor.withOpacity(0.3),
+                          shape: BoxShape.circle,
+                        ),
+                        child: FaIcon(
+                          FontAwesomeIcons.user,
+                          size: 20,
+                          color: GlobalStyle.primaryColor,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Daftar Pesanan',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
               ),
-            ),
-            const SizedBox(height: 12),
-            if (orders.isEmpty)
-              _buildEmptyState()
-            else
-              ...orders.map(_buildOrderCard),
-          ],
+              const SizedBox(height: 16),
+              // Orders List
+              Expanded(
+                child: orders.isEmpty
+                    ? _buildEmptyState()
+                    : ListView.builder(
+                  itemCount: orders.length,
+                  itemBuilder: (context, index) => _buildOrderCard(orders[index], index),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: BottomNavigationComponent(
