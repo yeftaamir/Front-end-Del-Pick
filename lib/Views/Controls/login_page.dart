@@ -112,7 +112,7 @@ class LoginState extends State<Login> {
               ),
               const SizedBox(height: 10),
               const Text(
-                "Log in to your account",
+                "Masuk menggunakan akun Anda",
                 style: TextStyle(
                   color: Colors.blue,
                   fontSize: 16,
@@ -157,7 +157,7 @@ class LoginState extends State<Login> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Password:',
+                      'Kata Sandi:',
                       style: TextStyle(
                         fontSize: 16,
                         color: GlobalStyle.fontColor,
@@ -208,7 +208,7 @@ class LoginState extends State<Login> {
                 child: TextButton(
                   onPressed: _showRoleSelectionDialog,
                   child: const Text(
-                    'Log in',
+                    'Masuk',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,

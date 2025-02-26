@@ -113,7 +113,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           onPressed: () => Navigator.pushNamed(context, HistoryCustomer.route),
         ),
         title: Text(
-          'Order Details',
+          'Detail Pesanan',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
@@ -465,6 +465,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           ),
         ),
       ],
-    );
+      );
   }
 }

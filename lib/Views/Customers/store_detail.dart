@@ -523,10 +523,10 @@ class _StoreDetailState extends State<StoreDetail> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Our Menu",
+            "Menu",
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -690,7 +690,7 @@ class _StoreDetailState extends State<StoreDetail> {
                     Icon(Icons.shopping_cart, color: Colors.white),
                     SizedBox(width: 8),
                     Text(
-                      'View Cart',
+                      'Tampilkan Pesanan',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -801,7 +801,7 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Description',
+                        'Deskripsi',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -866,7 +866,7 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                                 ),
                               ),
                               child: const Text(
-                                'Add to Cart',
+                                'Tambah ke keranjang',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,

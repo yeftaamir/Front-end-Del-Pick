@@ -143,11 +143,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   String _getStatusLabel(String status) {
     switch (status) {
       case 'processed':
-        return 'Processed';
+        return 'Diprosess';
       case 'detained':
-        return 'Detained';
+        return 'Ditahan';
       case 'picked_up':
-        return 'Picked Up';
+        return 'Diambil';
       default:
         return 'Unknown';
     }
@@ -261,7 +261,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Total Items: ${order['items'].length}',
+                            'Jumlah Item: ${order['items'].length}',
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 12,
@@ -270,7 +270,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Phone: ${order['phoneNumber']}',
+                            'No. HP: ${order['phoneNumber']}',
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 12,
@@ -391,7 +391,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Store Orders',
+                          'Pesanan Toko',
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,

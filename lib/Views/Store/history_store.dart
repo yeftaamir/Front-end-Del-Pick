@@ -124,7 +124,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-            'History',
+            'Riwayat',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Colors.black,

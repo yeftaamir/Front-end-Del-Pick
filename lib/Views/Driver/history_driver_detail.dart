@@ -25,22 +25,22 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
     },
     {
       'value': 'picking_up',
-      'label': 'Picking Up',
+      'label': 'Menjemput',
       'color': Colors.orange,
     },
     {
       'value': 'delivering',
-      'label': 'Delivering',
+      'label': 'Mengantar',
       'color': Colors.purple,
     },
     {
       'value': 'completed',
-      'label': 'Completed',
+      'label': 'Selesai',
       'color': Colors.green,
     },
     {
       'value': 'cancelled',
-      'label': 'Cancelled',
+      'label': 'Dibatalkan',
       'color': Colors.red,
     },
   ];
@@ -71,7 +71,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
                 ),
                 const SizedBox(height: 20),
                 const Text(
-                  'Delivery Completed!',
+                  'Pengantaran Selesai!',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -85,7 +85,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
                           (Route<dynamic> route) => false,
                     );
                   },
-                  child: const Text('Back to Home'),
+                  child: const Text('Kembali ke laman Utama'),
                 ),
               ],
             ),
@@ -249,7 +249,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
               child: const Text(
-                'START DELIVERY',
+                'Mulai Pengiriman',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -271,7 +271,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
               child: const Text(
-                'VIEW TRACKING',
+                'Lihat Pelacakan',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -314,7 +314,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
                 onPressed: () => Navigator.pop(context),
               ),
               const Text(
-                'Delivery Details',
+                'Detail Pengantaran',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -324,7 +324,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
             ),
             const SizedBox(height: 20),
             const Text(
-              'Delivery Status',
+              'Status Pengiriman',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -364,7 +364,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text(
-                                  'Pickup Location',
+                                  'Lokasi Penjemputan',
                                   style: TextStyle(fontWeight: FontWeight.bold),
                                 ),
                                 IconButton(
@@ -485,7 +485,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
     Text(
-    'Delivery Fee',
+    'Biaya Pengiriman',
     style: TextStyle(
     color: GlobalStyle.fontColor,
     fontSize: 14,
@@ -502,7 +502,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> {
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
     const Text(
-    'Total Amount',
+    'Total Biaya',
     style: TextStyle(fontWeight: FontWeight.bold),
     ),
     Text(

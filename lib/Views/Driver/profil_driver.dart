@@ -47,7 +47,7 @@ class ProfileDriverPage extends StatelessWidget {
                 );
               },
               child: Text(
-                'Logout',
+                'Keluar',
                 style: TextStyle(
                   fontFamily: GlobalStyle.fontFamily,
                   color: Colors.red,
@@ -192,7 +192,7 @@ class ProfileDriverPage extends StatelessWidget {
                       const Icon(Icons.logout, size: 20),
                       const SizedBox(width: 8),
                       Text(
-                        'Logout',
+                        'Keluar',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
