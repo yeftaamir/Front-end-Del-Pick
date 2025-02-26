@@ -184,7 +184,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         backgroundColor: Colors.white,
         elevation: 0.5,
         title: const Text(
-          'Cart',
+          'Keranjang Pesanan',
           style: TextStyle(
             color: Colors.black,
             fontWeight: FontWeight.w600,
@@ -236,7 +236,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                         onPressed: _handleLocationAccess,
                         icon: const Icon(Icons.location_on, color: Colors.white, size: 18),
                         label: const Text(
-                          'Allow Location Access',
+                          'Izinkan akses lokasi',
                           style: TextStyle(color: Colors.white, fontSize: 12),
                         ),
                         style: ElevatedButton.styleFrom(

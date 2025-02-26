@@ -106,7 +106,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text(
-          'Items',
+          'Tambah Item',
           style: TextStyle(
             color: Colors.black,
             fontWeight: FontWeight.bold,
@@ -141,7 +141,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
             child: ElevatedButton.icon(
               onPressed: () => _navigateToAddEditForm(),
               icon: const Icon(Icons.add),
-              label: const Text('Add Item'),
+              label: const Text('Tambah Item'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
                 foregroundColor: Colors.white,
@@ -273,7 +273,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                           ),
                                           const SizedBox(width: 4),
                                           Text(
-                                            item.isAvailable ? 'Available' : 'Closed',
+                                            item.isAvailable ? 'Tersedia' : 'Kosong',
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: item.isAvailable

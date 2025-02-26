@@ -135,7 +135,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text(
-            'History',
+            'Riwayat',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Colors.black,
@@ -260,7 +260,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Delivery Fee',
+                          'Biaya Pengiriman',
                           style: TextStyle(
                             fontSize: 12,
                             color: GlobalStyle.fontColor,

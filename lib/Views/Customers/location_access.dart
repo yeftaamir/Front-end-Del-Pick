@@ -103,7 +103,7 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'What is Your Location?',
+                  'Dimana lokasi Anda?',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -113,7 +113,7 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'We need to know your location in order to suggest nearby services',
+                  'Kami perlu mengetahui lokasi Anda untuk menyarankan layanan terdekat',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: GlobalStyle.disableColor,
@@ -141,7 +141,7 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> {
                       ),
                     )
                         : Text(
-                      'Allow Location Access',
+                      'Izinkan Akses Lokasi',
                       style: TextStyle(
                         color: Colors.white,
                         fontFamily: GlobalStyle.fontFamily,
@@ -154,7 +154,7 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> {
                   GestureDetector(
                     onTap: _enterLocationManually,
                     child: Text(
-                      'Enter Location Manually',
+                      'Masukkan Lokasi Secara Manual',
                       style: TextStyle(
                         color: GlobalStyle.primaryColor,
                         fontFamily: GlobalStyle.fontFamily,

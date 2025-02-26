@@ -144,11 +144,11 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
   String _getStatusLabel(String status) {
     switch (status) {
       case 'assigned':
-        return 'Assigned';
+        return 'Pesanan Masuk';
       case 'picking_up':
-        return 'Picking Up';
+        return 'Dijemput';
       case 'delivering':
-        return 'Delivering';
+        return 'Diantar';
       default:
         return 'Unknown';
     }
@@ -262,7 +262,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Pickup: ${delivery['storeAddress']}',
+                            'Jemput: ${delivery['storeAddress']}',
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 12,
@@ -270,7 +270,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Delivery: ${delivery['customerAddress']}',
+                            'Antar: ${delivery['customerAddress']}',
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 12,
@@ -391,7 +391,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Delivery',
+                          'Pengantaran',
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
