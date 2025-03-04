@@ -1,8 +1,14 @@
-import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/Models/tracking.dart';
+import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Models/customer.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
-import 'historystore_detail.dart';
+import 'package:del_pick/Views/Store/home_store.dart';
+import 'package:del_pick/Views/Store/historystore_detail.dart';
 
 class HistoryStorePage extends StatefulWidget {
   static const String route = '/Store/HistoryStore';
@@ -10,88 +16,382 @@ class HistoryStorePage extends StatefulWidget {
   const HistoryStorePage({Key? key}) : super(key: key);
 
   @override
-  _HistoryStorePageState createState() => _HistoryStorePageState();
+  State<HistoryStorePage> createState() => _HistoryStorePageState();
 }
 
-class _HistoryStorePageState extends State<HistoryStorePage> {
-  final List<Map<String, dynamic>> historyItems = [
-    {
-      'customerName': 'Nama Pelanggan',
-      'date': '24 Des 2024, 09.05 AM',
-      'amount': 120000,
-      'icon': 'https://storage.googleapis.com/a1aa/image/8GC3tfIZERZXkmfEAZRR1JKQRw_0G7KXJDBbvR_awxk.jpg',
-      'items': [
-        {
-          'name': 'Nama Item',
-          'quantity': 1,
-          'price': 120000,
-          'image': 'https://storage.googleapis.com/a1aa/image/OQKvf9mggQG7uy7G60NIX8Q2rTlFJGSj6NluabntevY.jpg'
-        }
+class _HistoryStorePageState extends State<HistoryStorePage> with TickerProviderStateMixin {
+  int? tappedIndex;
+  int _currentIndex = 2; // History tab selected
+
+  // Animation controllers for cards
+  late List<AnimationController> _cardControllers;
+  late List<Animation<Offset>> _cardAnimations;
+
+  // Sample orders for a store
+  final List<Order> orders = [
+    Order(
+      id: 'ORD-001',
+      items: [
+        Item(
+          id: 'ITM-001',
+          name: 'Nasi Ayam Bakar Komplit + EsTeh / Teh Hangat',
+          price: 27700,
+          quantity: 1,
+          imageUrl: 'assets/images/menu_item.jpg',
+          isAvailable: true,
+          status: 'available',
+          description: 'Nasi dengan ayam bakar dan lalapan',
+        ),
       ],
-      'status': 'rejected',
-      'deliveryFee': 12000,
-      'customerAddress': 'Institut Teknologi Del, Sitoluama, Kec. Balige, Toba, Sumatera Utara 22381',
-      'storeAddress': 'Jalan Bunga Mawar, No. 10, RT 04/32',
-      'phoneNumber': '+6281234567890'
-    },
-    {
-      'customerName': 'Nama Pelanggan',
-      'date': '26 Nov 2024, 08.05 AM',
-      'amount': 30000,
-      'icon': 'https://storage.googleapis.com/a1aa/image/8GC3tfIZERZXkmfEAZRR1JKQRw_0G7KXJDBbvR_awxk.jpg',
-      'items': [
-        {
-          'name': 'Nama Item',
-          'quantity': 1,
-          'price': 30000,
-          'image': 'https://storage.googleapis.com/a1aa/image/OQKvf9mggQG7uy7G60NIX8Q2rTlFJGSj6NluabntevY.jpg'
-        }
+      store: StoreModel(
+        name: 'RM Padang Sabana 01',
+        address: 'Jl. Padang Sabana No. A1',
+        openHours: '07:00 - 21:00',
+        phoneNumber: '6281234567892',
+      ),
+      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
+      subtotal: 27700,
+      serviceCharge: 12000,
+      total: 39700,
+      status: OrderStatus.completed,
+      orderDate: DateTime.parse('2024-12-24 09:05:00'),
+      tracking: Tracking.sample(),
+    ),
+    Order(
+      id: 'ORD-002',
+      items: [
+        Item(
+          id: 'ITM-002',
+          name: 'Sepasang 3',
+          price: 41100,
+          quantity: 1,
+          imageUrl: 'assets/images/menu_item.jpg',
+          isAvailable: true,
+          status: 'available',
+          description: 'Menu sepasang 3 porsi',
+        ),
       ],
-      'status': 'completed',
-      'deliveryFee': 12000,
-      'customerAddress': 'Institut Teknologi Del, Sitoluama, Kec. Balige, Toba, Sumatera Utara 22381',
-      'storeAddress': 'Jalan Bunga Mawar, No. 10, RT 04/32',
-      'phoneNumber': '+6281234567890'
-    }
+      store: StoreModel(
+        name: 'Keju Kesu, Letda Sujono',
+        address: 'Jl. Letda Sujono',
+        openHours: '08:00 - 22:00',
+        phoneNumber: '6281234567893',
+      ),
+      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
+      subtotal: 41100,
+      serviceCharge: 12000,
+      total: 53100,
+      status: OrderStatus.completed,
+      orderDate: DateTime.parse('2024-11-26 08:05:00'),
+      tracking: Tracking.sample(),
+    ),
+    Order(
+      id: 'ORD-003',
+      items: [
+        Item(
+          id: 'ITM-003',
+          name: 'Nasi Telor Dadar',
+          price: 21600,
+          quantity: 1,
+          imageUrl: 'assets/images/menu_item.jpg',
+          isAvailable: true,
+          status: 'available',
+          description: 'Nasi dengan telur dadar',
+        ),
+        Item(
+          id: 'ITM-004',
+          name: 'Nasi Ayam Goreng',
+          price: 21600,
+          quantity: 1,
+          imageUrl: 'assets/images/menu_item.jpg',
+          isAvailable: true,
+          status: 'available',
+          description: 'Nasi dengan ayam goreng',
+        ),
+      ],
+      store: StoreModel(
+        name: 'RM Padang Sabana 01',
+        address: 'Jl. Padang Sabana No. A1',
+        openHours: '07:00 - 21:00',
+        phoneNumber: '6281234567894',
+      ),
+      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
+      subtotal: 43200,
+      serviceCharge: 12000,
+      total: 55200,
+      status: OrderStatus.cancelled,
+      orderDate: DateTime.parse('2024-09-16 09:05:00'),
+      tracking: Tracking.sample(),
+    ),
   ];
 
-  int _currentIndex = 2;
+  @override
+  void initState() {
+    super.initState();
 
-  // Filter items to show only rejected and completed orders
-  List<Map<String, dynamic>> get filteredHistoryItems {
-    return historyItems.where((item) =>
-        ['rejected', 'completed'].contains(item['status'])
-    ).toList();
+    // Initialize animation controllers for the maximum possible number of cards
+    final totalCards = orders.length;
+    _cardControllers = List.generate(
+      totalCards,
+          (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 100)),
+      ),
+    );
+
+    // Create slide animations for each card
+    _cardAnimations = _cardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0.5, 0),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+
+    // Start animations sequentially
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (var controller in _cardControllers) {
+        controller.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Map<String, List<Order>> groupedOrders() {
+    return {
+      'Selesai': orders.where((order) => order.status == OrderStatus.completed).toList(),
+      'Dibatalkan': orders.where((order) => order.status == OrderStatus.cancelled).toList(),
+    };
+  }
+
+  Color getStatusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.completed:
+        return Colors.green;
+      case OrderStatus.cancelled:
+        return Colors.red;
+      default:
+        return Colors.blue;
+    }
+  }
+
+  String getStatusText(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.completed:
+        return 'Selesai';
+      case OrderStatus.cancelled:
+        return 'Dibatalkan';
+      default:
+        return 'Diproses';
+    }
   }
 
   void _onItemTapped(int index) {
     setState(() {
       _currentIndex = index;
+      if (index == 0) {
+        Navigator.pushReplacementNamed(context, HomeStore.route);
+      }
     });
   }
 
-  void _onHistoryItemTapped(Map<String, dynamic> item) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => HistoryStoreDetailPage(orderDetail: item),
-      ),
-    );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'rejected':
-        return Colors.red;
-      case 'completed':
-        return Colors.green;
-      default:
-        return GlobalStyle.fontColor;
+  String getOrderItemsText(Order order) {
+    if (order.items.length == 1) {
+      return order.items[0].name;
+    } else {
+      final firstItem = order.items[0].name;
+      final otherItemsCount = order.items.length - 1;
+      return '$firstItem, +$otherItemsCount item lainnya';
     }
   }
 
-  String _capitalizeStatus(String status) {
-    return status[0].toUpperCase() + status.substring(1);
+  Widget _buildOrderCard(Order order, int index) {
+    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
+    final statusColor = getStatusColor(order.status);
+    final statusText = getStatusText(order.status);
+    final customer = 'Pelanggan'; // Normally would come from a Customer model
+
+    return SlideTransition(
+      position: _cardAnimations[index],
+      child: GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => HistoryStoreDetailPage(orderDetail: {
+                'customerName': customer,
+                'date': formattedDate,
+                'amount': order.total,
+                'icon': 'assets/images/user_avatar.jpg', // Default avatar
+                'items': order.items.map((item) => {
+                  'name': item.name,
+                  'quantity': item.quantity,
+                  'price': item.price,
+                  'image': item.imageUrl
+                }).toList(),
+                'status': order.status == OrderStatus.completed ? 'completed' : 'rejected',
+                'deliveryFee': order.serviceCharge,
+                'customerAddress': order.deliveryAddress,
+                'storeAddress': order.store.address,
+                'phoneNumber': '6281234567890', // Customer phone number
+              }),
+            ),
+          );
+        },
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.1),
+                spreadRadius: 1,
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 25,
+                    backgroundColor: GlobalStyle.lightColor,
+                    child: Icon(
+                      Icons.person,
+                      color: GlobalStyle.primaryColor,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          customer,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Text(
+                              formattedDate,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '•',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: statusColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                statusText,
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          getOrderItemsText(order),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Total Pesanan',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  NumberFormat.currency(
+                                    locale: 'id',
+                                    symbol: 'Rp ',
+                                    decimalDigits: 0,
+                                  ).format(order.total),
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500,
+                                    color: GlobalStyle.primaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'Lihat Detail',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildEmptyState() {
@@ -110,6 +410,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> {
             style: TextStyle(
               color: GlobalStyle.fontColor,
               fontSize: 16,
+              fontFamily: GlobalStyle.fontFamily,
             ),
           ),
         ],
@@ -119,127 +420,82 @@ class _HistoryStorePageState extends State<HistoryStorePage> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredItems = filteredHistoryItems;
+    final groupedOrdersList = groupedOrders();
+    final hasOrders = groupedOrdersList.values.any((list) => list.isNotEmpty);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-            'Riwayat',
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          HomeStore.route,
+              (route) => false,
+        );
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.white,
+          title: const Text(
+            'Riwayat Pesanan',
             style: TextStyle(
+              fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.black,
-            )
-        ),
-        leading: IconButton(
-          icon: Container(
-            padding: const EdgeInsets.all(4.0),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.blue, width: 1.0),
+              color: Colors.black87,
             ),
-            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
           ),
-          onPressed: () {
-              Navigator.push(
+          leading: IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(4.0),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.blue, width: 1.0),
+              ),
+              child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+            ),
+            onPressed: () {
+              Navigator.pushNamedAndRemoveUntil(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const HomeStore(),
-                ),
+                HomeStore.route,
+                    (route) => false,
               );
             },
+          ),
         ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: filteredItems.isEmpty
-          ? _buildEmptyState()
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: filteredItems.length,
-        itemBuilder: (context, index) {
-          final item = filteredItems[index];
-          return GestureDetector(
-            onTap: () => _onHistoryItemTapped(item),
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 6,
-                    offset: const Offset(0, 3),
+        body: !hasOrders
+            ? _buildEmptyState()
+            : ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: groupedOrdersList.length,
+          itemBuilder: (context, sectionIndex) {
+            final status = groupedOrdersList.keys.elementAt(sectionIndex);
+            final statusOrders = groupedOrdersList[status] ?? [];
+
+            if (statusOrders.isEmpty) return const SizedBox.shrink();
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (sectionIndex > 0) const SizedBox(height: 16),
+                Text(
+                  status,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 25,
-                    backgroundColor: GlobalStyle.lightColor,
-                    backgroundImage: NetworkImage(item['icon']),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item['customerName'],
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          item['date'],
-                          style: TextStyle(
-                            color: GlobalStyle.fontColor,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _getStatusColor(item['status']).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            _capitalizeStatus(item['status']),
-                            style: TextStyle(
-                              color: _getStatusColor(item['status']),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(
-                    'Rp. ${item['amount']}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-      bottomNavigationBar: BottomNavigationComponent(
-        currentIndex: _currentIndex,
-        onTap: _onItemTapped,
+                ),
+                const SizedBox(height: 8),
+                ...statusOrders.asMap().entries.map(
+                      (entry) => _buildOrderCard(entry.value, entry.key),
+                ),
+              ],
+            );
+          },
+        ),
+        bottomNavigationBar: BottomNavigationComponent(
+          currentIndex: _currentIndex,
+          onTap: _onItemTapped,
+        ),
       ),
     );
   }
