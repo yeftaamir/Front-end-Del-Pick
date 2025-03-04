@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:intl/intl.dart';
-import 'package:del_pick/Models/item_model.dart'; // Import Item model
-import 'package:del_pick/Models/store.dart'; // Import StoreModel
-import 'package:del_pick/Models/tracking.dart'; // Import Tracking
-import 'package:del_pick/Models/order.dart'; // Import Order model
+import 'package:del_pick/Models/order.dart';
 import 'cart_screen.dart';
 import 'rating_cust.dart';
 import 'history_cust.dart';
@@ -12,7 +9,7 @@ import 'history_cust.dart';
 class HistoryDetailPage extends StatefulWidget {
   static const String route = "/Customers/HistoryDetailPage";
 
-  final Order order; // Replace with Order model
+  final Order order;
 
   const HistoryDetailPage({
     Key? key,
@@ -93,7 +90,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
-    final formattedDate = DateFormat('dd MMM yyyy, hh.mm a').format(widget.order.orderDate);
+    final String formattedOrderDate = DateFormat('dd MMM yyyy, hh.mm a').format(widget.order.orderDate);
     final driverName = widget.order.tracking?.driverName ?? 'Driver belum ditugaskan';
     final vehicleNumber = widget.order.tracking?.vehicleNumber ?? '-';
 
@@ -129,9 +126,42 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Delivery Address Section
+              // Order Date Section
               _buildCard(
                 index: 0,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_today, color: GlobalStyle.primaryColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Tanggal Pesanan',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: GlobalStyle.fontColor,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      formattedOrderDate,
+                      style: TextStyle(
+                        color: GlobalStyle.fontColor,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Delivery Address Section
+              _buildCard(
+                index: 1,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -164,7 +194,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
               // Driver Information Section
               _buildCard(
-                index: 1,
+                index: 2,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -172,13 +202,15 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                       children: [
                         Icon(Icons.person, color: GlobalStyle.primaryColor),
                         const SizedBox(width: 8),
-                        Text(
-                          'Informasi Driver',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: GlobalStyle.fontColor,
-                            fontFamily: GlobalStyle.fontFamily,
+                        Expanded(
+                          child: Text(
+                            'Informasi Driver',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: GlobalStyle.fontColor,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
                           ),
                         ),
                       ],
@@ -197,7 +229,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
               // Store and Items Section
               _buildCard(
-                index: 2,
+                index: 3,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -205,13 +237,16 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                       children: [
                         Icon(Icons.store, color: GlobalStyle.primaryColor),
                         const SizedBox(width: 8),
-                        Text(
-                          widget.order.store.name,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: GlobalStyle.fontColor,
-                            fontFamily: GlobalStyle.fontFamily,
+                        Expanded(
+                          child: Text(
+                            widget.order.store.name,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: GlobalStyle.fontColor,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -229,7 +264,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
               // Payment Details Section
               _buildCard(
-                index: 3,
+                index: 0,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -339,50 +374,58 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  imageUrl,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              imageUrl,
+              width: 60,
+              height: 60,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
                   width: 60,
                   height: 60,
-                  fit: BoxFit.cover,
+                  color: Colors.grey[300],
+                  child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
                 ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: GlobalStyle.lightColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'x$quantity',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: GlobalStyle.fontColor,
+                      color: GlobalStyle.primaryColor,
                       fontFamily: GlobalStyle.fontFamily,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: GlobalStyle.lightColor,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      'x$quantity',
-                      style: TextStyle(
-                        color: GlobalStyle.primaryColor,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
           Text(
             NumberFormat.currency(
               locale: 'id',
