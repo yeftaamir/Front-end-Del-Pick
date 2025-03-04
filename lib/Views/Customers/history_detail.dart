@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:intl/intl.dart';
+import 'package:del_pick/Models/item_model.dart'; // Import Item model
+import 'package:del_pick/Models/store.dart'; // Import StoreModel
+import 'package:del_pick/Models/tracking.dart'; // Import Tracking
+import 'package:del_pick/Models/order.dart'; // Import Order model
 import 'cart_screen.dart';
 import 'rating_cust.dart';
 import 'history_cust.dart';
@@ -8,15 +12,11 @@ import 'history_cust.dart';
 class HistoryDetailPage extends StatefulWidget {
   static const String route = "/Customers/HistoryDetailPage";
 
-  final String storeName;
-  final String date;
-  final int amount;
+  final Order order; // Replace with Order model
 
   const HistoryDetailPage({
     Key? key,
-    required this.storeName,
-    required this.date,
-    required this.amount,
+    required this.order,
   }) : super(key: key);
 
   @override
@@ -93,8 +93,9 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
-    final parsedDate = DateTime.parse(widget.date);
-    final formattedDate = DateFormat('dd MMM yyyy, hh.mm a').format(parsedDate);
+    final formattedDate = DateFormat('dd MMM yyyy, hh.mm a').format(widget.order.orderDate);
+    final driverName = widget.order.tracking?.driverName ?? 'Driver belum ditugaskan';
+    final vehicleNumber = widget.order.tracking?.vehicleNumber ?? '-';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -151,7 +152,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+                      widget.order.deliveryAddress,
                       style: TextStyle(
                         color: GlobalStyle.fontColor,
                         fontFamily: GlobalStyle.fontFamily,
@@ -184,7 +185,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Nama Driver\nPlat Nomor Kendaraan',
+                      '$driverName\n$vehicleNumber',
                       style: TextStyle(
                         color: GlobalStyle.fontColor,
                         fontFamily: GlobalStyle.fontFamily,
@@ -205,7 +206,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                         Icon(Icons.store, color: GlobalStyle.primaryColor),
                         const SizedBox(width: 8),
                         Text(
-                          widget.storeName,
+                          widget.order.store.name,
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -216,24 +217,12 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _buildOrderItem(
-                      'Nama Item 1',
-                      'https://storage.googleapis.com/a1aa/image/AHpMyzrtoOpMRqFBK3lhQ4JD3zLGRPF0QpMNs5_q-YQ.jpg',
-                      1,
-                      120000,
-                    ),
-                    _buildOrderItem(
-                      'Nama Item 2',
-                      'https://storage.googleapis.com/a1aa/image/uuP832OPNDUbpaSpsDcNn7EzZ9sSO6Q1fAI9sLloJZc.jpg',
-                      1,
-                      30000,
-                    ),
-                    _buildOrderItem(
-                      'Nama Item 3',
-                      'https://storage.googleapis.com/a1aa/image/3PLJlAYPI8CQvHjqfXqNtxLzx8XM-kpXNe756djbY0g.jpg',
-                      3,
-                      60000,
-                    ),
+                    ...widget.order.items.map((item) => _buildOrderItem(
+                      item.name,
+                      item.imageUrl,
+                      item.quantity,
+                      item.price.toInt(),
+                    )),
                   ],
                 ),
               ),
@@ -260,13 +249,13 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _buildPaymentRow('Subtotal untuk Produk', 180000),
-                    _buildPaymentRow('Biaya Layanan', 30000),
+                    _buildPaymentRow('Subtotal untuk Produk', widget.order.subtotal.toInt()),
+                    _buildPaymentRow('Biaya Layanan', widget.order.serviceCharge.toInt()),
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Divider(thickness: 1),
                     ),
-                    _buildTotalPaymentRow(210000),
+                    _buildTotalPaymentRow(widget.order.total.toInt()),
                   ],
                 ),
               ),
@@ -306,15 +295,17 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                           context,
                           MaterialPageRoute(
                             builder: (context) => RatingCustomerPage(
-                              storeName: widget.storeName,
-                              driverName: 'Nama Driver',
-                              vehicleNumber: 'Plat Nomor Kendaraan',
-                              orderItems: [
-                                OrderItem(
-                                  name: 'Nama Item 1',
-                                  formattedPrice: 'Rp 120.000',
-                                ),
-                              ],
+                              storeName: widget.order.store.name,
+                              driverName: driverName,
+                              vehicleNumber: vehicleNumber,
+                              orderItems: widget.order.items.map((item) => OrderItem(
+                                name: item.name,
+                                formattedPrice: NumberFormat.currency(
+                                  locale: 'id',
+                                  symbol: 'Rp ',
+                                  decimalDigits: 0,
+                                ).format(item.price),
+                              )).toList(),
                             ),
                           ),
                         );
@@ -465,6 +456,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           ),
         ),
       ],
-      );
+    );
   }
 }

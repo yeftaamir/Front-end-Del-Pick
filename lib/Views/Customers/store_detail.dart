@@ -5,6 +5,7 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/cart_screen.dart';
 
+
 class StoreDetail extends StatefulWidget {
   static const String route = "/Customers/StoreDetail";
   final List<MenuItem>? sharedMenuItems;
@@ -28,11 +29,11 @@ class _StoreDetailState extends State<StoreDetail> {
   void initState() {
     super.initState();
     menuItems = widget.sharedMenuItems ?? [
-      MenuItem(name: 'Ayam Geprek + Nasi', price: 21800),
-      MenuItem(name: 'Ayam Geprek + Nasi Jumbo + Es Teh', price: 25800),
-      MenuItem(name: 'Mie Goreng + Pangsit', price: 31800),
-      MenuItem(name: 'Ayam Saos Hot Bbq + Nasi + Es Teh', price: 23800),
-      MenuItem(name: 'Ayam Geprek Tanpa Nasi', price: 19800),
+      MenuItem(id: '1', name: 'Ayam Geprek + Nasi', price: 21800),
+      MenuItem(id: '2', name: 'Ayam Geprek + Nasi Jumbo + Es Teh', price: 25800),
+      MenuItem(id: '3', name: 'Mie Goreng + Pangsit', price: 31800),
+      MenuItem(id: '4', name: 'Ayam Saos Hot Bbq + Nasi + Es Teh', price: 23800),
+      MenuItem(id: '5', name: 'Ayam Geprek Tanpa Nasi', price: 19800),
     ];
     filteredItems = List<MenuItem>.from(menuItems);
     _pageController = PageController(viewportFraction: 0.8, initialPage: 0);

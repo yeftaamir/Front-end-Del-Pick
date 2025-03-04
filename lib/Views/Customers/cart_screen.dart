@@ -5,6 +5,10 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/location_access.dart';
 import 'package:del_pick/Views/Customers/track_cust_order.dart';
+import 'package:del_pick/Models/item_model.dart'; // Import Item model
+import 'package:del_pick/Models/store.dart'; // Import StoreModel
+import 'package:del_pick/Models/tracking.dart'; // Import Tracking
+import 'package:del_pick/Models/order.dart'; // Import Order model
 
 class CartScreen extends StatefulWidget {
   static const String route = "/Customers/Cart";
@@ -21,7 +25,15 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   String? _deliveryAddress;
   String? _errorMessage;
   bool _orderCreated = false;
+  bool _searchingDriver = false;
+  bool _driverFound = false;
+  String _driverName = "Budi Santoso";
+  String _vehicleNumber = "B 1234 ABC";
+  Order? _createdOrder;
+
   late AnimationController _slideController;
+  late AnimationController _driverCardController;
+  late Animation<Offset> _driverCardAnimation;
 
   // Create multiple animation controllers for different sections
   late List<AnimationController> _cardControllers;
@@ -55,6 +67,21 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       ));
     }).toList();
 
+    // Initialize driver card animation controller
+    _driverCardController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
+    // Create driver card animation
+    _driverCardAnimation = Tween<Offset>(
+      begin: const Offset(0, -1.0),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _driverCardController,
+      curve: Curves.easeOutCubic,
+    ));
+
     // Start animations sequentially
     Future.delayed(const Duration(milliseconds: 100), () {
       for (var controller in _cardControllers) {
@@ -66,6 +93,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _slideController.dispose();
+    _driverCardController.dispose();
     for (var controller in _cardControllers) {
       controller.dispose();
     }
@@ -77,6 +105,40 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   }
 
   double get total => subtotal + serviceCharge;
+
+  // Convert MenuItem list to Item list
+  List<Item> _convertMenuItemsToItems() {
+    return widget.cartItems.map((menuItem) => Item(
+      id: menuItem.id.toString(),
+      name: menuItem.name,
+      description: menuItem.description ?? '',
+      price: menuItem.price,
+      quantity: menuItem.quantity,
+      imageUrl: menuItem.imageUrl ?? 'assets/images/menu_item.jpg',
+      isAvailable: true,
+      status: 'available',
+    )).toList();
+  }
+
+  // Create an Order object from cart data
+  Order _createOrderFromCart() {
+    final items = _convertMenuItemsToItems();
+    final store = StoreModel(
+      name: 'Warmindo Kayungyun',
+      address: 'Jl. P.I. Del, Sitoluama, Laguboti',
+      openHours: '08:00 - 22:00',
+      rating: 4.8,
+      reviewCount: 120,
+    );
+
+    return Order.fromCart(
+      id: 'ORD-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+      cartItems: items,
+      store: store,
+      deliveryAddress: _deliveryAddress ?? 'No address specified',
+      serviceCharge: serviceCharge,
+    );
+  }
 
   Future<void> _handleLocationAccess() async {
     final result = await Navigator.pushNamed(
@@ -148,10 +210,98 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     });
   }
 
+  // Function to search for driver
+  Future<void> _searchDriver() async {
+    if (_deliveryAddress == null) {
+      setState(() {
+        _errorMessage = 'Please select a delivery address';
+      });
+      return;
+    }
+
+    // Create order
+    _createdOrder = _createOrderFromCart();
+
+    setState(() {
+      _searchingDriver = true;
+    });
+
+    // Show driver search dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          backgroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/loading_animation.json', // Replace with your loading animation
+                  width: 150,
+                  height: 150,
+                  repeat: true,
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  "Mencari driver...",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  "Mohon tunggu sebentar",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    // Simulate finding a driver after 3 seconds
+    await Future.delayed(const Duration(seconds: 3));
+
+    // Update order status when driver is assigned
+    if (_createdOrder != null) {
+      _createdOrder = _createdOrder!.copyWith(
+        status: OrderStatus.driverAssigned,
+        tracking: Tracking.sample(),
+      );
+    }
+
+    // Close the dialog
+    Navigator.of(context).pop();
+
+    setState(() {
+      _searchingDriver = false;
+      _driverFound = true;
+      _orderCreated = true;
+    });
+
+    // Start driver card animation
+    _driverCardController.forward();
+
+    // Show order success dialog
+    await _showOrderSuccess();
+  }
+
   void _navigateToTrackOrder() {
     Navigator.pushNamed(
       context,
       TrackCustOrderScreen.route,
+      arguments: _createdOrder,
     );
   }
 
@@ -172,6 +322,92 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ],
         ),
         child: child,
+      ),
+    );
+  }
+
+  Widget _buildDriverCard() {
+    return SlideTransition(
+      position: _driverCardAnimation,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.person, color: GlobalStyle.primaryColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Informasi Driver',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: GlobalStyle.fontColor,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: GlobalStyle.lightColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Icon(
+                        Icons.person,
+                        color: GlobalStyle.primaryColor,
+                        size: 30,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _driverName,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: GlobalStyle.fontColor,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _vehicleNumber,
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -262,10 +498,24 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                           ),
                         ),
                       ),
+                      if (_errorMessage != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
               ),
+
+              // Driver information card (visible only when driver is found)
+              if (_driverFound) _buildDriverCard(),
 
               // Store Items Section
               _buildCard(
@@ -303,7 +553,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
                               child: Image.asset(
-                                'assets/images/menu_item.jpg',
+                                item.imageUrl ?? 'assets/images/menu_item.jpg',
                                 width: 60,
                                 height: 60,
                                 fit: BoxFit.cover,
@@ -388,6 +638,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                         child: Divider(),
                       ),
                       _buildPaymentRow('Total Pembayaran', total, isTotal: true),
+                      const SizedBox(height: 12),
+                      const Row(
+                        children: [
+                          Icon(Icons.payment, size: 16, color: Colors.grey),
+                          SizedBox(width: 8),
+                          Text(
+                            'Metode Pembayaran: Tunai',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -409,26 +673,25 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ],
         ),
         child: ElevatedButton(
-          onPressed: _orderCreated
+          onPressed: _searchingDriver
+              ? null
+              : (_orderCreated
               ? _navigateToTrackOrder
-              : () async {
-            if (_deliveryAddress == null) {
-              setState(() {
-                _errorMessage = 'Please select a delivery address';
-              });
-            } else {
-              await _showOrderSuccess();
-            }
-          },
+              : _searchDriver),
           style: ElevatedButton.styleFrom(
             backgroundColor: GlobalStyle.primaryColor,
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(24),
             ),
+            disabledBackgroundColor: Colors.grey,
           ),
           child: Text(
-            _orderCreated ? 'Lacak Pesanan' : 'Buat Pesanan',
+            _searchingDriver
+                ? 'Mencari Driver...'
+                : (_orderCreated
+                ? 'Lacak Pesanan'
+                : 'Buat Pesanan'),
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,

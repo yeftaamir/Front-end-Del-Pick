@@ -3,6 +3,14 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:del_pick/Common/global_style.dart';
 
+// Import models
+import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/Models/customer.dart';
+import 'package:del_pick/Models/driver.dart';
+import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/tracking.dart';
+
 // Import views
 import 'Views/Controls/login_page.dart';
 import 'Views/Customers/home_cust.dart';
@@ -114,6 +122,29 @@ class MyApp extends StatelessWidget {
   }
 
   Map<String, Widget Function(BuildContext)> _buildRoutes() {
+    // Create a demo customer for the profile page
+    final demoCustomer = Customer(
+      id: 'customer123',
+      name: 'John Doe',
+      phoneNumber: '+62 812 3456 7890',
+      email: 'johndoe@example.com',
+      profileImageUrl: null,
+    );
+
+    // Create a demo driver for the profile page
+    final demoDriver = Driver(
+      id: 'driver123',
+      name: 'Ahmad Supir',
+      phoneNumber: '+62 856 7890 1234',
+      email: 'ahmad@driver.com',
+      profileImageUrl: null,
+      rating: 4.7,
+      vehicleNumber: 'B 1234 XYZ',
+    );
+
+    // Create a sample order for HistoryDetailPage
+    final sampleOrder = Order.sample();
+
     return {
       // Add splash screen route
       '/': (context) => const SplashScreen(),
@@ -124,7 +155,7 @@ class MyApp extends StatelessWidget {
       // Customer routes
       HomePage.route: (context) => const HomePage(),
       StoreDetail.route: (context) => const StoreDetail(),
-      ProfilePage.route: (context) => const ProfilePage(),
+      ProfilePage.route: (context) => ProfilePage(customer: demoCustomer),
       HistoryCustomer.route: (context) => const HistoryCustomer(),
       CartScreen.route: (context) => const CartScreen(cartItems: []),
       LocationAccessScreen.route: (context) => LocationAccessScreen(
@@ -134,11 +165,8 @@ class MyApp extends StatelessWidget {
         },
       ),
       TrackCustOrderScreen.route: (context) => const TrackCustOrderScreen(),
-      HistoryDetailPage.route: (context) => const HistoryDetailPage(
-        storeName: 'Store Name',
-        date: '2022-01-01T00:00:00.000Z',
-        amount: 100000,
-      ),
+      // Updated HistoryDetailPage route to use Order model
+      HistoryDetailPage.route: (context) => HistoryDetailPage(order: sampleOrder),
       RatingCustomerPage.route: (context) => const RatingCustomerPage(
         storeName: 'Store Name',
         driverName: 'Driver Name',
@@ -163,7 +191,7 @@ class MyApp extends StatelessWidget {
           'icon': 'https://via.placeholder.com/150',
         },
       ),
-      ProfileDriverPage.route: (context) => const ProfileDriverPage(),
+      ProfileDriverPage.route: (context) => ProfileDriverPage(driver: demoDriver),
 
       // Store routes
       '/Store/HomePage': (context) => const HomeStore(),
@@ -179,7 +207,22 @@ class MyApp extends StatelessWidget {
         },
       ),
       AddEditItemForm.route: (context) => const AddEditItemForm(),
-      ProfileStorePage.route: (context) => const ProfileStorePage(),
+      // Updated ProfileStorePage route to use a temporary dummy store for initialization
+      ProfileStorePage.route: (context) {
+        // Create a dummy store for initialization
+        final dummyStore = StoreModel(
+          name: 'Toko Indonesia',
+          address: 'Jl. Pahlawan No. 123, Jakarta Selatan',
+          openHours: '08:00 - 21:00',
+          imageUrl: 'https://storage.googleapis.com/a1aa/image/5Cq_e1zvmarYJk2l1nLIWCqWm-vE7i5hHEUmyboR2mo.jpg',
+          phoneNumber: '+62 8132635487',
+          productCount: 10,
+          rating: 4.8,
+          description: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+        );
+
+        return ProfileStorePage(store: dummyStore);
+      },
     };
   }
 

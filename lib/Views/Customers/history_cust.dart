@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../Component/cust_bottom_navigation.dart';
+import 'package:del_pick/Models/item_model.dart'; // Import Item model
+import 'package:del_pick/Models/store.dart'; // Import StoreModel
+import 'package:del_pick/Models/tracking.dart'; // Import Tracking
+import 'package:del_pick/Models/order.dart'; // Import Order model
 import 'cart_screen.dart';
 import 'history_detail.dart';
 import 'home_cust.dart';
@@ -22,29 +26,92 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
 
-  // Sample order data with different statuses
-  final List<Map<String, dynamic>> orders = [
-    {
-      'storeName': 'RM Padang Sabana 01',
-      'date': '2024-12-24 09:05:00',
-      'amount': 27700,
-      'items': '1 Nasi Ayam Bakar Komplit + EsTeh / Teh Hangat',
-      'status': 'Selesai',
-    },
-    {
-      'storeName': 'Keju Kesu, Letda Sujono',
-      'date': '2024-11-26 08:05:00',
-      'amount': 41100,
-      'items': '1 Sepasang 3',
-      'status': 'Selesai',
-    },
-    {
-      'storeName': 'RM Padang Sabana 01',
-      'date': '2024-09-16 09:05:00',
-      'amount': 43200,
-      'items': '1 Nasi Telor Dadar, 1 Nasi Ayam Goreng',
-      'status': 'Selesai',
-    },
+  // Sample order data using Order model
+  final List<Order> orders = [
+    Order(
+      id: 'ORD-001',
+      items: [
+        Item(
+          id: 'ITM-001',
+          name: 'Nasi Ayam Bakar Komplit + EsTeh / Teh Hangat',
+          price: 27700,
+          quantity: 1,
+          imageUrl: 'assets/images/menu_item.jpg',
+          isAvailable: true,
+          status: 'available',
+        ),
+      ],
+      store: StoreModel(
+        name: 'RM Padang Sabana 01',
+        address: 'Jl. Padang Sabana No. A1',
+        openHours: '07:00 - 21:00',
+      ),
+      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
+      subtotal: 27700,
+      serviceCharge: 0,
+      total: 27700,
+      status: OrderStatus.completed,
+      orderDate: DateTime.parse('2024-12-24 09:05:00'),
+    ),
+    Order(
+      id: 'ORD-002',
+      items: [
+        Item(
+          id: 'ITM-002',
+          name: 'Sepasang 3',
+          price: 41100,
+          quantity: 1,
+          imageUrl: 'assets/images/menu_item.jpg',
+          isAvailable: true,
+          status: 'available',
+        ),
+      ],
+      store: StoreModel(
+        name: 'Keju Kesu, Letda Sujono',
+        address: 'Jl. Letda Sujono',
+        openHours: '08:00 - 22:00',
+      ),
+      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
+      subtotal: 41100,
+      serviceCharge: 0,
+      total: 41100,
+      status: OrderStatus.completed,
+      orderDate: DateTime.parse('2024-11-26 08:05:00'),
+    ),
+    Order(
+      id: 'ORD-003',
+      items: [
+        Item(
+          id: 'ITM-003',
+          name: 'Nasi Telor Dadar',
+          price: 21600,
+          quantity: 1,
+          imageUrl: 'assets/images/menu_item.jpg',
+          isAvailable: true,
+          status: 'available',
+        ),
+        Item(
+          id: 'ITM-004',
+          name: 'Nasi Ayam Goreng',
+          price: 21600,
+          quantity: 1,
+          imageUrl: 'assets/images/menu_item.jpg',
+          isAvailable: true,
+          status: 'available',
+        ),
+      ],
+      store: StoreModel(
+        name: 'RM Padang Sabana 01',
+        address: 'Jl. Padang Sabana No. A1',
+        openHours: '07:00 - 21:00',
+      ),
+      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
+      subtotal: 43200,
+      serviceCharge: 0,
+      total: 43200,
+      status: OrderStatus.completed,
+      orderDate: DateTime.parse('2024-09-16 09:05:00'),
+    ),
   ];
 
   @override
@@ -88,24 +155,47 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     super.dispose();
   }
 
-  Map<String, List<Map<String, dynamic>>> groupedOrders() {
+  Map<String, List<Order>> groupedOrders() {
     return {
-      'Selesai': orders.where((order) => order['status'] == 'Selesai').toList(),
-      'Diproses': orders.where((order) => order['status'] == 'Diproses').toList(),
-      'Dibatalkan': orders.where((order) => order['status'] == 'Dibatalkan').toList(),
+      'Selesai': orders.where((order) => order.status == OrderStatus.completed).toList(),
+      'Diproses': orders.where((order) =>
+      order.status != OrderStatus.completed &&
+          order.status != OrderStatus.cancelled).toList(),
+      'Dibatalkan': orders.where((order) => order.status == OrderStatus.cancelled).toList(),
     };
   }
 
-  Color getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'selesai':
+  Color getStatusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.completed:
         return Colors.green;
-      case 'diproses':
-        return Colors.blue;
-      case 'dibatalkan':
+      case OrderStatus.cancelled:
         return Colors.red;
       default:
-        return Colors.grey;
+        return Colors.blue;
+    }
+  }
+
+  String getStatusText(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.completed:
+        return 'Selesai';
+      case OrderStatus.cancelled:
+        return 'Dibatalkan';
+      case OrderStatus.pending:
+        return 'Menunggu';
+      case OrderStatus.driverAssigned:
+        return 'Driver Ditugaskan';
+      case OrderStatus.driverHeadingToStore:
+        return 'Menuju Toko';
+      case OrderStatus.driverAtStore:
+        return 'Di Toko';
+      case OrderStatus.driverHeadingToCustomer:
+        return 'Menuju Anda';
+      case OrderStatus.driverArrived:
+        return 'Driver Tiba';
+      default:
+        return 'Diproses';
     }
   }
 
@@ -118,10 +208,21 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     });
   }
 
-  Widget _buildOrderCard(Map<String, dynamic> order, int index) {
-    final parsedDate = DateTime.parse(order['date']);
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(parsedDate);
-    final statusColor = getStatusColor(order['status']);
+  String getOrderItemsText(Order order) {
+    if (order.items.length == 1) {
+      return order.items[0].name;
+    } else {
+      final firstItem = order.items[0].name;
+      final otherItemsCount = order.items.length - 1;
+      return '$firstItem, +$otherItemsCount item lainnya';
+    }
+  }
+
+  Widget _buildOrderCard(Order order, int index) {
+    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
+    final statusColor = getStatusColor(order.status);
+    final statusText = getStatusText(order.status);
+    final itemsText = getOrderItemsText(order);
 
     return SlideTransition(
       position: _cardAnimations[index],
@@ -131,9 +232,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
             context,
             MaterialPageRoute(
               builder: (context) => HistoryDetailPage(
-                storeName: order['storeName'],
-                date: order['date'],
-                amount: order['amount'],
+                order: order,
               ),
             ),
           );
@@ -164,8 +263,8 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                     height: 80,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
-                      image: const DecorationImage(
-                        image: AssetImage('assets/images/menu_item.jpg'),
+                      image: DecorationImage(
+                        image: AssetImage(order.items.first.imageUrl),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -176,7 +275,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          order['storeName'],
+                          order.store.name,
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -199,7 +298,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              order['status'],
+                              statusText,
                               style: TextStyle(
                                 fontSize: 14,
                                 color: statusColor,
@@ -209,7 +308,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          order['items'],
+                          itemsText,
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey[600],
@@ -221,7 +320,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                             locale: 'id',
                             symbol: 'Rp ',
                             decimalDigits: 0,
-                          ).format(order['amount']),
+                          ).format(order.total),
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
@@ -232,7 +331,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                   ),
                 ],
               ),
-              if (order['status'] == 'Selesai') ...[
+              if (order.status == OrderStatus.completed) ...[
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -243,9 +342,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                             context,
                             MaterialPageRoute(
                               builder: (context) => HistoryDetailPage(
-                                storeName: order['storeName'],
-                                date: order['date'],
-                                amount: order['amount'],
+                                order: order,
                               ),
                             ),
                           );

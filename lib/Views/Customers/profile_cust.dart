@@ -2,11 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
+import '../../Models/customer.dart';
 
 class ProfilePage extends StatelessWidget {
   static const String route = "/Customers/Profile";
 
-  const ProfilePage({super.key});
+  final Customer customer;
+
+  const ProfilePage({
+    super.key,
+    required this.customer,
+  });
 
   void _handleLogout(BuildContext context) {
     showDialog(
@@ -100,6 +106,7 @@ class ProfilePage extends StatelessWidget {
 
               const SizedBox(height: 32),
 
+              // Profile image - using profileImageUrl if available
               Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
@@ -109,7 +116,12 @@ class ProfilePage extends StatelessWidget {
                     width: 2,
                   ),
                 ),
-                child: CircleAvatar(
+                child: customer.profileImageUrl != null && customer.profileImageUrl!.isNotEmpty
+                    ? CircleAvatar(
+                  radius: 60,
+                  backgroundImage: NetworkImage(customer.profileImageUrl!),
+                )
+                    : CircleAvatar(
                   radius: 60,
                   backgroundColor: GlobalStyle.lightColor,
                   child: Icon(
@@ -140,19 +152,19 @@ class ProfilePage extends StatelessWidget {
                     _buildInfoTile(
                       icon: FontAwesomeIcons.user,
                       title: 'Nama User',
-                      value: 'John Doe',
+                      value: customer.name,
                     ),
                     const Divider(height: 1, indent: 20),
                     _buildInfoTile(
                       icon: FontAwesomeIcons.phone,
                       title: 'Nomor Telepon',
-                      value: '+62 812 3456 7890',
+                      value: customer.phoneNumber,
                     ),
                     const Divider(height: 1, indent: 20),
                     _buildInfoTile(
                       icon: FontAwesomeIcons.envelope,
                       title: 'Email Pengguna',
-                      value: 'johndoe@example.com',
+                      value: customer.email,
                     ),
                   ],
                 ),

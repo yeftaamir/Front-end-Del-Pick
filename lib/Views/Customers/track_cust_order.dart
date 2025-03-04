@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Customers/history_detail.dart';
+import 'package:del_pick/Models/tracking.dart';
+import 'dart:async';
+import '../../Models/driver.dart';
 
 class TrackCustOrderScreen extends StatefulWidget {
   static const String route = "/Customers/TrackOrder";
 
-  const TrackCustOrderScreen({Key? key}) : super(key: key);
+  final String? orderId;
+
+  const TrackCustOrderScreen({Key? key, this.orderId}) : super(key: key);
 
   @override
   State<TrackCustOrderScreen> createState() => _TrackCustOrderScreenState();
@@ -17,8 +22,84 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
   PointAnnotationManager? pointAnnotationManager;
   PolylineAnnotationManager? polylineAnnotationManager;
 
-  // Define coordinates for Institut Teknologi Del
-  final delPosition = Position(99.10279, 2.34379);
+  // Tracking model instance
+  late Tracking _tracking;
+
+  // Timer for simulating location updates
+  Timer? _locationUpdateTimer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Initialize tracking data
+    // In a real app, you would fetch this from an API using the orderId
+    _tracking = Tracking.sample();
+
+    // Simulate location updates every 3 seconds
+    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 3), _simulateLocationUpdate);
+  }
+
+  @override
+  void dispose() {
+    _locationUpdateTimer?.cancel();
+    super.dispose();
+  }
+
+  // Simulates driver movement for demo purposes
+  void _simulateLocationUpdate(Timer timer) {
+    // Only simulate if order is in progress
+    if (_tracking.status == OrderStatus.driverHeadingToCustomer ||
+        _tracking.status == OrderStatus.driverHeadingToStore) {
+
+      // Calculate new position - moving slightly toward destination
+      final targetPosition = _tracking.status == OrderStatus.driverHeadingToCustomer
+          ? _tracking.customerPosition
+          : _tracking.storePosition;
+
+      final currentLng = _tracking.driverPosition.lng;
+      final currentLat = _tracking.driverPosition.lat;
+
+      final targetLng = targetPosition.lng;
+      final targetLat = targetPosition.lat;
+
+      // Move 5% closer to destination
+      final newLng = currentLng + (targetLng - currentLng) * 0.05;
+      final newLat = currentLat + (targetLat - currentLat) * 0.05;
+
+      // Update tracking with new position
+      setState(() {
+        _tracking = _tracking.copyWith(
+          driverPosition: Position(newLng, newLat),
+        );
+      });
+
+      // Update map markers and route
+      _updateMapAnnotations();
+
+      // Check if driver has arrived (within 0.0005 degrees, roughly 50m)
+      if ((newLng - targetLng).abs() < 0.0005 && (newLat - targetLat).abs() < 0.0005) {
+        if (_tracking.status == OrderStatus.driverHeadingToCustomer) {
+          setState(() {
+            _tracking = _tracking.copyWith(status: OrderStatus.driverArrived);
+          });
+        } else if (_tracking.status == OrderStatus.driverHeadingToStore) {
+          setState(() {
+            _tracking = _tracking.copyWith(status: OrderStatus.driverAtStore);
+          });
+
+          // After a delay, simulate driver leaving store to customer
+          Future.delayed(const Duration(seconds: 5), () {
+            if (mounted) {
+              setState(() {
+                _tracking = _tracking.copyWith(status: OrderStatus.driverHeadingToCustomer);
+              });
+            }
+          });
+        }
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +114,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
               onMapCreated: _onMapCreated,
               styleUri: "mapbox://styles/ifs21002/cm71crfz300sw01s10wsh3zia",
               cameraOptions: CameraOptions(
-                center: Point(coordinates: delPosition),
+                center: Point(coordinates: _tracking.driverPosition),
                 zoom: 13.0,
               ),
             ),
@@ -70,12 +151,28 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                   ),
                 ],
               ),
-              child: const Text(
-                'Tunggu ya, Driver akan menuju ke tempatmu',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _tracking.statusMessage,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (_tracking.status != OrderStatus.completed && _tracking.status != OrderStatus.cancelled)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Estimasi tiba: ${_tracking.formattedETA}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -112,23 +209,32 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.grey[300]!),
                           ),
-                          child: const Icon(Icons.person),
+                      child: ClipOval(
+                        child: _tracking.driverImageUrl.isNotEmpty
+                            ? Image.network(
+                          _tracking.driverImageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                          const Icon(Icons.person),
+                        )
+                            : const Icon(Icons.person),
+                      ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'M. Hermawan',
-                                style: TextStyle(
+                              Text(
+                                _tracking.driverName,
+                                style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'BK 1234 ABC',
+                                _tracking.vehicleNumber,
                                 style: TextStyle(
                                   color: Colors.grey[600],
                                   fontSize: 14,
@@ -141,12 +247,14 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                           icon: const Icon(Icons.chat_bubble_outline),
                           onPressed: () {
                             // Add chat functionality
+                            _showFeatureNotImplemented('Chat dengan driver');
                           },
                         ),
                         IconButton(
-                          icon: const Icon(Icons.person_outline),
+                          icon: const Icon(Icons.call_outlined),
                           onPressed: () {
-                            // Add profile view functionality
+                            // Add call functionality
+                            _showFeatureNotImplemented('Panggil driver');
                           },
                         ),
                       ],
@@ -160,21 +268,33 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                       width: double.infinity,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: GlobalStyle.primaryColor,
+                          backgroundColor: _tracking.status == OrderStatus.driverArrived
+                              ? GlobalStyle.primaryColor
+                              : Colors.grey,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
-                        onPressed: () {
+                        onPressed: _tracking.status == OrderStatus.driverArrived
+                            ? () {
+                          setState(() {
+                            _tracking = _tracking.copyWith(status: OrderStatus.completed);
+                          });
+
+                          // Navigate to history detail page
                           Navigator.pushNamed(
                             context,
                             HistoryDetailPage.route,
+                            arguments: {'orderId': _tracking.orderId},
                           );
-                        },
-                        child: const Text(
-                          'Pesanan Selesai',
-                          style: TextStyle(
+                        }
+                            : null,
+                        child: Text(
+                          _tracking.status == OrderStatus.completed
+                              ? 'Pesanan Selesai'
+                              : 'Konfirmasi Pesanan Diterima',
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -194,9 +314,10 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
 
   void _onMapCreated(MapboxMap mapboxMap) {
     this.mapboxMap = mapboxMap;
-    _setupAnnotationManagers();
-    _addMarkers();
-    _drawRoute();
+    _setupAnnotationManagers().then((_) {
+      _addMarkers();
+      _drawRoute();
+    });
   }
 
   Future<void> _setupAnnotationManagers() async {
@@ -205,21 +326,26 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
   }
 
   Future<void> _addMarkers() async {
+    if (pointAnnotationManager == null) return;
+
+    // Clear existing annotations
+    await pointAnnotationManager?.deleteAll();
+
     // Customer marker
     final customerOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: Position(99.10179, 2.34279)),
+      geometry: Point(coordinates: _tracking.customerPosition),
       iconImage: "assets/images/marker_red.png",
     );
 
     // Store marker
     final storeOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: Position(99.10379, 2.34479)),
+      geometry: Point(coordinates: _tracking.storePosition),
       iconImage: "assets/images/marker_blue.png",
     );
 
     // Driver marker
     final driverOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: delPosition),
+      geometry: Point(coordinates: _tracking.driverPosition),
       iconImage: "assets/images/marker_green.png",
     );
 
@@ -229,11 +355,36 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
   }
 
   Future<void> _drawRoute() async {
-    final routeCoordinates = [
-      Position(99.10179, 2.34279), // Customer
-      Position(99.10379, 2.34479), // Store
-      Position(99.10279, 2.34379), // Driver
-    ];
+    if (polylineAnnotationManager == null) return;
+
+    // Clear existing annotations
+    await polylineAnnotationManager?.deleteAll();
+
+    // Create dynamic route based on current status
+    List<Position> routeCoordinates = [];
+
+    if (_tracking.status == OrderStatus.driverHeadingToStore ||
+        _tracking.status == OrderStatus.pending ||
+        _tracking.status == OrderStatus.driverAssigned) {
+      // Route from driver to store
+      routeCoordinates = [
+        _tracking.driverPosition,
+        _tracking.storePosition,
+      ];
+    } else {
+      // Route from driver to customer through store if needed
+      if (_tracking.status == OrderStatus.driverHeadingToCustomer) {
+        routeCoordinates = [
+          _tracking.driverPosition,
+          _tracking.customerPosition,
+        ];
+      } else {
+        routeCoordinates = [
+          _tracking.driverPosition,
+          _tracking.customerPosition,
+        ];
+      }
+    }
 
     final polylineOptions = PolylineAnnotationOptions(
       geometry: LineString(coordinates: routeCoordinates),
@@ -242,5 +393,29 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
     );
 
     await polylineAnnotationManager?.create(polylineOptions);
+  }
+
+  // Call this when driver position changes
+  void _updateMapAnnotations() {
+    _addMarkers();
+    _drawRoute();
+
+    // Update camera to follow driver
+    mapboxMap?.setCamera(
+      CameraOptions(
+        center: Point(coordinates: _tracking.driverPosition),
+        zoom: 13.0,
+      ),
+    );
+  }
+
+  // Show a toast message for unimplemented features
+  void _showFeatureNotImplemented(String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$feature belum tersedia'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 }

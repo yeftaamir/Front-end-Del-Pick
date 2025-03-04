@@ -2,11 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
+import 'package:del_pick/Models/driver.dart'; // Import the Driver model
 
 class ProfileDriverPage extends StatelessWidget {
   static const String route = "/Driver/Profile";
 
-  const ProfileDriverPage({super.key});
+  final Driver driver;
+
+  const ProfileDriverPage({
+    super.key,
+    required this.driver,
+  });
+
+  // Alternative constructor that uses the sample driver
+  factory ProfileDriverPage.sample() {
+    return ProfileDriverPage(driver: Driver.sample());
+  }
 
   void _handleLogout(BuildContext context) {
     showDialog(
@@ -99,6 +110,7 @@ class ProfileDriverPage extends StatelessWidget {
 
               const SizedBox(height: 32),
 
+              // Profile image - use driver.profileImageUrl if available
               Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
@@ -108,7 +120,12 @@ class ProfileDriverPage extends StatelessWidget {
                     width: 2,
                   ),
                 ),
-                child: CircleAvatar(
+                child: driver.profileImageUrl != null
+                    ? CircleAvatar(
+                  radius: 60,
+                  backgroundImage: NetworkImage(driver.profileImageUrl!),
+                )
+                    : CircleAvatar(
                   radius: 60,
                   backgroundColor: GlobalStyle.lightColor,
                   child: Icon(
@@ -140,31 +157,31 @@ class ProfileDriverPage extends StatelessWidget {
                     _buildInfoTile(
                       icon: FontAwesomeIcons.user,
                       title: 'Nama Driver',
-                      value: 'M. Hermawan',
+                      value: driver.name,
                     ),
                     const Divider(height: 1, indent: 20),
                     _buildInfoTile(
                       icon: FontAwesomeIcons.star,
                       title: 'Penilaian',
-                      value: '4.8 dari 5',
+                      value: '${driver.rating} dari 5',
                     ),
                     const Divider(height: 1, indent: 20),
                     _buildInfoTile(
                       icon: FontAwesomeIcons.phone,
                       title: 'Nomor Telepon',
-                      value: '+62 8132635487',
+                      value: driver.phoneNumber,
                     ),
                     const Divider(height: 1, indent: 20),
                     _buildInfoTile(
                       icon: FontAwesomeIcons.car,
                       title: 'Nomor Kendaraan',
-                      value: 'BB 1234 ABC',
+                      value: driver.vehicleNumber,
                     ),
                     const Divider(height: 1, indent: 20),
                     _buildInfoTile(
                       icon: FontAwesomeIcons.envelope,
                       title: 'Email',
-                      value: 'hermawan@gmail.com',
+                      value: driver.email,
                     ),
                   ],
                 ),
