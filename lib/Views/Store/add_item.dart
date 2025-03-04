@@ -21,10 +21,12 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
     Item(
       id: '1',
       name: 'Item 1',
+      description: 'Description for Item 1',
       price: 25000,
       quantity: 10,
       imageUrl: 'assets/images/menu_item.jpg',
       isAvailable: true,
+      status: 'Available',
     ),
   ];
 
@@ -36,6 +38,17 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
       vsync: this,
     );
     _controller.forward();
+    // Memeriksa status ketersediaan berdasarkan jumlah stok saat inisialisasi
+    _checkItemsAvailability();
+  }
+
+  // Metode untuk memeriksa dan memperbarui status ketersediaan semua item
+  void _checkItemsAvailability() {
+    for (int i = 0; i < _items.length; i++) {
+      if (_items[i].quantity <= 0 && _items[i].isAvailable) {
+        _items[i] = _items[i].copyWith(isAvailable: false, status: 'Out of Stock');
+      }
+    }
   }
 
   @override
@@ -44,20 +57,52 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
     super.dispose();
   }
 
-  void _navigateToAddEditForm({Item? item}) {
-    Navigator.push(
+  void _navigateToAddEditForm({Item? item}) async {
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => AddEditItemForm(item: item),
       ),
     );
+
+    // Jika item yang diperbarui dikembalikan, perbarui daftar dan periksa ketersediaan
+    if (result != null && result is Item) {
+      setState(() {
+        final index = _items.indexWhere((element) => element.id == result.id);
+        if (index != -1) {
+          _items[index] = result;
+        } else {
+          _items.add(result);
+        }
+        _checkItemsAvailability();
+      });
+    }
   }
 
   void _toggleItemStatus(Item item) {
     setState(() {
       final index = _items.indexWhere((element) => element.id == item.id);
       if (index != -1) {
-        _items[index] = item.copyWith(isAvailable: !item.isAvailable);
+        // Hanya memungkinkan perubahan ke tersedia jika ada stok
+        if (!item.isAvailable && item.quantity > 0) {
+          _items[index] = item.copyWith(
+              isAvailable: true,
+              status: 'Available'
+          );
+        } else if (item.isAvailable) {
+          _items[index] = item.copyWith(
+              isAvailable: false,
+              status: 'Out of Stock'
+          );
+        } else {
+          // Jika stok 0 dan mencoba mengaktifkan, tampilkan pesan
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Tidak dapat mengaktifkan produk tanpa stok.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     });
   }
@@ -163,6 +208,8 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
         itemCount: _items.length,
         itemBuilder: (context, index) {
           final item = _items[index];
+          final bool isOutOfStock = item.quantity <= 0;
+
           return AnimatedBuilder(
             animation: _controller,
             builder: (context, child) {
@@ -244,7 +291,8 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                       'Stok: ${item.quantity}',
                                       style: TextStyle(
                                         fontSize: 14,
-                                        color: GlobalStyle.fontColor,
+                                        color: isOutOfStock ? Colors.red : GlobalStyle.fontColor,
+                                        fontWeight: isOutOfStock ? FontWeight.bold : FontWeight.normal,
                                       ),
                                     ),
                                     const SizedBox(height: 4),
@@ -273,7 +321,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                           ),
                                           const SizedBox(width: 4),
                                           Text(
-                                            item.isAvailable ? 'Tersedia' : 'Kosong',
+                                            item.status,
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: item.isAvailable
@@ -285,6 +333,19 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                         ],
                                       ),
                                     ),
+                                    if (item.description != null && item.description!.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          item.description!,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -299,10 +360,12 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                         : Icons.toggle_off,
                                     color: item.isAvailable
                                         ? GlobalStyle.primaryColor
-                                        : Colors.grey,
+                                        : isOutOfStock ? Colors.grey.withOpacity(0.5) : Colors.grey,
                                     size: 28,
                                   ),
                                   onPressed: () => _toggleItemStatus(item),
+                                  tooltip: isOutOfStock ? 'Tidak dapat diaktifkan tanpa stok' :
+                                  (item.isAvailable ? 'Nonaktifkan item' : 'Aktifkan item'),
                                 ),
                                 IconButton(
                                   icon: Icon(
@@ -343,9 +406,9 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                               bottomLeft: Radius.circular(15),
                             ),
                           ),
-                          child: const Text(
-                            'CLOSED',
-                            style: TextStyle(
+                          child: Text(
+                            isOutOfStock ? 'STOK HABIS' : 'TUTUP',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 12,

@@ -2,11 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
+import 'package:del_pick/Models/store.dart';
 
 class ProfileStorePage extends StatelessWidget {
   static const String route = "/Store/Profile";
 
-  const ProfileStorePage({super.key});
+  final StoreModel store;
+
+  const ProfileStorePage({
+    super.key,
+    required this.store,
+  });
 
   void _handleLogout(BuildContext context) {
     showDialog(
@@ -105,7 +111,7 @@ class ProfileStorePage extends StatelessWidget {
                   bottom: Radius.circular(16),
                 ),
                 child: Image.network(
-                  'https://storage.googleapis.com/a1aa/image/5Cq_e1zvmarYJk2l1nLIWCqWm-vE7i5hHEUmyboR2mo.jpg',
+                  store.imageUrl,
                   width: double.infinity,
                   height: 200,
                   fit: BoxFit.cover,
@@ -134,31 +140,43 @@ class ProfileStorePage extends StatelessWidget {
                       _buildInfoTile(
                         icon: FontAwesomeIcons.store,
                         title: 'Nama Toko',
-                        value: 'Toko Indonesia',
+                        value: store.name,
+                      ),
+                      const Divider(height: 1, indent: 20),
+                      _buildInfoTile(
+                        icon: FontAwesomeIcons.locationDot,
+                        title: 'Alamat',
+                        value: store.address,
+                      ),
+                      const Divider(height: 1, indent: 20),
+                      _buildInfoTile(
+                        icon: FontAwesomeIcons.clock,
+                        title: 'Jam Buka',
+                        value: store.openHours,
                       ),
                       const Divider(height: 1, indent: 20),
                       _buildInfoTile(
                         icon: FontAwesomeIcons.star,
                         title: 'Penilaian',
-                        value: '4.8 dari 5',
+                        value: store.formattedRating,
                       ),
                       const Divider(height: 1, indent: 20),
                       _buildInfoTile(
                         icon: FontAwesomeIcons.phone,
                         title: 'Nomor Telepon',
-                        value: '+62 8132635487',
+                        value: store.phoneNumber,
                       ),
                       const Divider(height: 1, indent: 20),
                       _buildInfoTile(
                         icon: FontAwesomeIcons.box,
                         title: 'Jumlah Produk',
-                        value: '10 Produk',
+                        value: store.formattedProductCount,
                       ),
                       const Divider(height: 1, indent: 20),
                       _buildInfoTile(
                         icon: FontAwesomeIcons.circleInfo,
                         title: 'Keterangan',
-                        value: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+                        value: store.description,
                         isDescription: true,
                       ),
                     ],

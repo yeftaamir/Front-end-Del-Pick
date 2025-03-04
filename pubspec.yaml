@@ -41,6 +41,7 @@ dependencies:
   flutter_dotenv: ^5.2.1
   lottie: ^2.3.2
   geocoding: ^2.1.0
+  image_picker: ^1.1.2
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -76,6 +77,7 @@ flutter:
     - assets/images/marker_green.png
     - assets/animations/check_animation.json
     - assets/images/delpick.png
+    - assets/animations/loading_animation.json
 
 
   # The following line ensures that the Material Icons font is
@@ -125,7 +127,7 @@ flutter:
       fonts:
         - asset: "assets/fonts/Poppins-BlackItalic.ttf"
     - family: Poppins-Bold
-      fonts: 
+      fonts:
         - asset: "assets/fonts/Poppins-Bold.ttf"
     - family: Poppins-BoldItalic
       fonts:
