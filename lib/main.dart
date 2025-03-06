@@ -142,8 +142,36 @@ class MyApp extends StatelessWidget {
       vehicleNumber: 'B 1234 XYZ',
     );
 
-    // Create a sample order for HistoryDetailPage
+    // Create a sample order for HistoryDetailPage and HistoryDriverDetailPage
     final sampleOrder = Order.sample();
+
+    // Convert Order object to Map for HistoryDriverDetailPage
+    final sampleOrderDetail = {
+      'customerName': 'John Doe',
+      'customerPhone': '+62 812 3456 7890',
+      'customerAddress': 'Jl. Merdeka No. 123, Jakarta',
+      'storeName': 'Toko Indonesia',
+      'storePhone': '+62 8132635487',
+      'storeAddress': 'Jl. Pahlawan No. 123, Jakarta Selatan',
+      'storeImage': 'https://storage.googleapis.com/a1aa/image/5Cq_e1zvmarYJk2l1nLIWCqWm-vE7i5hHEUmyboR2mo.jpg',
+      'status': 'assigned',
+      'amount': 150000,
+      'deliveryFee': 10000,
+      'items': [
+        {
+          'name': 'Product 1',
+          'price': 50000,
+          'quantity': 2,
+          'image': 'https://via.placeholder.com/150',
+        },
+        {
+          'name': 'Product 2',
+          'price': 40000,
+          'quantity': 1,
+          'image': 'https://via.placeholder.com/150',
+        },
+      ],
+    };
 
     return {
       // Add splash screen route
@@ -182,21 +210,16 @@ class MyApp extends StatelessWidget {
       // Driver routes
       HomeDriverPage.route: (context) => const HomeDriverPage(),
       HistoryDriverPage.route: (context) => const HistoryDriverPage(),
-      HistoryDriverDetailPage.route: (context) => const HistoryDriverDetailPage(
-        orderDetail: {
-          'storeName': 'Store Name',
-          'date': '2022-01-01T00:00:00.000Z',
-          'status': 'Completed',
-          'amount': 100000,
-          'icon': 'https://via.placeholder.com/150',
-        },
-      ),
+      // Updated HistoryDriverDetailPage to pass orderDetail parameter instead of order
+      HistoryDriverDetailPage.route: (context) => HistoryDriverDetailPage(orderDetail: sampleOrderDetail),
+
       ProfileDriverPage.route: (context) => ProfileDriverPage(driver: demoDriver),
 
       // Store routes
       '/Store/HomePage': (context) => const HomeStore(),
       '/Store/AddItem': (context) => const AddItemPage(),
       HistoryStorePage.route: (context) => const HistoryStorePage(),
+      // Updated HistoryStoreDetailPage with an example order detail
       HistoryStoreDetailPage.route: (context) => const HistoryStoreDetailPage(
         orderDetail: {
           'customerName': 'Customer Name',
