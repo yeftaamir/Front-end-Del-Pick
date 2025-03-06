@@ -381,6 +381,23 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
             color: Colors.black87,
           ),
         ),
+        leading: IconButton(
+          icon: Container(
+            padding: const EdgeInsets.all(5.0),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.blue, width: 1.0),
+            ),
+            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+          ),
+          onPressed: () {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              HomePage.route,
+                  (route) => false,
+            );
+          },
+        ),
       ),
       body: ListView.builder(
         padding: const EdgeInsets.all(16),
