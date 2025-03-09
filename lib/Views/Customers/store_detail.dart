@@ -409,7 +409,7 @@ class _StoreDetailState extends State<StoreDetail> {
 
   Widget _buildCarouselMenu() {
     return SizedBox(
-      height: 270,
+      height: 300, // Increased height to accommodate full product image
       child: PageView.builder(
         controller: _pageController,
         itemCount: filteredItems.length,
@@ -433,7 +433,9 @@ class _StoreDetailState extends State<StoreDetail> {
   }
 
   Widget _buildCarouselMenuItem(MenuItem item) {
+    // Updated carousel card based on the image example
     return Container(
+      margin: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -446,80 +448,59 @@ class _StoreDetailState extends State<StoreDetail> {
         ],
       ),
       child: Column(
-          children: [
-      ClipRRect(
-      borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(12),
-      topRight: Radius.circular(12),
-    ),
-    child: Image.asset(
-    'assets/images/menu_item.jpg',
-    height: 120,
-    width: double.infinity,
-    fit: BoxFit.cover,
-    ),
-    ),
-    Expanded(
-    child: Padding(
-    padding: const EdgeInsets.all(12),
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    Expanded(
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    Text(
-    item.name,
-    style: const TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.bold,
-    ),
-    maxLines: 3,
-    overflow: TextOverflow.ellipsis,
-    ),
-    const SizedBox(height: 4),
-    Text(
-      'Rp ${item.price.toStringAsFixed(0)}',
-      style: TextStyle(
-        fontSize: 14,
-        color: GlobalStyle.primaryColor,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-    ],
-    ),
-    ),
-      const SizedBox(height: 8),
-      SizedBox(
-        width: double.infinity,
-        height: 40,
-        child: ElevatedButton(
-          onPressed: () => _showItemDetail(item),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: GlobalStyle.primaryColor,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Image wrapper with fixed height to prevent cropping
+          Expanded(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              child: Container(
+                width: double.infinity,
+                color: Colors.white,
+                child: Image.asset(
+                  'assets/images/menu_item.jpg',
+                  fit: BoxFit.contain, // Use contain to show full image without cropping
+                ),
+              ),
             ),
           ),
-          child: const Text(
-            'Tambah',
-            style: TextStyle(color: Colors.white),
+          // Product information
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Price - Using primary color
+                Text(
+                  'Rp${item.price.toStringAsFixed(0)}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Name
+                Text(
+                  item.name,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.black87,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
-    ],
-    ),
-    ),
-    ),
-          ],
+        ],
       ),
     );
   }
 
   Widget _buildListMenu() {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -527,7 +508,7 @@ class _StoreDetailState extends State<StoreDetail> {
             "Menu",
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -548,7 +529,7 @@ class _StoreDetailState extends State<StoreDetail> {
     return GestureDetector(
       onTap: () => _showItemDetail(item),
       child: Container(
-        height: 180,
+        height: 140, // Reduced height
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -560,61 +541,81 @@ class _StoreDetailState extends State<StoreDetail> {
             ),
           ],
         ),
-        child: Row(
+        child: Stack(
           children: [
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      item.name,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Rp ${item.price.toStringAsFixed(0)}',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: GlobalStyle.primaryColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () => _showItemDetail(item),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: GlobalStyle.primaryColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+            // Main content with image and text
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          item.name,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      child: const Text(
-                        'Tambah',
-                        style: TextStyle(color: Colors.white),
-                      ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Rp ${item.price.toStringAsFixed(0)}',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: GlobalStyle.primaryColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                // Image on the right
+                Expanded(
+                  flex: 1,
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
+                    child: Image.asset(
+                      'assets/images/menu_item.jpg',
+                      height: 140,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              flex: 1,
-              child: ClipRRect(
-                borderRadius:
-                const BorderRadius.horizontal(right: Radius.circular(12)),
-                child: Image.asset(
-                  'assets/images/menu_item.jpg',
-                  height: 150,
-                  fit: BoxFit.cover,
+            // "Tambah" button positioned on the right, overlapping the image
+            Positioned(
+              bottom: 10,
+              right: 30,
+              child: SizedBox(
+                height: 30,
+                width: 90,
+                child: ElevatedButton(
+                  onPressed: () => _showItemDetail(item),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    // Add elevation for better visibility over the image
+                    elevation: 3,
+                  ),
+                  child: const Text(
+                    'Tambah',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -725,20 +726,12 @@ class DraggableItemDetail extends StatefulWidget {
 
 class _DraggableItemDetailState extends State<DraggableItemDetail> {
   int _quantity = 0;
+  bool _showQuantityWarning = false;
 
   @override
   void initState() {
     super.initState();
     _quantity = widget.item.quantity;
-  }
-
-  void _showEmptyQuantityWarning() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Please select quantity before adding to cart'),
-        duration: Duration(seconds: 2),
-      ),
-    );
   }
 
   @override
@@ -774,13 +767,20 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.asset(
-                          'assets/images/menu_item.jpg',
-                          height: 200,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
+                      // Updated image container to display the full image without cropping
+                      Container(
+                        width: double.infinity,
+                        height: 200,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.asset(
+                            'assets/images/menu_item.jpg',
+                            fit: BoxFit.contain, // Changed to contain to show full image
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -823,7 +823,10 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                           IconButton(
                             onPressed: () {
                               if (_quantity > 0) {
-                                setState(() => _quantity--);
+                                setState(() {
+                                  _quantity--;
+                                  _showQuantityWarning = false;
+                                });
                               }
                             },
                             icon: const Icon(Icons.remove_circle_outline),
@@ -838,7 +841,10 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                           ),
                           IconButton(
                             onPressed: () {
-                              setState(() => _quantity++);
+                              setState(() {
+                                _quantity++;
+                                _showQuantityWarning = false;
+                              });
                             },
                             icon: const Icon(Icons.add_circle_outline),
                             color: GlobalStyle.primaryColor,
@@ -855,7 +861,9 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                                   widget.onQuantityChanged(_quantity);
                                   Navigator.pop(context);
                                 } else {
-                                  _showEmptyQuantityWarning();
+                                  setState(() {
+                                    _showQuantityWarning = true;
+                                  });
                                 }
                               },
                               style: ElevatedButton.styleFrom(
@@ -878,6 +886,21 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                           ),
                         ],
                       ),
+                      // Added red warning text that appears when quantity is zero
+                      if (_showQuantityWarning)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Center(
+                            child: Text(
+                              'Silakan pilih jumlah item terlebih dahulu',
+                              style: TextStyle(
+                                color: Colors.red[700],
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),

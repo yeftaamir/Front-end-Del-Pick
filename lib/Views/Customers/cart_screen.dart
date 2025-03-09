@@ -30,10 +30,21 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   String _driverName = "Budi Santoso";
   String _vehicleNumber = "B 1234 ABC";
   Order? _createdOrder;
+  bool _showTrackButton = false;
+
+  // Status timeline definition
+  final List<Map<String, dynamic>> _statusTimeline = [
+    {'status': OrderStatus.driverHeadingToStore, 'label': 'Di Proses', 'icon': Icons.store_outlined, 'color': Colors.blue},
+    {'status': OrderStatus.driverAtStore, 'label': 'Di Jemput', 'icon': Icons.delivery_dining_outlined, 'color': Colors.orange},
+    {'status': OrderStatus.driverHeadingToCustomer, 'label': 'Di Antar', 'icon': Icons.directions_bike_outlined, 'color': Colors.purple},
+    {'status': OrderStatus.completed, 'label': 'Selesai', 'icon': Icons.check_circle_outline, 'color': Colors.green},
+  ];
 
   late AnimationController _slideController;
   late AnimationController _driverCardController;
+  late AnimationController _statusCardController;
   late Animation<Offset> _driverCardAnimation;
+  late Animation<Offset> _statusCardAnimation;
 
   // Create multiple animation controllers for different sections
   late List<AnimationController> _cardControllers;
@@ -73,12 +84,27 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 600),
     );
 
+    // Initialize status card animation controller
+    _statusCardController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
     // Create driver card animation
     _driverCardAnimation = Tween<Offset>(
       begin: const Offset(0, -1.0),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _driverCardController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    // Create status card animation
+    _statusCardAnimation = Tween<Offset>(
+      begin: const Offset(0, -1.0),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _statusCardController,
       curve: Curves.easeOutCubic,
     ));
 
@@ -94,6 +120,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   void dispose() {
     _slideController.dispose();
     _driverCardController.dispose();
+    _statusCardController.dispose();
     for (var controller in _cardControllers) {
       controller.dispose();
     }
@@ -154,6 +181,71 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
+  // Get color based on order status
+  Color _getStatusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+      case OrderStatus.driverAssigned:
+      case OrderStatus.driverHeadingToStore:
+        return Colors.blue;
+      case OrderStatus.driverAtStore:
+        return Colors.orange;
+      case OrderStatus.driverHeadingToCustomer:
+      case OrderStatus.driverArrived:
+        return Colors.purple;
+      case OrderStatus.completed:
+        return Colors.green;
+      case OrderStatus.cancelled:
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  // Get text representation of order status
+  String _getStatusText(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return "Menunggu";
+      case OrderStatus.driverAssigned:
+      case OrderStatus.driverHeadingToStore:
+        return "Di Proses";
+      case OrderStatus.driverAtStore:
+        return "Di Jemput";
+      case OrderStatus.driverHeadingToCustomer:
+      case OrderStatus.driverArrived:
+        return "Di Antar";
+      case OrderStatus.completed:
+        return "Selesai";
+      case OrderStatus.cancelled:
+        return "Dibatalkan";
+      default:
+        return "Unknown";
+    }
+  }
+
+  // Get current status index for timeline visualization
+  int _getCurrentStatusIndex(OrderStatus currentStatus) {
+    int currentStatusIndex = 0;
+
+    for (int i = 0; i < _statusTimeline.length; i++) {
+      if (_statusTimeline[i]['status'] == currentStatus) {
+        currentStatusIndex = i;
+        break;
+      }
+    }
+
+    // Handle special cases
+    if (currentStatus == OrderStatus.driverArrived) {
+      currentStatusIndex = 2; // Same as driverHeadingToCustomer but complete
+    } else if (currentStatus == OrderStatus.pending ||
+        currentStatus == OrderStatus.driverAssigned) {
+      currentStatusIndex = 0; // At the beginning
+    }
+
+    return currentStatusIndex;
+  }
+
   Future<void> _showOrderSuccess() async {
     await showDialog(
       context: context,
@@ -207,6 +299,25 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
     setState(() {
       _orderCreated = true;
+    });
+
+    // Start status card animation
+    _statusCardController.forward();
+
+    // Simulate status change to "Di Antar" after some time (for demo purposes)
+    Future.delayed(const Duration(seconds: 10), () {
+      if (mounted && _createdOrder != null) {
+        setState(() {
+          _createdOrder = _createdOrder!.copyWith(
+            status: OrderStatus.driverHeadingToCustomer,
+            tracking: _createdOrder!.tracking?.copyWith(
+              status: OrderStatus.driverHeadingToCustomer,
+              statusMessage: "Driver sedang menuju ke lokasi Anda",
+            ),
+          );
+          _showTrackButton = true;
+        });
+      }
     });
   }
 
@@ -277,7 +388,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     if (_createdOrder != null) {
       _createdOrder = _createdOrder!.copyWith(
         status: OrderStatus.driverAssigned,
-        tracking: Tracking.sample(),
+        tracking: Tracking.sample().copyWith(
+          status: OrderStatus.driverHeadingToStore,
+          statusMessage: "Driver sedang menuju ke toko",
+        ),
       );
     }
 
@@ -412,6 +526,344 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildStatusCard() {
+    if (_createdOrder == null || _createdOrder!.tracking == null) return const SizedBox();
+
+    // Get current status index
+    final currentStatus = _createdOrder!.tracking!.status;
+    final int currentStatusIndex = _getCurrentStatusIndex(currentStatus);
+
+    return SlideTransition(
+      position: _statusCardAnimation,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.timeline, color: Colors.blue),
+                const SizedBox(width: 8),
+                Text(
+                  'Status Pesanan',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: List.generate(_statusTimeline.length, (index) {
+                final isActive = index <= currentStatusIndex;
+                final isLast = index == _statusTimeline.length - 1;
+
+                return Expanded(
+                  child: Row(
+                    children: [
+                      Column(
+                        children: [
+                          Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: isActive ? _statusTimeline[index]['color'] : Colors.grey[300],
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              _statusTimeline[index]['icon'],
+                              color: Colors.white,
+                              size: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _statusTimeline[index]['label'],
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isActive ? _statusTimeline[index]['color'] : Colors.grey,
+                              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (!isLast)
+                        Expanded(
+                          child: Container(
+                            height: 2,
+                            color: index < currentStatusIndex ? _statusTimeline[index]['color'] : Colors.grey[300],
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              decoration: BoxDecoration(
+                color: _getStatusColor(currentStatus).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _createdOrder!.tracking!.statusMessage,
+                style: TextStyle(
+                  color: _getStatusColor(currentStatus),
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            if (_showTrackButton)
+              Padding(
+                padding: const EdgeInsets.only(top: 12.0),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _navigateToTrackOrder,
+                    icon: const Icon(Icons.location_on, color: Colors.white, size: 18),
+                    label: const Text(
+                      'Lacak Pesanan',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+            // Build status timeline widget integrated into cart screen
+            Widget _buildStatusTimeline(Tracking tracking) {
+        // Get current status index
+        int currentStatusIndex = _getCurrentStatusIndex(tracking.status);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timeline, color: Colors.blue),
+              const SizedBox(width: 8),
+              Text(
+                'Status Pesanan',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: List.generate(_statusTimeline.length, (index) {
+              final isActive = index <= currentStatusIndex;
+              final isLast = index == _statusTimeline.length - 1;
+
+              return Expanded(
+                child: Row(
+                  children: [
+                    Column(
+                      children: [
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? _statusTimeline[index]['color']
+                                : Colors.grey[300],
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _statusTimeline[index]['icon'],
+                            color: Colors.white,
+                            size: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _statusTimeline[index]['label'],
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isActive
+                                ? _statusTimeline[index]['color']
+                                : Colors.grey,
+                            fontWeight: isActive ? FontWeight.bold : FontWeight
+                                .normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (!isLast)
+                      Expanded(
+                        child: Container(
+                          height: 2,
+                          color: index < currentStatusIndex
+                              ? _statusTimeline[index]['color']
+                              : Colors.grey[300],
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            decoration: BoxDecoration(
+              color: _getStatusColor(tracking.status).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              tracking.statusMessage,
+              style: TextStyle(
+                color: _getStatusColor(tracking.status),
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          if (_showTrackButton ||
+              tracking.status == OrderStatus.driverHeadingToCustomer ||
+              tracking.status == OrderStatus.driverArrived)
+            Padding(
+              padding: const EdgeInsets.only(top: 12.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _navigateToTrackOrder,
+                  icon: const Icon(
+                      Icons.location_on, color: Colors.white, size: 18),
+                  label: const Text(
+                    'Lacak Pesanan',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // Payment row helper
+  Widget _buildPaymentRow(String label, double amount, {bool isTotal = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: isTotal ? Colors.black : Colors.grey[600],
+            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+            fontSize: isTotal ? 16 : 14,
+          ),
+        ),
+        Text(
+          'Rp ${amount.toStringAsFixed(0)}',
+          style: TextStyle(
+            color: isTotal ? GlobalStyle.primaryColor : Colors.black,
+            fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
+            fontSize: isTotal ? 16 : 14,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _simulateStatusUpdates() async {
+    if (_createdOrder == null) return;
+
+    // First status update: Driver assigned and heading to store
+    setState(() {
+      _createdOrder = _createdOrder!.copyWith(
+        status: OrderStatus.driverAssigned,
+        tracking: Tracking.sample().copyWith(
+          status: OrderStatus.driverHeadingToStore,
+          statusMessage: "Driver sedang menuju ke toko",
+        ),
+      );
+    });
+
+    // After 5 seconds, update to driver at store
+    await Future.delayed(const Duration(seconds: 5));
+    if (mounted && _createdOrder != null) {
+      setState(() {
+        _createdOrder = _createdOrder!.copyWith(
+          status: OrderStatus.driverAtStore,
+          tracking: _createdOrder!.tracking?.copyWith(
+            status: OrderStatus.driverAtStore,
+            statusMessage: "Driver sedang mengambil pesanan Anda",
+          ),
+        );
+      });
+    }
+
+    // After 5 more seconds, update to driver heading to customer
+    await Future.delayed(const Duration(seconds: 5));
+    if (mounted && _createdOrder != null) {
+      setState(() {
+        _createdOrder = _createdOrder!.copyWith(
+          status: OrderStatus.driverHeadingToCustomer,
+          tracking: _createdOrder!.tracking?.copyWith(
+            status: OrderStatus.driverHeadingToCustomer,
+            statusMessage: "Driver sedang menuju ke lokasi Anda",
+          ),
+        );
+        _showTrackButton = true;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -433,7 +885,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               shape: BoxShape.circle,
               border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
             ),
-            child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+            child: Icon(
+                Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor,
+                size: 18),
           ),
           onPressed: () => Navigator.pop(context),
         ),
@@ -454,7 +908,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.location_on, color: GlobalStyle.primaryColor),
+                          Icon(Icons.location_on, color: GlobalStyle
+                              .primaryColor),
                           const SizedBox(width: 8),
                           Text(
                             'Alamat Pengiriman',
@@ -470,7 +925,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       _deliveryAddress == null
                           ? ElevatedButton.icon(
                         onPressed: _handleLocationAccess,
-                        icon: const Icon(Icons.location_on, color: Colors.white, size: 18),
+                        icon: const Icon(
+                            Icons.location_on, color: Colors.white, size: 18),
                         label: const Text(
                           'Izinkan akses lokasi',
                           style: TextStyle(color: Colors.white, fontSize: 12),
@@ -480,7 +936,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(24),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
                         ),
                       )
                           : Container(
@@ -514,6 +971,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 ),
               ),
 
+              // Status card (visible only when order is created)
+              if (_orderCreated) _buildStatusCard(),
+
               // Driver information card (visible only when driver is found)
               if (_driverFound) _buildDriverCard(),
 
@@ -541,63 +1001,68 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       const SizedBox(height: 16),
                       ...widget.cartItems
                           .where((item) => item.quantity > 0)
-                          .map((item) => Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: GlobalStyle.borderColor),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.asset(
-                                item.imageUrl ?? 'assets/images/menu_item.jpg',
-                                width: 60,
-                                height: 60,
-                                fit: BoxFit.cover,
-                              ),
+                          .map((item) =>
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                  color: GlobalStyle.borderColor),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.name,
-                                    style: const TextStyle(
+                            child: Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.asset(
+                                    item.imageUrl ??
+                                        'assets/images/menu_item.jpg',
+                                    width: 60,
+                                    height: 60,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment
+                                        .start,
+                                    children: [
+                                      Text(
+                                        item.name,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Rp ${item.price.toStringAsFixed(0)}',
+                                        style: TextStyle(
+                                          color: GlobalStyle.primaryColor,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: GlobalStyle.lightColor,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    'x${item.quantity}',
+                                    style: TextStyle(
+                                      color: GlobalStyle.primaryColor,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Rp ${item.price.toStringAsFixed(0)}',
-                                    style: TextStyle(
-                                      color: GlobalStyle.primaryColor,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: GlobalStyle.lightColor,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Text(
-                                'x${item.quantity}',
-                                style: TextStyle(
-                                  color: GlobalStyle.primaryColor,
-                                  fontWeight: FontWeight.w600,
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ))
+                          ))
                           .toList(),
                     ],
                   ),
@@ -637,7 +1102,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                         padding: EdgeInsets.symmetric(vertical: 12),
                         child: Divider(),
                       ),
-                      _buildPaymentRow('Total Pembayaran', total, isTotal: true),
+                      _buildPaymentRow(
+                          'Total Pembayaran', total, isTotal: true),
                       const SizedBox(height: 12),
                       const Row(
                         children: [
@@ -675,54 +1141,34 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         child: ElevatedButton(
           onPressed: _searchingDriver
               ? null
-              : (_orderCreated
+              : (_orderCreated && _showTrackButton
               ? _navigateToTrackOrder
-              : _searchDriver),
+              : (_orderCreated ? null : _searchDriver)),
           style: ElevatedButton.styleFrom(
             backgroundColor: GlobalStyle.primaryColor,
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(24),
             ),
-            disabledBackgroundColor: Colors.grey,
+            disabledBackgroundColor: _orderCreated && !_showTrackButton ? Colors
+                .grey[300] : Colors.grey,
           ),
           child: Text(
             _searchingDriver
                 ? 'Mencari Driver...'
-                : (_orderCreated
+                : (_orderCreated && _showTrackButton
                 ? 'Lacak Pesanan'
-                : 'Buat Pesanan'),
-            style: const TextStyle(
+                : (_orderCreated ? 'Pesanan Diproses' : 'Buat Pesanan')),
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: _orderCreated && !_showTrackButton
+                  ? Colors.grey[700]
+                  : Colors.white,
             ),
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildPaymentRow(String label, double amount, {bool isTotal = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            fontSize: isTotal ? 16 : 14,
-          ),
-        ),
-        Text(
-          'Rp ${amount.toStringAsFixed(0)}',
-          style: TextStyle(
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            fontSize: isTotal ? 16 : 14,
-            color: isTotal ? GlobalStyle.primaryColor : Colors.black,
-          ),
-        ),
-      ],
     );
   }
 }

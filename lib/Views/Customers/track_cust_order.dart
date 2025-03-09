@@ -117,7 +117,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       // Update tracking with new position
       setState(() {
         _tracking = _tracking.copyWith(
-          driverPosition: Position(newLng, newLat),
+          driverPosition: Position(newLng, newLat), statusMessage: '',
         );
       });
 
@@ -128,18 +128,18 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       if ((newLng - targetLng).abs() < 0.0005 && (newLat - targetLat).abs() < 0.0005) {
         if (_tracking.status == OrderStatus.driverHeadingToCustomer) {
           setState(() {
-            _tracking = _tracking.copyWith(status: OrderStatus.driverArrived);
+            _tracking = _tracking.copyWith(status: OrderStatus.driverArrived, statusMessage: '');
           });
         } else if (_tracking.status == OrderStatus.driverHeadingToStore) {
           setState(() {
-            _tracking = _tracking.copyWith(status: OrderStatus.driverAtStore);
+            _tracking = _tracking.copyWith(status: OrderStatus.driverAtStore, statusMessage: '');
           });
 
           // After a delay, simulate driver leaving store to customer
           Future.delayed(const Duration(seconds: 5), () {
             if (mounted) {
               setState(() {
-                _tracking = _tracking.copyWith(status: OrderStatus.driverHeadingToCustomer);
+                _tracking = _tracking.copyWith(status: OrderStatus.driverHeadingToCustomer, statusMessage: '');
               });
             }
           });
@@ -289,7 +289,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                               ),
                               onPressed: () {
                                 setState(() {
-                                  _tracking = _tracking.copyWith(status: OrderStatus.completed);
+                                  _tracking = _tracking.copyWith(status: OrderStatus.completed, statusMessage: '');
                                 });
 
                                 // Navigate to history detail page
@@ -327,7 +327,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   Widget _buildStatusTimeline() {
     // Status timeline
     final List<Map<String, dynamic>> _statusTimeline = [
-      {'status': OrderStatus.driverHeadingToStore, 'label': 'Di Proses Toko', 'icon': Icons.store_outlined, 'color': Colors.blue},
+      {'status': OrderStatus.driverHeadingToStore, 'label': 'Di Proses', 'icon': Icons.store_outlined, 'color': Colors.blue},
       {'status': OrderStatus.driverAtStore, 'label': 'Di Jemput', 'icon': Icons.delivery_dining_outlined, 'color': Colors.orange},
       {'status': OrderStatus.driverHeadingToCustomer, 'label': 'Di Antar', 'icon': Icons.directions_bike_outlined, 'color': Colors.purple},
       {'status': OrderStatus.completed, 'label': 'Selesai', 'icon': Icons.check_circle_outline, 'color': Colors.green},

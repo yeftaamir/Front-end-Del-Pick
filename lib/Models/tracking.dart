@@ -11,6 +11,7 @@ class Tracking {
   final List<Position> routeCoordinates;
   final OrderStatus status;
   final DateTime estimatedArrival;
+  final String? customStatusMessage; // Added optional custom status message parameter
 
   // Add these getters to access driver properties directly from Tracking
   String get driverImageUrl => driver.profileImageUrl ?? '';
@@ -26,6 +27,7 @@ class Tracking {
     required this.routeCoordinates,
     required this.status,
     required this.estimatedArrival,
+    this.customStatusMessage, // Added to constructor
   });
 
   factory Tracking.sample() {
@@ -55,6 +57,7 @@ class Tracking {
     List<Position>? routeCoordinates,
     OrderStatus? status,
     DateTime? estimatedArrival,
+    String? customStatusMessage, required String statusMessage,
   }) {
     return Tracking(
       orderId: orderId ?? this.orderId,
@@ -65,6 +68,7 @@ class Tracking {
       routeCoordinates: routeCoordinates ?? this.routeCoordinates,
       status: status ?? this.status,
       estimatedArrival: estimatedArrival ?? this.estimatedArrival,
+      customStatusMessage: customStatusMessage ?? this.customStatusMessage,
     );
   }
 
@@ -93,6 +97,7 @@ class Tracking {
         orElse: () => OrderStatus.pending,
       ),
       estimatedArrival: DateTime.parse(json['estimatedArrival'] as String),
+      customStatusMessage: json['customStatusMessage'] as String?,
     );
   }
 
@@ -119,11 +124,18 @@ class Tracking {
       }).toList(),
       'status': status.toString().split('.').last,
       'estimatedArrival': estimatedArrival.toIso8601String(),
+      if (customStatusMessage != null) 'customStatusMessage': customStatusMessage,
     };
   }
 
   // Get the status message based on current order status
   String get statusMessage {
+    // Return custom status message if it exists
+    if (customStatusMessage != null) {
+      return customStatusMessage!;
+    }
+
+    // Otherwise return the default message based on status
     switch (status) {
       case OrderStatus.pending:
         return 'Menunggu konfirmasi pesanan';
