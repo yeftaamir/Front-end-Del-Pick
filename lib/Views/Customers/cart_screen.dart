@@ -5,10 +5,10 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/location_access.dart';
 import 'package:del_pick/Views/Customers/track_cust_order.dart';
-import 'package:del_pick/Models/item_model.dart'; // Import Item model
-import 'package:del_pick/Models/store.dart'; // Import StoreModel
-import 'package:del_pick/Models/tracking.dart'; // Import Tracking
-import 'package:del_pick/Models/order.dart'; // Import Order model
+import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/Models/tracking.dart';
+import 'package:del_pick/Models/order.dart';
 
 class CartScreen extends StatefulWidget {
   static const String route = "/Customers/Cart";

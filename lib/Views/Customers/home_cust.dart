@@ -3,8 +3,6 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Customers/profile_cust.dart';
 import 'package:del_pick/Views/Customers/store_detail.dart';
-import 'package:del_pick/Views/Customers/profile_cust.dart';
-import 'package:del_pick/Views/Customers/history_cust.dart';
 import '../Component/cust_bottom_navigation.dart';
 
 class Store {
