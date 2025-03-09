@@ -5,7 +5,6 @@ import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';
-import 'package:del_pick/Models/customer.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Driver/history_driver_detail.dart';
 import 'home_driver.dart';

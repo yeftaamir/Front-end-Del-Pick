@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
-import 'package:del_pick/Models/driver.dart'; // Import the Driver model
+import 'package:del_pick/Models/driver.dart';
 
 class ProfileDriverPage extends StatelessWidget {
   static const String route = "/Driver/Profile";
