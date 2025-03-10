@@ -26,17 +26,17 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   final List<Map<String, dynamic>> statusOptions = [
     {
       'value': 'assigned',
-      'label': 'Assigned',
+      'label': 'Terima Pesanan',
       'color': Colors.blue,
     },
     {
       'value': 'picking_up',
-      'label': 'Menjemput',
+      'label': 'Di Ambil',
       'color': Colors.orange,
     },
     {
       'value': 'delivering',
-      'label': 'Mengantar',
+      'label': 'Di Antar',
       'color': Colors.purple,
     },
     {
@@ -828,7 +828,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                 ),
               ),
               child: const Text(
-                'PICKUP ORDER',
+                'Ambil Pesanan',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                 ),
@@ -884,7 +884,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                 ),
               ),
               child: const Text(
-                'Lihat Pelacakan',
+                'Lihat Rute',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                 ),

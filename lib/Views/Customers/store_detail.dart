@@ -593,7 +593,7 @@ class _StoreDetailState extends State<StoreDetail> {
             // "Tambah" button positioned on the right, overlapping the image
             Positioned(
               bottom: 10,
-              right: 30,
+              right: 20,
               child: SizedBox(
                 height: 30,
                 width: 90,
