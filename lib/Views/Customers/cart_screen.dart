@@ -35,7 +35,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   // Status timeline definition
   final List<Map<String, dynamic>> _statusTimeline = [
     {'status': OrderStatus.driverHeadingToStore, 'label': 'Di Proses', 'icon': Icons.store_outlined, 'color': Colors.blue},
-    {'status': OrderStatus.driverAtStore, 'label': 'Di Jemput', 'icon': Icons.delivery_dining_outlined, 'color': Colors.orange},
+    {'status': OrderStatus.driverAtStore, 'label': 'Di Ambil', 'icon': Icons.delivery_dining_outlined, 'color': Colors.orange},
     {'status': OrderStatus.driverHeadingToCustomer, 'label': 'Di Antar', 'icon': Icons.directions_bike_outlined, 'color': Colors.purple},
     {'status': OrderStatus.completed, 'label': 'Selesai', 'icon': Icons.check_circle_outline, 'color': Colors.green},
   ];

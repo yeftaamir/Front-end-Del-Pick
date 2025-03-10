@@ -599,7 +599,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                   widget.orderDetail['status'] = 'rejected';
                 });
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Order rejected')),
+                  const SnackBar(content: Text('Pesanan Ditolak')),
                 );
               },
               style: IconButton.styleFrom(
@@ -619,7 +619,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                   ),
                 ),
                 child: const Text(
-                  'TERIMA',
+                  'Di Proses',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -640,7 +640,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     widget.orderDetail['status'] = 'picked_up';
                   });
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Order marked as picked up')),
+                    const SnackBar(content: Text('Di Jemput Driver')),
                   );
                 },
                 style: ElevatedButton.styleFrom(
@@ -651,7 +651,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                   ),
                 ),
                 child: const Text(
-                  'MARK AS PICKED UP',
+                  'Di Jemput Driver',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -681,7 +681,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                   ),
                 ),
                 child: const Text(
-                  'COMPLETE ORDER',
+                  'Selesai',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
