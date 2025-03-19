@@ -1,0 +1,2 @@
+D:/TA/frontend_delpick/Front-end-Del-Pick/android/app/.cxx/Debug/3y5e4a3t/armeabi-v7a/CMakeFiles/edit_cache.dir
+D:/TA/frontend_delpick/Front-end-Del-Pick/android/app/.cxx/Debug/3y5e4a3t/armeabi-v7a/CMakeFiles/rebuild_cache.dir

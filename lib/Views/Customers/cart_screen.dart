@@ -658,10 +658,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-            // Build status timeline widget integrated into cart screen
-            Widget _buildStatusTimeline(Tracking tracking) {
-        // Get current status index
-        int currentStatusIndex = _getCurrentStatusIndex(tracking.status);
+  // Build status timeline widget integrated into cart screen
+  Widget _buildStatusTimeline(Tracking tracking) {
+    // Get current status index
+    int currentStatusIndex = _getCurrentStatusIndex(tracking.status);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -867,7 +867,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xffD6E6F2),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0.5,

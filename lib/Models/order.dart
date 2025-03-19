@@ -45,6 +45,24 @@ class Order {
     return subtotal + serviceCharge;
   }
 
+  // Add formatting methods for price display
+  String formatSubtotal() {
+    return 'Rp${subtotal.toStringAsFixed(0)}';
+  }
+
+  String formatDeliveryFee() {
+    return 'Rp${serviceCharge.toStringAsFixed(0)}';
+  }
+
+  String formatTax() {
+    // Assuming tax is 0 or included in the service charge as per requirements
+    return 'Rp0';
+  }
+
+  String formatTotal() {
+    return 'Rp${total.toStringAsFixed(0)}';
+  }
+
   // Create a copy of this order with updated values
   Order copyWith({
     String? id,

@@ -1,5 +1,7 @@
 import 'package:del_pick/Common/global_style.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'connectivity_service.dart';
 
 class Login extends StatefulWidget {
   static const String route = "/Controls/Login";
@@ -11,11 +13,24 @@ class Login extends StatefulWidget {
 }
 
 class LoginState extends State<Login> {
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
   bool obscurePassword = true;
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
 
   void _showRoleSelectionDialog() {
+    // Periksa koneksi dari ConnectivityService
+    final connectivityService = Provider.of<ConnectivityService>(context, listen: false);
+    if (!connectivityService.isConnected) {
+      return; // Tidak perlu menampilkan dialog, karena overlay akan muncul otomatis
+    }
+
     showDialog(
       context: context,
       builder: (BuildContext context) {

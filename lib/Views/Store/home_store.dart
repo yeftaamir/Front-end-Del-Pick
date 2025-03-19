@@ -363,7 +363,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     final orders = filteredOrders;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xffD6E6F2),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16.0),

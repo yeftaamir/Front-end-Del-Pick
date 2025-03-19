@@ -148,7 +148,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: const Color(0xffD6E6F2),
       appBar: AppBar(
         title: const Text(
           'Tambah Item',

@@ -7,6 +7,7 @@ class Item {
   final String imageUrl;
   final bool isAvailable;
   final String status;
+  final String? notes; // Added notes field
 
   Item({
     required this.id,
@@ -17,6 +18,7 @@ class Item {
     required this.imageUrl,
     required this.isAvailable,
     required this.status,
+    this.notes,
   });
 
   Item copyWith({
@@ -28,6 +30,7 @@ class Item {
     String? imageUrl,
     bool? isAvailable,
     String? status,
+    String? notes,
   }) {
     return Item(
       id: id ?? this.id,
@@ -38,6 +41,18 @@ class Item {
       imageUrl: imageUrl ?? this.imageUrl,
       isAvailable: isAvailable ?? this.isAvailable,
       status: status ?? this.status,
+      notes: notes ?? this.notes,
     );
+  }
+
+  // Format price (single item price)
+  String formatPrice() {
+    return 'Rp ${price.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}';
+  }
+
+  // Format total price (price × quantity)
+  String formatTotalPrice() {
+    double totalPrice = price * quantity;
+    return 'Rp ${totalPrice.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}';
   }
 }
