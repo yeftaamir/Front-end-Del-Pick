@@ -470,98 +470,98 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
 
   Widget _buildStoreInfoCard() {
     return _buildCard(
-        index: 1,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-          Row(
+      index: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          Icon(Icons.store, color: GlobalStyle.primaryColor),
-          const SizedBox(width: 8),
-          const Text(
-            'Informasi Toko',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+            Row(
+              children: [
+                Icon(Icons.store, color: GlobalStyle.primaryColor),
+                const SizedBox(width: 8),
+                const Text(
+                  'Informasi Toko',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
-          ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Container(
-        padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            border: Border.all(color: GlobalStyle.borderColor),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  widget.orderDetail['storeImage'] ?? '',
-                  width: 60,
-                  height: 60,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: GlobalStyle.borderColor),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      widget.orderDetail['storeImage'] ?? '',
                       width: 60,
                       height: 60,
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.store),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.orderDetail['storeName'] ?? 'Toko',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          width: 60,
+                          height: 60,
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.store),
+                        );
+                      },
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.orderDetail['storeAddress'] ?? '',
-                      style: TextStyle(
-                        color: GlobalStyle.fontColor,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          Icons.phone,
-                          size: 14,
-                          color: Colors.grey[600],
-                        ),
-                        const SizedBox(width: 4),
                         Text(
-                          widget.orderDetail['storePhone'] ?? '',
+                          widget.orderDetail['storeName'] ?? 'Toko',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          widget.orderDetail['storeAddress'] ?? '',
                           style: TextStyle(
-                            color: Colors.grey[600],
+                            color: GlobalStyle.fontColor,
                             fontSize: 14,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.phone,
+                              size: 14,
+                              color: Colors.grey[600],
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              widget.orderDetail['storePhone'] ?? '',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-              ],
-          ),
-        ),
+      ),
     );
   }
 
@@ -901,7 +901,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xffD6E6F2),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0.5,

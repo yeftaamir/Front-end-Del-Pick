@@ -6,9 +6,8 @@ plugins {
 
 android {
     namespace = "com.example.del_pick"
-    compileSdk = 34
-    ndkVersion = flutter.ndkVersion
-    ndkVersion "21.4.7075529"
+    compileSdk = 35
+    ndkVersion "25.1.8937393"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8

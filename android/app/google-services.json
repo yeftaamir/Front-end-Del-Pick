@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "1030982139099",
+    "firebase_url": "https://del-pick-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "del-pick",
+    "storage_bucket": "del-pick.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1030982139099:android:1517db356c105e4b0ae0fe",
+        "android_client_info": {
+          "package_name": "com.delpick"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGxZCPfK5mVPN_zPg6WFmHu9pm9wpN58s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

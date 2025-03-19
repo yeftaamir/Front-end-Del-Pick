@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:del_pick/Common/global_style.dart';
+import 'package:provider/provider.dart';
+
+// Import connectivity services
+import 'package:del_pick/Views/Controls/connectivity_service.dart';
+import 'package:del_pick/Views/Controls/internet_connectivity_wrapper.dart';
 
 // Import models
 import 'package:del_pick/Models/store.dart';
@@ -56,8 +61,15 @@ Future<void> main() async {
     MapboxOptions.setAccessToken(mapboxToken);
     print("Mapbox token set successfully");
 
-    // Run the app
-    runApp(const MyApp());
+    // Run the app with Provider for connectivity service
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => ConnectivityService()),
+        ],
+        child: const MyApp(),
+      ),
+    );
   } catch (e, stackTrace) {
     print('Error initializing app: $e');
     print('Stack trace: $stackTrace');
@@ -175,61 +187,70 @@ class MyApp extends StatelessWidget {
 
     return {
       // Add splash screen route
-      '/': (context) => const SplashScreen(),
+      '/': (context) => const InternetConnectivityWrapper(child: SplashScreen()),
 
       // Control routes
-      Login.route: (context) => const Login(),
+      Login.route: (context) => const InternetConnectivityWrapper(child: Login()),
 
       // Customer routes
-      HomePage.route: (context) => const HomePage(),
-      StoreDetail.route: (context) => const StoreDetail(),
-      ProfilePage.route: (context) => ProfilePage(customer: demoCustomer),
-      HistoryCustomer.route: (context) => const HistoryCustomer(),
-      CartScreen.route: (context) => const CartScreen(cartItems: []),
-      LocationAccessScreen.route: (context) => LocationAccessScreen(
-        onLocationSelected: (String location) {
-          print('Selected location: $location');
-          Navigator.pop(context);
-        },
+      HomePage.route: (context) => const InternetConnectivityWrapper(child: HomePage()),
+      StoreDetail.route: (context) => const InternetConnectivityWrapper(child: StoreDetail()),
+      ProfilePage.route: (context) => InternetConnectivityWrapper(child: ProfilePage(customer: demoCustomer)),
+      HistoryCustomer.route: (context) => const InternetConnectivityWrapper(child: HistoryCustomer()),
+      CartScreen.route: (context) => const InternetConnectivityWrapper(child: CartScreen(cartItems: [])),
+      LocationAccessScreen.route: (context) => InternetConnectivityWrapper(
+        child: LocationAccessScreen(
+          onLocationSelected: (String location) {
+            print('Selected location: $location');
+            Navigator.pop(context);
+          },
+        ),
       ),
-      TrackCustOrderScreen.route: (context) => const TrackCustOrderScreen(),
+      TrackCustOrderScreen.route: (context) => const InternetConnectivityWrapper(child: TrackCustOrderScreen()),
       // Updated HistoryDetailPage route to use Order model
-      HistoryDetailPage.route: (context) => HistoryDetailPage(order: sampleOrder),
-      RatingCustomerPage.route: (context) => const RatingCustomerPage(
-        storeName: 'Store Name',
-        driverName: 'Driver Name',
-        vehicleNumber: 'B 1234 ABC',
-        orderItems: [],
+      HistoryDetailPage.route: (context) => InternetConnectivityWrapper(child: HistoryDetailPage(order: sampleOrder)),
+      RatingCustomerPage.route: (context) => const InternetConnectivityWrapper(
+        child: RatingCustomerPage(
+          storeName: 'Store Name',
+          driverName: 'Driver Name',
+          vehicleNumber: 'B 1234 ABC',
+          orderItems: [],
+        ),
       ),
 
       // Admin routes
-      '/Admin/HomePage': (context) => const Scaffold(
-        body: Center(child: Text('Admin Home Page - To be implemented')),
+      '/Admin/HomePage': (context) => const InternetConnectivityWrapper(
+        child: Scaffold(
+          body: Center(child: Text('Admin Home Page - To be implemented')),
+        ),
       ),
 
       // Driver routes
-      HomeDriverPage.route: (context) => const HomeDriverPage(),
-      HistoryDriverPage.route: (context) => const HistoryDriverPage(),
+      HomeDriverPage.route: (context) => const InternetConnectivityWrapper(child: HomeDriverPage()),
+      HistoryDriverPage.route: (context) => const InternetConnectivityWrapper(child: HistoryDriverPage()),
       // Updated HistoryDriverDetailPage to pass orderDetail parameter instead of order
-      HistoryDriverDetailPage.route: (context) => HistoryDriverDetailPage(orderDetail: sampleOrderDetail),
-
-      ProfileDriverPage.route: (context) => ProfileDriverPage(driver: demoDriver),
+      HistoryDriverDetailPage.route: (context) => InternetConnectivityWrapper(
+        child: HistoryDriverDetailPage(orderDetail: sampleOrderDetail),
+      ),
+      ProfileDriverPage.route: (context) => InternetConnectivityWrapper(child: ProfileDriverPage(driver: demoDriver)),
 
       // Store routes
-      '/Store/HomePage': (context) => const HomeStore(),
-      '/Store/AddItem': (context) => const AddItemPage(),
-      HistoryStorePage.route: (context) => const HistoryStorePage(),
+      '/Store/HomePage': (context) => const InternetConnectivityWrapper(child: HomeStore()),
+      '/Store/AddItem': (context) => const InternetConnectivityWrapper(child: AddItemPage()),
+      HistoryStorePage.route: (context) => const InternetConnectivityWrapper(child: HistoryStorePage()),
       // Updated HistoryStoreDetailPage with an example order detail
-      HistoryStoreDetailPage.route: (context) => const HistoryStoreDetailPage(
-        orderDetail: {
-          'customerName': 'Customer Name',
-          'date': '2022-01-01T00:00:00.000Z',
-          'status': 'Delivered',
-          'amount': 100000,
-          'icon': 'https://via.placeholder.com/150',
-        },
+      HistoryStoreDetailPage.route: (context) => const InternetConnectivityWrapper(
+        child: HistoryStoreDetailPage(
+          orderDetail: {
+            'customerName': 'Customer Name',
+            'date': '2022-01-01T00:00:00.000Z',
+            'status': 'Delivered',
+            'amount': 100000,
+            'icon': 'https://via.placeholder.com/150',
+          },
+        ),
       ),
-      AddEditItemForm.route: (context) => const AddEditItemForm(),
+      AddEditItemForm.route: (context) => const InternetConnectivityWrapper(child: AddEditItemForm()),
       // Updated ProfileStorePage route to use a temporary dummy store for initialization
       ProfileStorePage.route: (context) {
         // Create a dummy store for initialization
@@ -244,7 +265,7 @@ class MyApp extends StatelessWidget {
           description: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
         );
 
-        return ProfileStorePage(store: dummyStore);
+        return InternetConnectivityWrapper(child: ProfileStorePage(store: dummyStore));
       },
     };
   }
@@ -257,6 +278,11 @@ class MyApp extends StatelessWidget {
       theme: _buildTheme(),
       initialRoute: '/', // Changed to start with splash screen
       routes: _buildRoutes(),
+      // Wrap root level with InternetConnectivityWrapper (optional since we wrapped each route)
+      builder: (context, child) {
+        // Additional builder could be applied here if needed
+        return child!;
+      },
     );
   }
 }

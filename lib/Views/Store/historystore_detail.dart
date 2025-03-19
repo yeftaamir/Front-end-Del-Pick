@@ -458,108 +458,108 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
 
     return _buildCard(
-        index: 3,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-          Row(
+      index: 3,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          Icon(Icons.shopping_bag, color: GlobalStyle.primaryColor),
-          const SizedBox(width: 8),
-          Text(
-            'Detail Pesanan',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              fontFamily: GlobalStyle.fontFamily,
+            Row(
+              children: [
+                Icon(Icons.shopping_bag, color: GlobalStyle.primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  'Detail Pesanan',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
             ),
-          ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        ...items.map((item) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          border: Border.all(color: GlobalStyle.borderColor),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-            children: [
-        ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.network(
-        item['image']?.toString() ?? '',
-    width: 60,
-    height: 60,
-    fit: BoxFit.cover,
-    errorBuilder: (context, error, stackTrace) {
-    return Container(
-    width: 60,
-    height: 60,
-    color: Colors.grey[300],
-    child: const Icon(Icons.error),
-    );
-    },
-        ),
-        ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item['name']?.toString() ?? '',
-                      style: const TextStyle(
+            const SizedBox(height: 16),
+            ...items.map((item) => Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                border: Border.all(color: GlobalStyle.borderColor),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      item['image']?.toString() ?? '',
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          width: 60,
+                          height: 60,
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.error),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item['name']?.toString() ?? '',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Rp. ${item['price']?.toString() ?? '0'}',
+                          style: TextStyle(
+                            color: GlobalStyle.primaryColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: GlobalStyle.lightColor,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      'x${item['quantity']?.toString() ?? '0'}',
+                      style: TextStyle(
+                        color: GlobalStyle.primaryColor,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Rp. ${item['price']?.toString() ?? '0'}',
-                      style: TextStyle(
-                        color: GlobalStyle.primaryColor,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: GlobalStyle.lightColor,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  'x${item['quantity']?.toString() ?? '0'}',
-                  style: TextStyle(
-                    color: GlobalStyle.primaryColor,
-                    fontWeight: FontWeight.w600,
                   ),
-                ),
+                ],
               ),
-            ],
-        ),
-        )).toList(),
+            )).toList(),
 
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Divider(),
-                ),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Divider(),
+            ),
 
-                _buildPaymentRow('Biaya Layanan', double.tryParse(deliveryFee?.toString() ?? '0') ?? 0),
-                const SizedBox(height: 8),
-                _buildPaymentRow(
-                    'Total Pembayaran',
-                    double.tryParse(totalAmount?.toString() ?? '0') ?? 0,
-                    isTotal: true
-                ),
-              ],
-          ),
+            _buildPaymentRow('Biaya Layanan', double.tryParse(deliveryFee?.toString() ?? '0') ?? 0),
+            const SizedBox(height: 8),
+            _buildPaymentRow(
+                'Total Pembayaran',
+                double.tryParse(totalAmount?.toString() ?? '0') ?? 0,
+                isTotal: true
+            ),
+          ],
         ),
+      ),
     );
   }
 
@@ -699,7 +699,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xffD6E6F2),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0.5,

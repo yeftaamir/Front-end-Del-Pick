@@ -261,7 +261,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xffD6E6F2),
       appBar: AppBar(
         elevation: 0.5,
         backgroundColor: Colors.white,

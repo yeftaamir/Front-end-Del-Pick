@@ -42,11 +42,15 @@ dependencies:
   lottie: ^2.3.2
   geocoding: ^2.1.0
   image_picker: ^1.1.2
+  connectivity_plus: ^6.1.3
+  provider: ^6.0.5
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   lucide_icons: ^0.257.0
+  firebase_core: ^3.12.1
+  firebase_database: ^11.3.4
 
 dev_dependencies:
   flutter_test:
@@ -77,6 +81,7 @@ flutter:
     - assets/animations/check_animation.json
     - assets/images/delpick.png
     - assets/animations/loading_animation.json
+    - assets/animations/no_internet.json
 
 
   # The following line ensures that the Material Icons font is
