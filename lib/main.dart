@@ -15,6 +15,8 @@ import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/tracking.dart';
+import 'Views/Store/add_edit_items.dart' as add_edit_items;
+import 'Views/Store/add_item.dart' as add_item;
 
 // Import views
 import 'Views/Controls/login_page.dart';
@@ -236,8 +238,8 @@ class MyApp extends StatelessWidget {
 
       // Store routes
       '/Store/HomePage': (context) => const InternetConnectivityWrapper(child: HomeStore()),
-      '/Store/AddItem': (context) => const InternetConnectivityWrapper(child: AddItemPage()),
-      HistoryStorePage.route: (context) => const InternetConnectivityWrapper(child: HistoryStorePage()),
+      '/Store/AddItem': (context) => InternetConnectivityWrapper(child: add_item.AddItemPage()),
+      AddEditItemForm.route: (context) => const InternetConnectivityWrapper(child: AddEditItemForm()),
       // Updated HistoryStoreDetailPage with an example order detail
       HistoryStoreDetailPage.route: (context) => const InternetConnectivityWrapper(
         child: HistoryStoreDetailPage(
@@ -250,6 +252,7 @@ class MyApp extends StatelessWidget {
           },
         ),
       ),
+      HistoryStorePage.route: (context) => const InternetConnectivityWrapper(child: HistoryStorePage()),
       AddEditItemForm.route: (context) => const InternetConnectivityWrapper(child: AddEditItemForm()),
       // Updated ProfileStorePage route to use a temporary dummy store for initialization
       ProfileStorePage.route: (context) {

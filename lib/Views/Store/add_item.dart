@@ -1,5 +1,7 @@
 import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../../Common/global_style.dart';
 import '../../Models/item_model.dart';
 import '../Component/bottom_navigation.dart';
@@ -17,6 +19,7 @@ class AddItemPage extends StatefulWidget {
 class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStateMixin {
   int _currentIndex = 1;
   late AnimationController _controller;
+  final AudioPlayer _audioPlayer = AudioPlayer();
   final List<Item> _items = [
     Item(
       id: '1',
@@ -54,7 +57,12 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
   @override
   void dispose() {
     _controller.dispose();
+    _audioPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _playSound() async {
+    await _audioPlayer.play(AssetSource('audio/wrong.mp3'));
   }
 
   void _navigateToAddEditForm({Item? item}) async {
@@ -79,59 +87,224 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
     }
   }
 
-  void _toggleItemStatus(Item item) {
-    setState(() {
-      final index = _items.indexWhere((element) => element.id == item.id);
-      if (index != -1) {
-        // Hanya memungkinkan perubahan ke tersedia jika ada stok
-        if (!item.isAvailable && item.quantity > 0) {
+  void _toggleItemStatus(Item item) async {
+    if (item.isAvailable) {
+      // Jika item saat ini tersedia, maka akan menutup/nonaktifkan item
+      await _showClosingDialog(item);
+    } else if (!item.isAvailable && item.quantity > 0) {
+      // Jika item tidak tersedia tetapi ada stok, langsung aktifkan
+      setState(() {
+        final index = _items.indexWhere((element) => element.id == item.id);
+        if (index != -1) {
           _items[index] = item.copyWith(
               isAvailable: true,
               status: 'Available'
           );
-        } else if (item.isAvailable) {
+        }
+      });
+    } else {
+      // Jika stok 0 dan mencoba mengaktifkan, tampilkan pesan
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tidak dapat mengaktifkan produk tanpa stok.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _showClosingDialog(Item item) async {
+    await _playSound();
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.8,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Lottie.asset(
+                'assets/animations/cancel.json',
+                width: 150,
+                height: 150,
+                repeat: true,
+                animate: true,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Nonaktifkan ${item.name}?',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Item yang dinonaktifkan tidak akan terlihat oleh pelanggan.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      backgroundColor: Colors.grey.shade200,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: const Text(
+                      'Batal',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      backgroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: const Text(
+                      'Nonaktifkan',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (result == true) {
+      setState(() {
+        final index = _items.indexWhere((element) => element.id == item.id);
+        if (index != -1) {
           _items[index] = item.copyWith(
               isAvailable: false,
               status: 'Out of Stock'
           );
-        } else {
-          // Jika stok 0 dan mencoba mengaktifkan, tampilkan pesan
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Tidak dapat mengaktifkan produk tanpa stok.'),
-              backgroundColor: Colors.red,
-            ),
-          );
         }
-      }
-    });
+      });
+    }
   }
 
-  void _showDeleteConfirmation(Item item) {
+  void _showDeleteConfirmation(Item item) async {
+    await _playSound();
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: const Text('Konfirmasi Hapus'),
-        content: Text('Apakah Anda yakin ingin menghapus ${item.name}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.8,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
           ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _items.removeWhere((element) => element.id == item.id);
-              });
-              Navigator.pop(context);
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
-            child: const Text('Hapus'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Lottie.asset(
+                'assets/animations/trash.json',
+                width: 150,
+                height: 150,
+                repeat: true,
+                animate: true,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Hapus ${item.name}?',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Item yang dihapus tidak dapat dikembalikan.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      backgroundColor: Colors.grey.shade200,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: const Text(
+                      'Batal',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _items.removeWhere((element) => element.id == item.id);
+                      });
+                      Navigator.pop(context);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      backgroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: const Text(
+                      'Hapus',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -350,40 +523,155 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                 ),
                               ),
                             ),
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                IconButton(
-                                  icon: Icon(
-                                    item.isAvailable
-                                        ? Icons.toggle_on
-                                        : Icons.toggle_off,
-                                    color: item.isAvailable
-                                        ? GlobalStyle.primaryColor
-                                        : isOutOfStock ? Colors.grey.withOpacity(0.5) : Colors.grey,
-                                    size: 28,
+                            Padding(
+                              padding: const EdgeInsets.only(right: 12.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  // Improved Toggle Button
+                                  Container(
+                                    width: 70,
+                                    height: 30,
+                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(15),
+                                      gradient: LinearGradient(
+                                        colors: item.isAvailable
+                                            ? [const Color(0xFF43A047), const Color(0xFF66BB6A)]
+                                            : [Colors.grey.shade400, Colors.grey.shade300],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: item.isAvailable
+                                              ? Colors.green.withOpacity(0.3)
+                                              : Colors.grey.withOpacity(0.3),
+                                          spreadRadius: 1,
+                                          blurRadius: 3,
+                                          offset: const Offset(0, 1),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(15),
+                                        onTap: () => _toggleItemStatus(item),
+                                        child: Center(
+                                          child: Text(
+                                            item.isAvailable ? 'BUKA' : 'TUTUP',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  onPressed: () => _toggleItemStatus(item),
-                                  tooltip: isOutOfStock ? 'Tidak dapat diaktifkan tanpa stok' :
-                                  (item.isAvailable ? 'Nonaktifkan item' : 'Aktifkan item'),
-                                ),
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.edit,
-                                    color: GlobalStyle.primaryColor,
+
+                                  // Improved Edit Button
+                                  Container(
+                                    width: 70,
+                                    height: 30,
+                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(15),
+                                      gradient: LinearGradient(
+                                        colors: [GlobalStyle.primaryColor, GlobalStyle.primaryColor.withOpacity(0.8)],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: GlobalStyle.primaryColor.withOpacity(0.3),
+                                          spreadRadius: 1,
+                                          blurRadius: 3,
+                                          offset: const Offset(0, 1),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(15),
+                                        onTap: () => _navigateToAddEditForm(item: item),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: const [
+                                            Icon(
+                                              Icons.edit,
+                                              color: Colors.white,
+                                              size: 14,
+                                            ),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'EDIT',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  onPressed: () => _navigateToAddEditForm(item: item),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete,
-                                    color: Colors.red,
+
+                                  // Improved Delete Button
+                                  Container(
+                                    width: 70,
+                                    height: 30,
+                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(15),
+                                      gradient: const LinearGradient(
+                                        colors: [Colors.red, Color(0xFFF44336)],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.red.withOpacity(0.3),
+                                          spreadRadius: 1,
+                                          blurRadius: 3,
+                                          offset: const Offset(0, 1),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(15),
+                                        onTap: () => _showDeleteConfirmation(item),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: const [
+                                            Icon(
+                                              Icons.delete,
+                                              color: Colors.white,
+                                              size: 14,
+                                            ),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'HAPUS',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  onPressed: () => _showDeleteConfirmation(item),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                            const SizedBox(width: 8),
                           ],
                         ),
                       ),

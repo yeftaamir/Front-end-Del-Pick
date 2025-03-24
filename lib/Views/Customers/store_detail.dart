@@ -4,7 +4,8 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/cart_screen.dart';
-
+import 'package:lottie/lottie.dart'; // Import Lottie for animations
+import 'package:audioplayers/audioplayers.dart'; // Import AudioPlayers for audio playback
 
 class StoreDetail extends StatefulWidget {
   static const String route = "/Customers/StoreDetail";
@@ -24,6 +25,7 @@ class _StoreDetailState extends State<StoreDetail> {
   int _currentPage = 0;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+  final AudioPlayer _audioPlayer = AudioPlayer(); // Audio player instance
 
   @override
   void initState() {
@@ -139,7 +141,7 @@ class _StoreDetailState extends State<StoreDetail> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Rp ${item.price.toStringAsFixed(0)}',
+                                      GlobalStyle.formatRupiah(item.price),
                                       style: TextStyle(
                                         fontSize: 14,
                                         color: GlobalStyle.primaryColor,
@@ -185,7 +187,72 @@ class _StoreDetailState extends State<StoreDetail> {
     _pageController.dispose();
     _timer.cancel();
     _searchController.dispose();
+    _audioPlayer.dispose(); // Dispose the audio player
     super.dispose();
+  }
+
+  // Show dialog for quantity 0
+  void _showZeroQuantityDialog() {
+    // Play the wrong sound
+    _audioPlayer.play(AssetSource('audio/wrong.mp3'));
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.white,
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/caution.json',
+                  height: 200,
+                  width: 200,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Pilih jumlah item terlebih dahulu',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text(
+                      'Mengerti',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showItemDetail(MenuItem item) {
@@ -200,6 +267,7 @@ class _StoreDetailState extends State<StoreDetail> {
             item.quantity = quantity;
           });
         },
+        onZeroQuantity: _showZeroQuantityDialog, // Pass the dialog function
       ),
     );
   }
@@ -472,7 +540,7 @@ class _StoreDetailState extends State<StoreDetail> {
               children: [
                 // Price - Using primary color
                 Text(
-                  'Rp${item.price.toStringAsFixed(0)}',
+                  GlobalStyle.formatRupiah(item.price),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -565,7 +633,7 @@ class _StoreDetailState extends State<StoreDetail> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Rp ${item.price.toStringAsFixed(0)}',
+                          GlobalStyle.formatRupiah(item.price),
                           style: TextStyle(
                             fontSize: 16,
                             color: GlobalStyle.primaryColor,
@@ -656,7 +724,7 @@ class _StoreDetailState extends State<StoreDetail> {
                   ),
                 ),
                 Text(
-                  'Total: Rp ${totalPrice.toStringAsFixed(0)}',
+                  GlobalStyle.formatRupiah(totalPrice),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -713,11 +781,13 @@ class _StoreDetailState extends State<StoreDetail> {
 class DraggableItemDetail extends StatefulWidget {
   final MenuItem item;
   final Function(int) onQuantityChanged;
+  final VoidCallback onZeroQuantity; // Add callback for zero quantity
 
   const DraggableItemDetail({
     Key? key,
     required this.item,
     required this.onQuantityChanged,
+    required this.onZeroQuantity,
   }) : super(key: key);
 
   @override
@@ -726,7 +796,6 @@ class DraggableItemDetail extends StatefulWidget {
 
 class _DraggableItemDetailState extends State<DraggableItemDetail> {
   int _quantity = 0;
-  bool _showQuantityWarning = false;
 
   @override
   void initState() {
@@ -793,7 +862,7 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Rp ${widget.item.price.toStringAsFixed(0)}',
+                        GlobalStyle.formatRupiah(widget.item.price),
                         style: TextStyle(
                           fontSize: 18,
                           color: GlobalStyle.primaryColor,
@@ -825,7 +894,6 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                               if (_quantity > 0) {
                                 setState(() {
                                   _quantity--;
-                                  _showQuantityWarning = false;
                                 });
                               }
                             },
@@ -843,7 +911,6 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                             onPressed: () {
                               setState(() {
                                 _quantity++;
-                                _showQuantityWarning = false;
                               });
                             },
                             icon: const Icon(Icons.add_circle_outline),
@@ -861,9 +928,9 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                                   widget.onQuantityChanged(_quantity);
                                   Navigator.pop(context);
                                 } else {
-                                  setState(() {
-                                    _showQuantityWarning = true;
-                                  });
+                                  // Show zero quantity dialog instead of text warning
+                                  Navigator.pop(context); // Close the bottom sheet first
+                                  widget.onZeroQuantity(); // Show the dialog
                                 }
                               },
                               style: ElevatedButton.styleFrom(
@@ -886,21 +953,6 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                           ),
                         ],
                       ),
-                      // Added red warning text that appears when quantity is zero
-                      if (_showQuantityWarning)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Center(
-                            child: Text(
-                              'Silakan pilih jumlah item terlebih dahulu',
-                              style: TextStyle(
-                                color: Colors.red[700],
-                                fontWeight: FontWeight.w500,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 ),

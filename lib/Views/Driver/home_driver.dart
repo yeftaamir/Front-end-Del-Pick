@@ -5,6 +5,10 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/driver_bottom_navigation.dart';
 import 'package:del_pick/Views/Driver/history_driver_detail.dart';
 import 'package:del_pick/Views/Driver/profil_driver.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:lottie/lottie.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 class HomeDriverPage extends StatefulWidget {
   static const String route = '/Driver/HomePage';
@@ -18,6 +22,9 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
   int _currentIndex = 0;
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
+  bool _isDriverActive = false;
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   final List<Map<String, dynamic>> _deliveries = [
     {
@@ -112,6 +119,306 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
         controller.forward();
       }
     });
+
+    // Initialize notifications
+    _initializeNotifications();
+
+    // Request notification permissions
+    _requestPermissions();
+
+    // Simulate new order after 3 seconds (for demo purposes)
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        _simulateNewOrder();
+      }
+    });
+  }
+
+  Future<void> _initializeNotifications() async {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const DarwinInitializationSettings initializationSettingsIOS =
+    DarwinInitializationSettings(
+      requestSoundPermission: true,
+      requestBadgePermission: true,
+      requestAlertPermission: true,
+    );
+
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
+    );
+
+    await _flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse details) {
+        // Handle notification tap
+        _showNewOrderDialog();
+      },
+    );
+  }
+
+  Future<void> _requestPermissions() async {
+    await Permission.notification.request();
+  }
+
+  Future<void> _showNotification(Map<String, dynamic> orderDetails) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+    AndroidNotificationDetails(
+      'delivery_channel_id',
+      'Delivery Notifications',
+      channelDescription: 'Notifications for new delivery orders',
+      importance: Importance.max,
+      priority: Priority.high,
+      showWhen: true,
+      icon: '@mipmap/delpick', // Updated to use custom icon
+    );
+
+    const NotificationDetails platformChannelSpecifics =
+    NotificationDetails(android: androidPlatformChannelSpecifics);
+
+    await _flutterLocalNotificationsPlugin.show(
+      0,
+      'Pesanan Baru!',
+      'Pelanggan: ${orderDetails['customerName']} - Rp ${NumberFormat('#,###').format(orderDetails['totalPrice'])}',
+      platformChannelSpecifics,
+    );
+  }
+
+  void _simulateNewOrder() {
+    if (_isDriverActive) {
+      // Show notification
+      _showNotification(_deliveries[0]);
+
+      // Play sound and show dialog
+      _showNewOrderDialog();
+    }
+  }
+
+  Future<void> _playSound(String assetPath) async {
+    await _audioPlayer.play(AssetSource(assetPath));
+  }
+
+  Future<void> _showNewOrderDialog() async {
+    await _playSound('audio/kring.mp3');
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/pilih_pesanan.json',
+                  width: 200,
+                  height: 200,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Pesanan Baru Masuk!',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Pelanggan: ${_deliveries[0]['customerName']}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                Text(
+                  'Total: Rp ${NumberFormat('#,###').format(_deliveries[0]['totalPrice'])}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontFamily: GlobalStyle.fontFamily,
+                    color: GlobalStyle.primaryColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => HistoryDriverDetailPage(
+                          orderDetail: _deliveries[0],
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    minimumSize: const Size(double.infinity, 45),
+                  ),
+                  child: Text(
+                    'Lihat Pesanan',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  void _showDriverActiveDialog() async {
+    await _playSound('audio/found.wav');
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/diantar.json',
+                  width: 200,
+                  height: 200,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Anda Sekarang Aktif!',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Anda akan menerima pesanan baru.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    minimumSize: const Size(double.infinity, 45),
+                  ),
+                  child: Text(
+                    'Mengerti',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  void _showDeactivateConfirmationDialog() async {
+    // Play wrong sound for deactivation confirmation
+    await _playSound('audio/wrong.mp3');
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Konfirmasi',
+            style: TextStyle(
+              fontFamily: GlobalStyle.fontFamily,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'Anda yakin ingin menonaktifkan status? Anda tidak akan menerima pesanan baru.',
+            style: TextStyle(
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text(
+                'Batal',
+                style: TextStyle(
+                  color: GlobalStyle.primaryColor,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                setState(() {
+                  _isDriverActive = false;
+                });
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GlobalStyle.primaryColor,
+              ),
+              child: Text(
+                'Ya, Nonaktifkan',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _toggleDriverStatus() {
+    if (_isDriverActive) {
+      _showDeactivateConfirmationDialog();
+    } else {
+      setState(() {
+        _isDriverActive = true;
+      });
+      _showDriverActiveDialog();
+    }
   }
 
   @override
@@ -119,6 +426,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     for (var controller in _cardControllers) {
       controller.dispose();
     }
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -353,6 +661,18 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
               fontFamily: GlobalStyle.fontFamily,
             ),
           ),
+          const SizedBox(height: 20),
+          Text(
+            _isDriverActive
+                ? 'Status: Aktif - Siap Menerima Pesanan'
+                : 'Status: Tidak Aktif - Aktifkan untuk menerima pesanan',
+            style: TextStyle(
+              color: _isDriverActive ? Colors.green : Colors.red,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
         ],
       ),
     );
@@ -384,46 +704,74 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                     ),
                   ],
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'Pengantaran',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Pengantaran',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              DateFormat('EEEE, dd MMMM yyyy').format(DateTime.now()),
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor,
+                                fontSize: 12,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          DateFormat('EEEE, dd MMMM yyyy').format(DateTime.now()),
-                          style: TextStyle(
-                            color: GlobalStyle.fontColor,
-                            fontSize: 12,
-                            fontFamily: GlobalStyle.fontFamily,
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.pushNamed(context, ProfileDriverPage.route);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: GlobalStyle.lightColor.withOpacity(0.3),
+                              shape: BoxShape.circle,
+                            ),
+                            child: FaIcon(
+                              FontAwesomeIcons.user,
+                              size: 20,
+                              color: GlobalStyle.primaryColor,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.pushNamed(context, ProfileDriverPage.route);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: GlobalStyle.lightColor.withOpacity(0.3),
-                          shape: BoxShape.circle,
+                    const SizedBox(height: 16),
+                    // Status toggle button
+                    ElevatedButton.icon(
+                      onPressed: _toggleDriverStatus,
+                      icon: Icon(
+                        _isDriverActive ? Icons.toggle_on : Icons.toggle_off,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                      label: Text(
+                        _isDriverActive ? 'Status: Aktif' : 'Status: Tidak Aktif',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
                         ),
-                        child: FaIcon(
-                          FontAwesomeIcons.user,
-                          size: 20,
-                          color: GlobalStyle.primaryColor,
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isDriverActive ? Colors.green : Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
                         ),
+                        minimumSize: const Size(double.infinity, 45),
                       ),
                     ),
                   ],
