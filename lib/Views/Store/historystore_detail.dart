@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:lottie/lottie.dart';
+import 'package:del_pick/Views/Component/order_status_card.dart';
+import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/Models/tracking.dart';
+import 'package:geotypes/geotypes.dart' as geotypes;
+
+import '../../Models/driver.dart';
 
 class HistoryStoreDetailPage extends StatefulWidget {
   static const String route = '/Store/HistoryStoreDetail';
@@ -16,24 +24,8 @@ class HistoryStoreDetailPage extends StatefulWidget {
 
 class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     with TickerProviderStateMixin {
-  String _status = 'pending';
-
-  // Simplified status options with only necessary information
-  final Map<String, Color> statusColors = {
-    'pending': Colors.orange,
-    'processing': Colors.blue,
-    'picked_up': Colors.indigo,
-    'completed': Colors.green,
-    'rejected': Colors.red,
-  };
-
-  final Map<String, String> statusLabels = {
-    'pending': 'Confirmation',
-    'processing': 'Processing',
-    'picked_up': 'Picked Up',
-    'completed': 'Completed',
-    'rejected': 'Rejected',
-  };
+  // For status tracking
+  String _statusFromDriver = '';
 
   // Animation controllers
   late List<AnimationController> _cardControllers;
@@ -42,11 +34,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   @override
   void initState() {
     super.initState();
-    // Safely initialize status from order detail
-    _status = widget.orderDetail['status']?.toString() ?? 'pending';
-    if (!statusColors.containsKey(_status)) {
-      _status = 'pending';
-    }
 
     // Initialize animation controllers for card sections
     _cardControllers = List.generate(
@@ -82,6 +69,29 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       controller.dispose();
     }
     super.dispose();
+  }
+
+  // Convert the current status to OrderStatus enum
+  OrderStatus _getOrderStatus() {
+    String? status = widget.orderDetail['status'] as String?;
+    switch (status) {
+      case 'assigned':
+        return OrderStatus.driverAssigned;
+      case 'picking_up':
+        return OrderStatus.driverAtStore;
+      case 'delivering':
+        return OrderStatus.driverHeadingToCustomer;
+      case 'completed':
+        return OrderStatus.completed;
+      case 'cancelled':
+        return OrderStatus.cancelled;
+      case 'processing':
+        return OrderStatus.pending; // Show as pending when being processed
+      case 'ready_for_pickup':
+        return OrderStatus.driverHeadingToStore; // New status for ready to be picked up
+      default:
+        return OrderStatus.pending;
+    }
   }
 
   Future<void> _openWhatsApp(String? phoneNumber,
@@ -185,7 +195,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               child: const Text('Ya'),
               onPressed: () {
                 setState(() {
-                  _status = 'processing';
                   widget.orderDetail['status'] = 'processing';
                 });
                 Navigator.of(context).pop();
@@ -198,6 +207,96 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
       },
     );
+  }
+
+  void _showReadyForPickupDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Konfirmasi'),
+          content: const Text('Apakah pesanan sudah siap untuk diambil driver?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Batal'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Ya'),
+              onPressed: () {
+                setState(() {
+                  widget.orderDetail['status'] = 'ready_for_pickup';
+                });
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Pesanan siap untuk diambil')),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Create tracking model to pass to OrderStatusCard
+  Tracking _createTracking() {
+    // Create sample positions
+    final storePosition = geotypes.Position(99.10379, 2.34479);
+    final customerPosition = geotypes.Position(99.10179, 2.34279);
+    final driverPosition = _statusFromDriver == 'delivering'
+        ? geotypes.Position(99.10279, 2.34329) // Between store and customer
+        : geotypes.Position(99.10329, 2.34429); // Near store
+
+    return Tracking(
+      orderId: widget.orderDetail['id'] ?? '',
+      driver: widget.orderDetail['driverInfo'] != null
+          ? Driver.fromJson(widget.orderDetail['driverInfo'])
+          : Driver(
+        id: '',
+        name: 'Unknown',
+        rating: 0.0,
+        phoneNumber: 'Unknown',
+        vehicleNumber: 'Unknown',
+        email: 'Unknown',
+      ),
+      driverPosition: driverPosition,
+      customerPosition: customerPosition,
+      storePosition: storePosition,
+      routeCoordinates: [
+        storePosition,
+        customerPosition,
+      ],
+      status: _getOrderStatus(),
+      estimatedArrival: DateTime.now().add(const Duration(minutes: 15)),
+      customStatusMessage: _getStatusMessage(_getOrderStatus()),
+    );
+  }
+
+  String _getStatusMessage(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.driverAssigned:
+        return 'Driver telah ditugaskan ke pesanan Anda';
+      case OrderStatus.driverHeadingToStore:
+        return 'Pesanan siap untuk diambil driver';
+      case OrderStatus.driverAtStore:
+        return 'Driver sedang mengambil pesanan Anda';
+      case OrderStatus.driverHeadingToCustomer:
+        return 'Driver sedang dalam perjalanan mengantar pesanan Anda';
+      case OrderStatus.driverArrived:
+        return 'Driver telah tiba di lokasi Anda';
+      case OrderStatus.completed:
+        return 'Pesanan Anda telah selesai';
+      case OrderStatus.cancelled:
+        return 'Pesanan Anda dibatalkan';
+      default:
+        return 'Pesanan sedang diproses';
+    }
   }
 
   Widget _buildCard({required Widget child, required int index}) {
@@ -221,64 +320,59 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
-  Widget _buildStatusCard() {
-    return _buildCard(
-      index: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.info_outline, color: GlobalStyle.primaryColor),
-                const SizedBox(width: 8),
-                Text(
-                  'Status Pesanan',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: GlobalStyle.borderColor),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: statusColors[_status],
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  Text(
-                    statusLabels[_status] ?? 'Unknown',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+  Widget _buildOrderStatusCard() {
+    // Create OrderItem objects from the items in orderDetail
+    final items = (widget.orderDetail['items'] as List? ?? []).map((item) => Item(
+      id: item['id'] ?? '',
+      name: item['name'] ?? '',
+      price: (item['price'] ?? 0).toDouble(),
+      quantity: item['quantity'] ?? 1,
+      imageUrl: item['image'] ?? '',
+      isAvailable: true,
+      status: 'available',
+      description: item['description'] ?? '',
+    )).toList();
+
+    // Create Store object
+    final store = StoreModel(
+      name: widget.orderDetail['storeName'] ?? '',
+      address: widget.orderDetail['storeAddress'] ?? '',
+      openHours: '08:00 - 22:00', // Default value
+      rating: 4.5, // Default value
+      reviewCount: 0,
+      phoneNumber: widget.orderDetail['storePhone'] ?? '',
+    );
+
+    // Create Order object
+    final order = Order(
+      id: widget.orderDetail['id'] ?? '',
+      items: items,
+      store: store,
+      deliveryAddress: widget.orderDetail['customerAddress'] ?? '',
+      subtotal: ((widget.orderDetail['amount'] ?? 0) - (widget.orderDetail['deliveryFee'] ?? 0)).toDouble(),
+      serviceCharge: (widget.orderDetail['deliveryFee'] ?? 0).toDouble(),
+      total: (widget.orderDetail['amount'] ?? 0).toDouble(),
+      orderDate: DateTime.now(),
+      status: _getOrderStatus(),
+      tracking: _createTracking(),
+    );
+
+    return OrderStatusCard(
+      order: order,
+      animation: _cardAnimations[0],
     );
   }
 
   Widget _buildDriverInfoCard() {
     final driverInfo = widget.orderDetail['driverInfo'] as Map<String, dynamic>?;
 
-    if (driverInfo == null) {
+    // Show driver info based on status
+    final currentStatus = widget.orderDetail['status'] as String? ?? 'pending';
+
+    // Only show driver info if we have driver info and status is appropriate
+    if (driverInfo == null || (currentStatus != 'ready_for_pickup' &&
+        currentStatus != 'picked_up' &&
+        _statusFromDriver != 'delivering')) {
       return const SizedBox.shrink();
     }
 
@@ -587,7 +681,10 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   Widget _buildActionButtons() {
-    switch (_status) {
+    // Get current status from order detail
+    String status = widget.orderDetail['status'] as String? ?? 'pending';
+
+    switch (status) {
       case 'pending':
         return Row(
           children: [
@@ -595,7 +692,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               icon: const Icon(Icons.close),
               onPressed: () {
                 setState(() {
-                  _status = 'rejected';
                   widget.orderDetail['status'] = 'rejected';
                 });
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -630,19 +726,12 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ],
         );
       case 'processing':
+      // When order is being processed, show button to indicate it's ready for pickup
         return Row(
           children: [
             Expanded(
               child: ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _status = 'picked_up';
-                    widget.orderDetail['status'] = 'picked_up';
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Di Jemput Driver')),
-                  );
-                },
+                onPressed: _showReadyForPickupDialog,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -651,7 +740,34 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                   ),
                 ),
                 child: const Text(
-                  'Di Jemput Driver',
+                  'Siap Di Ambil Driver',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      case 'ready_for_pickup':
+      // Order is ready for pickup, waiting for driver
+        return Row(
+          children: [
+            Expanded(
+              child: ElevatedButton(
+                onPressed: null, // Disabled button - waiting for driver
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  disabledBackgroundColor: Colors.orange.withOpacity(0.6),
+                  disabledForegroundColor: Colors.white,
+                ),
+                child: const Text(
+                  'Menunggu Driver',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -662,35 +778,67 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ],
         );
       case 'picked_up':
-        return Row(
-          children: [
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _status = 'completed';
-                    widget.orderDetail['status'] = 'completed';
-                  });
-                  _showCompletionDialog();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
+      // Show different states based on driver's status
+        if (_statusFromDriver == 'delivering') {
+          return Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: null, // Disabled button - waiting for delivery
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    disabledBackgroundColor: Colors.blue.withOpacity(0.6),
+                    disabledForegroundColor: Colors.white,
                   ),
-                ),
-                child: const Text(
-                  'Selesai',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                  child: const Text(
+                    'Dalam Pengantaran',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
-        );
+            ],
+          );
+        } else {
+          // Driver is picking up
+          return Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    // Simulate driver picking up and starting delivery
+                    setState(() {
+                      _statusFromDriver = 'delivering';
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Driver Sedang Mengantar')),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                  ),
+                  child: const Text(
+                    'Konfirmasi Di Ambil Driver',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
       default:
         return const SizedBox.shrink();
     }
@@ -729,7 +877,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildStatusCard(),
+                _buildOrderStatusCard(),
                 _buildDriverInfoCard(),
                 _buildCustomerInfoCard(),
                 _buildItemsCard(),
@@ -738,7 +886,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ),
         ),
       ),
-      bottomNavigationBar: _status == 'completed' || _status == 'rejected'
+      bottomNavigationBar: widget.orderDetail['status'] == 'completed' ||
+          widget.orderDetail['status'] == 'rejected'
           ? null
           : Container(
         padding: const EdgeInsets.all(16),

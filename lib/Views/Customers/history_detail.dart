@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:intl/intl.dart';
 import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Views/Component/order_status_card.dart';
 import 'cart_screen.dart';
 import 'rating_cust.dart';
 import 'history_cust.dart';
@@ -30,7 +31,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
     // Initialize animation controllers for each card section
     _cardControllers = List.generate(
-      4, // Number of card sections
+      5, // Number of card sections (added 1 for status card)
           (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
@@ -66,7 +67,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
   Widget _buildCard({required Widget child, required int index}) {
     return SlideTransition(
-      position: _cardAnimations[index],
+      position: _cardAnimations[index < _cardAnimations.length ? index : 0],
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
@@ -93,6 +94,9 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     final String formattedOrderDate = DateFormat('dd MMM yyyy, hh.mm a').format(widget.order.orderDate);
     final driverName = widget.order.tracking?.driverName ?? 'Driver belum ditugaskan';
     final vehicleNumber = widget.order.tracking?.vehicleNumber ?? '-';
+
+    // Check if rating has been given
+    final bool hasRating = widget.order.hasGivenRating ?? false;
 
     return Scaffold(
       backgroundColor: const Color(0xffD6E6F2),
@@ -126,9 +130,16 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Order Status Card
+              if (widget.order.tracking != null)
+                OrderStatusCard(
+                  order: widget.order,
+                  animation: _cardAnimations[0],
+                ),
+
               // Order Date Section
               _buildCard(
-                index: 0,
+                index: 1,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -161,7 +172,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
               // Delivery Address Section
               _buildCard(
-                index: 1,
+                index: 2,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -194,7 +205,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
               // Driver Information Section
               _buildCard(
-                index: 2,
+                index: 3,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -229,7 +240,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
               // Store and Items Section
               _buildCard(
-                index: 3,
+                index: 4,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -297,71 +308,104 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
               // Action Buttons
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pushAndRemoveUntil(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const CartScreen(cartItems: []),
-                          ),
-                              (Route<dynamic> route) => false,
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: GlobalStyle.fontColor,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        side: BorderSide(color: GlobalStyle.borderColor),
-                      ),
-                      child: const Text('Beli Lagi'),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => RatingCustomerPage(
-                              storeName: widget.order.store.name,
-                              driverName: driverName,
-                              vehicleNumber: vehicleNumber,
-                              orderItems: widget.order.items.map((item) => OrderItem(
-                                name: item.name,
-                                formattedPrice: NumberFormat.currency(
-                                  locale: 'id',
-                                  symbol: 'Rp ',
-                                  decimalDigits: 0,
-                                ).format(item.price),
-                              )).toList(),
-                            ),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: GlobalStyle.primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                      ),
-                      child: const Text('Beri Rating'),
-                    ),
-                  ),
-                ],
-              ),
+              hasRating
+                  ? _buildBuyAgainButton()
+                  : _buildActionButtons(driverName, vehicleNumber),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  // Buy Again button only
+  Widget _buildBuyAgainButton() {
+    return ElevatedButton(
+      onPressed: () {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          CartScreen.route,
+              (route) => false,
+          arguments: const(child: CartScreen(cartItems: [])),
+        );
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: GlobalStyle.primaryColor,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+      ),
+      child: const Text('Beli Lagi'),
+    );
+  }
+
+  // Both buttons (Buy Again + Rate)
+  Widget _buildActionButtons(String driverName, String vehicleNumber) {
+    return Row(
+      children: [
+        Expanded(
+          child: ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                CartScreen.route,
+                    (route) => false,
+                arguments: const (child: CartScreen(cartItems: [])),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: GlobalStyle.fontColor,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              side: BorderSide(color: GlobalStyle.borderColor),
+            ),
+            child: const Text('Beli Lagi'),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => RatingCustomerPage(
+                    storeName: widget.order.store.name,
+                    driverName: driverName,
+                    vehicleNumber: vehicleNumber,
+                    orderItems: widget.order.items.map((item) => OrderItem(
+                      name: item.name,
+                      formattedPrice: NumberFormat.currency(
+                        locale: 'id',
+                        symbol: 'Rp ',
+                        decimalDigits: 0,
+                      ).format(item.price),
+                    )).toList(),
+                  ),
+                ),
+              ).then((_) {
+                // When returning from rating page, refresh the UI
+                setState(() {
+                  // Simulate that rating has been given (since we don't have actual state management here)
+                  widget.order.hasRating = true;
+                });
+              });
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+            ),
+            child: const Text('Beri Rating'),
+          ),
+        ),
+      ],
     );
   }
 
@@ -500,5 +544,17 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         ),
       ],
     );
+  }
+}
+
+// This map is used to track ratings since we can't modify the Order class directly
+final Map<String, bool> _orderRatings = {};
+
+// Extension to add rating functionality to Order model
+extension OrderExtension on Order {
+  bool? get hasGivenRating => _orderRatings[id];
+
+  set hasRating(bool? value) {
+    _orderRatings[id] = value ?? false;
   }
 }

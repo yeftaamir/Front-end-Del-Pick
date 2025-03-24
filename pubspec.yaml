@@ -32,7 +32,7 @@ dependencies:
     sdk: flutter
   intl: ^0.18.0
   flutter_lints: ^4.0.0
-  geolocator: ^13.0.2
+  geolocator: 12.0.0
   flutter_rating_bar: ^4.0.1
   url_launcher: ^6.1.14
   dotted_border: ^2.0.3
@@ -44,6 +44,10 @@ dependencies:
   image_picker: ^1.1.2
   connectivity_plus: ^6.1.3
   provider: ^6.0.5
+  audioplayers: 6.4.0
+  flutter_local_notifications: ^19.0.0
+  permission_handler: ^11.4.0
+  geotypes: ^0.0.2
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -81,7 +85,22 @@ flutter:
     - assets/animations/check_animation.json
     - assets/images/delpick.png
     - assets/animations/loading_animation.json
+    - assets/animations/caution.json
+    - assets/animations/cancel.json
     - assets/animations/no_internet.json
+    - assets/animations/diantar.json
+    - assets/animations/location_access.json
+    - assets/animations/pesanan_selesai.json
+    - assets/animations/diambil.json
+    - assets/animations/pilih_pesanan.json
+    - assets/animations/diproses.json
+    - assets/animations/upload.json
+    - assets/animations/trash.json
+    - assets/audio/kring.mp3
+    - assets/audio/wrong.mp3
+    - assets/audio/done.wav
+    - assets/audio/alert.wav
+    - assets/audio/found.wav
 
 
   # The following line ensures that the Material Icons font is

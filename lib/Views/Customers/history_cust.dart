@@ -5,7 +5,7 @@ import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';
-import 'history_detail.dart';
+import 'package:del_pick/Views/Customers/history_detail.dart';
 import 'home_cust.dart';
 
 class HistoryCustomer extends StatefulWidget {
@@ -284,6 +284,31 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     }
   }
 
+  // New method to handle navigation based on order status
+  void navigateToCartScreen(Order order) {
+    // Convert Order items to MenuItem items if needed for CartScreen
+    List<MenuItem> menuItems = order.items.map((item) =>
+        MenuItem(
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          imageUrl: item.imageUrl,
+          isAvailable: item.isAvailable,
+          status: item.status,
+        )
+    ).toList();
+
+    // Navigate to CartScreen with the order as completedOrder parameter
+    Navigator.pushNamed(
+      context,
+      '/Customers/Cart',
+      arguments: {
+        'cartItems': menuItems,
+        'completedOrder': order,
+      },
+    );
+  }
+
   Widget _buildOrderCard(Order order, int index) {
     final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
     final statusColor = getStatusColor(order.status);
@@ -344,12 +369,13 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                             ),
                           ),
                           const SizedBox(width: 8),
-                          // Smaller right-aligned view button
+                          // Smaller right-aligned view button - Updated to navigate to CartScreen
                           SizedBox(
                             height: 30,
                             width: 70,
                             child: ElevatedButton(
                               onPressed: () {
+                                // Always navigate to HistoryDetailPage for all order statuses
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -362,9 +388,9 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
                                 foregroundColor: Colors.black87,
-                                side: BorderSide(color: Colors.grey),
-                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                                textStyle: TextStyle(fontSize: 12),
+                                side: const BorderSide(color: Colors.grey),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                textStyle: const TextStyle(fontSize: 12),
                               ),
                               child: const Text('Lihat'),
                             ),
@@ -510,6 +536,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
             itemBuilder: (context, index) {
               return GestureDetector(
                 onTap: () {
+                  // Always navigate to HistoryDetailPage for all order statuses
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -531,4 +558,24 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
       ),
     );
   }
+}
+
+// Helper class to match CartScreen's expected item type
+class MenuItem {
+  final String id;
+  final String name;
+  final double price;
+  final String imageUrl;
+  final bool isAvailable;
+  final String status;
+  int quantity = 1;
+
+  MenuItem({
+    required this.id,
+    required this.name,
+    required this.price,
+    required this.imageUrl,
+    required this.isAvailable,
+    required this.status,
+  });
 }

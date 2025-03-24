@@ -3,63 +3,50 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Driver/track_order.dart';
 import 'package:lottie/lottie.dart';
+import 'package:del_pick/Views/Component/order_status_card.dart';
+import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Models/tracking.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/driver.dart';
+import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/Models/position.dart';
+import 'package:geotypes/geotypes.dart' as geotypes;
 
 class HistoryDriverDetailPage extends StatefulWidget {
   static const String route = '/Driver/HistoryDriverDetail';
   final Map<String, dynamic> orderDetail;
+  // Add these properties
+  final bool showTrackButton;
+  final VoidCallback? onTrackPressed;
 
-  const HistoryDriverDetailPage({Key? key, required this.orderDetail}) : super(key: key);
+  const HistoryDriverDetailPage({
+    Key? key,
+    required this.orderDetail,
+    // Add default values for the new parameters
+    this.showTrackButton = false,
+    this.onTrackPressed,
+  }) : super(key: key);
 
   @override
   _HistoryDriverDetailPageState createState() => _HistoryDriverDetailPageState();
 }
 
 class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with TickerProviderStateMixin {
-  String? selectedStatus;
+  // Audio player initialization
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Animation controllers for card sections
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
-  late AnimationController _statusController;
-  late Animation<Offset> _statusAnimation;
-
-  final List<Map<String, dynamic>> statusOptions = [
-    {
-      'value': 'assigned',
-      'label': 'Terima Pesanan',
-      'color': Colors.blue,
-    },
-    {
-      'value': 'picking_up',
-      'label': 'Di Ambil',
-      'color': Colors.orange,
-    },
-    {
-      'value': 'delivering',
-      'label': 'Di Antar',
-      'color': Colors.purple,
-    },
-    {
-      'value': 'completed',
-      'label': 'Selesai',
-      'color': Colors.green,
-    },
-    {
-      'value': 'cancelled',
-      'label': 'Dibatalkan',
-      'color': Colors.red,
-    },
-  ];
 
   @override
   void initState() {
     super.initState();
-    String? status = widget.orderDetail['status'] as String?;
-    selectedStatus = status ?? statusOptions.first['value'] as String;
 
     // Initialize card animation controllers
     _cardControllers = List.generate(
-      4, // Number of card sections
+      3, // Number of card sections (reduced since we removed location card)
           (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
@@ -77,24 +64,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       ));
     }).toList();
 
-    // Initialize status animation controller
-    _statusController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    // Create status animation
-    _statusAnimation = Tween<Offset>(
-      begin: const Offset(-0.5, 0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _statusController,
-      curve: Curves.easeOutCubic,
-    ));
-
     // Start animations sequentially
     Future.delayed(const Duration(milliseconds: 100), () {
-      _statusController.forward();
       for (var i = 0; i < _cardControllers.length; i++) {
         Future.delayed(Duration(milliseconds: 100 * i), () {
           _cardControllers[i].forward();
@@ -105,14 +76,26 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
 
   @override
   void dispose() {
-    _statusController.dispose();
     for (var controller in _cardControllers) {
       controller.dispose();
     }
+    _audioPlayer.dispose();
     super.dispose();
   }
 
+  // Play sound effect based on provided asset path
+  Future<void> _playSound(String assetPath) async {
+    try {
+      await _audioPlayer.play(AssetSource(assetPath));
+    } catch (e) {
+      debugPrint('Error playing sound: $e');
+    }
+  }
+
   void _showCompletionDialog() {
+    // Play completion sound
+    _playSound('audio/kring.mp3');
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -127,10 +110,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               mainAxisSize: MainAxisSize.min,
               children: [
                 Lottie.asset(
-                  'assets/animations/check_animation.json',
+                  'assets/animations/pesanan_selesai.json',
                   width: 200,
                   height: 200,
-                  repeat: false,
+                  repeat: true,
                 ),
                 const SizedBox(height: 20),
                 const Text(
@@ -191,9 +174,11 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               ),
               child: const Text('Ya'),
               onPressed: () {
+                // Play alert sound
+                _playSound('audio/alert.wav');
+
                 setState(() {
                   widget.orderDetail['status'] = 'picking_up';
-                  selectedStatus = 'picking_up';
                 });
                 Navigator.of(context).pop();
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -208,6 +193,9 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   }
 
   void _navigateToTrackOrder() async {
+    // Play alert sound when changing status
+    _playSound('audio/alert.wav');
+
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -217,7 +205,6 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
 
     if (result == 'completed') {
       setState(() {
-        selectedStatus = 'completed';
         widget.orderDetail['status'] = 'completed';
       });
       _showCompletionDialog();
@@ -239,77 +226,23 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     }
   }
 
-  Widget _buildStatusIndicator() {
-    final statusOption = statusOptions.firstWhere(
-          (status) => status['value'] == selectedStatus,
-      orElse: () => statusOptions.first,
-    );
-
-    return SlideTransition(
-      position: _statusAnimation,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.local_shipping, color: GlobalStyle.primaryColor),
-                const SizedBox(width: 8),
-                const Text(
-                  'Status Pengiriman',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: statusOption['color'].withOpacity(0.2),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: statusOption['color']),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: statusOption['color'] as Color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  Text(
-                    statusOption['label'] as String,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: statusOption['color'],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  // Convert the current status to OrderStatus enum
+  OrderStatus _getOrderStatus() {
+    String? status = widget.orderDetail['status'] as String?;
+    switch (status) {
+      case 'assigned':
+        return OrderStatus.driverAssigned;
+      case 'picking_up':
+        return OrderStatus.driverAtStore;
+      case 'delivering':
+        return OrderStatus.driverHeadingToCustomer;
+      case 'completed':
+        return OrderStatus.completed;
+      case 'cancelled':
+        return OrderStatus.cancelled;
+      default:
+        return OrderStatus.pending;
+    }
   }
 
   Widget _buildCard({required Widget child, required int index}) {
@@ -333,139 +266,90 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     );
   }
 
-  Widget _buildLocationCard() {
-    return _buildCard(
-      index: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.location_on, color: GlobalStyle.primaryColor),
-                const SizedBox(width: 8),
-                const Text(
-                  'Detail Lokasi',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: GlobalStyle.borderColor),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                        margin: const EdgeInsets.only(top: 4),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Lokasi Penjemputan',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.chat, size: 20),
-                                  onPressed: () => _openWhatsApp(widget.orderDetail['storePhone']),
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.blue.shade100,
-                                    foregroundColor: Colors.blue,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Text(
-                              widget.orderDetail['storeAddress'] ?? '',
-                              style: TextStyle(
-                                color: GlobalStyle.fontColor,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Divider(),
-                  ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: const BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                        ),
-                        margin: const EdgeInsets.only(top: 4),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  widget.orderDetail['customerName'] ?? '',
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.chat, size: 20),
-                                  onPressed: () => _openWhatsApp(widget.orderDetail['customerPhone']),
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.blue.shade100,
-                                    foregroundColor: Colors.blue,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Text(
-                              widget.orderDetail['customerAddress'] ?? '',
-                              style: TextStyle(
-                                color: GlobalStyle.fontColor,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+  Widget _buildOrderStatusCard() {
+    // Create OrderItem objects from the items in orderDetail
+    final items = (widget.orderDetail['items'] as List? ?? []).map((item) => Item(
+      id: item['id'] ?? '',
+      name: item['name'] ?? '',
+      price: (item['price'] ?? 0).toDouble(),
+      quantity: item['quantity'] ?? 1,
+      imageUrl: item['image'] ?? '',
+      isAvailable: true,
+      status: 'available',
+      description: item['description'] ?? '',
+    )).toList();
+
+    // Create Store object
+    final store = StoreModel(
+      name: widget.orderDetail['storeName'] ?? '',
+      address: widget.orderDetail['storeAddress'] ?? '',
+      openHours: '08:00 - 22:00', // Default value
+      rating: 4.5, // Default value
+      reviewCount: 0,
+      phoneNumber: widget.orderDetail['storePhone'] ?? '',
     );
+
+    // Create Order object
+    final order = Order(
+      id: widget.orderDetail['id'] ?? '',
+      items: items,
+      store: store,
+      deliveryAddress: widget.orderDetail['customerAddress'] ?? '',
+      subtotal: ((widget.orderDetail['amount'] ?? 0) - (widget.orderDetail['deliveryFee'] ?? 0)).toDouble(),
+      serviceCharge: (widget.orderDetail['deliveryFee'] ?? 0).toDouble(),
+      total: (widget.orderDetail['amount'] ?? 0).toDouble(),
+      orderDate: DateTime.now(),
+      status: _getOrderStatus(),
+      tracking: _createTracking(),
+    );
+
+    return OrderStatusCard(
+      order: order,
+      animation: _cardAnimations[0],
+    );
+  }
+
+// Helper method to create a Tracking object
+  Tracking _createTracking() {
+    // Create sample driver
+    final driver = Driver.sample();
+
+    return Tracking(
+      orderId: widget.orderDetail['id'] ?? '',
+      driver: driver,
+      driverPosition: geotypes.Position(99.10279, 2.34379), // Sample position
+      customerPosition: geotypes.Position(99.10179, 2.34279), // Sample position
+      storePosition: geotypes.Position(99.10379, 2.34479), // Sample position
+      routeCoordinates: [
+        geotypes.Position(99.10279, 2.34379), // Driver
+        geotypes.Position(99.10379, 2.34479), // Store
+        geotypes.Position(99.10179, 2.34279), // Customer
+      ],
+      status: _getOrderStatus(),
+      estimatedArrival: DateTime.now().add(const Duration(minutes: 15)),
+      customStatusMessage: _getStatusMessage(_getOrderStatus()),
+    );
+  }
+
+  String _getStatusMessage(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.driverAssigned:
+        return 'Driver telah ditugaskan ke pesanan Anda';
+      case OrderStatus.driverHeadingToStore:
+        return 'Driver sedang menuju ke toko';
+      case OrderStatus.driverAtStore:
+        return 'Driver sedang mengambil pesanan Anda';
+      case OrderStatus.driverHeadingToCustomer:
+        return 'Driver sedang dalam perjalanan mengantar pesanan Anda';
+      case OrderStatus.driverArrived:
+        return 'Driver telah tiba di lokasi Anda';
+      case OrderStatus.completed:
+        return 'Pesanan Anda telah selesai';
+      case OrderStatus.cancelled:
+        return 'Pesanan Anda dibatalkan';
+      default:
+        return 'Pesanan sedang diproses';
+    }
   }
 
   Widget _buildStoreInfoCard() {
@@ -544,11 +428,15 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                               color: Colors.grey[600],
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              widget.orderDetail['storePhone'] ?? '',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 14,
+                            GestureDetector(
+                              onTap: () => _openWhatsApp(widget.orderDetail['storePhone']),
+                              child: Text(
+                                widget.orderDetail['storePhone'] ?? '',
+                                style: TextStyle(
+                                  color: Colors.blue[600],
+                                  fontSize: 14,
+                                  decoration: TextDecoration.underline,
+                                ),
                               ),
                             ),
                           ],
@@ -639,11 +527,15 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                               color: Colors.grey[600],
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              widget.orderDetail['customerPhone'] ?? '',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 14,
+                            GestureDetector(
+                              onTap: () => _openWhatsApp(widget.orderDetail['customerPhone']),
+                              child: Text(
+                                widget.orderDetail['customerPhone'] ?? '',
+                                style: TextStyle(
+                                  color: Colors.blue[600],
+                                  fontSize: 14,
+                                  decoration: TextDecoration.underline,
+                                ),
                               ),
                             ),
                           ],
@@ -666,7 +558,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     final deliveryFee = widget.orderDetail['deliveryFee'];
 
     return _buildCard(
-      index: 3,
+      index: 0, // Now using index 0 since we removed the location card
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -796,14 +688,16 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   }
 
   Widget _buildActionButtons() {
-    if (selectedStatus == 'assigned') {
+    OrderStatus status = _getOrderStatus();
+
+    if (status == OrderStatus.driverAssigned) {
       return Row(
         children: [
           IconButton(
             icon: const Icon(Icons.cancel),
             onPressed: () {
+              _playSound('audio/alert.wav');
               setState(() {
-                selectedStatus = 'cancelled';
                 widget.orderDetail['status'] = 'cancelled';
               });
               ScaffoldMessenger.of(context).showSnackBar(
@@ -837,15 +731,15 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
           ),
         ],
       );
-    } else if (selectedStatus == 'picking_up') {
+    } else if (status == OrderStatus.driverAtStore) {
       return Row(
         children: [
           const SizedBox(width: 8),
           Expanded(
             child: ElevatedButton(
               onPressed: () {
+                _playSound('audio/alert.wav');
                 setState(() {
-                  selectedStatus = 'delivering';
                   widget.orderDetail['status'] = 'delivering';
                 });
                 _navigateToTrackOrder();
@@ -868,7 +762,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
           ),
         ],
       );
-    } else if (selectedStatus == 'delivering') {
+    } else if (status == OrderStatus.driverHeadingToCustomer) {
       return Row(
         children: [
           const SizedBox(width: 8),
@@ -931,12 +825,34 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildStatusIndicator(),
+                _buildOrderStatusCard(),
                 const SizedBox(height: 16),
-                _buildLocationCard(),
+                _buildItemsCard(),
                 _buildStoreInfoCard(),
                 _buildCustomerInfoCard(),
-                _buildItemsCard(),
+                // Add the track button
+                if (_getOrderStatus() == OrderStatus.driverHeadingToCustomer)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _navigateToTrackOrder,
+                        icon: const Icon(Icons.location_on, color: Colors.white, size: 18),
+                        label: const Text(
+                          'Lacak Pesanan',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GlobalStyle.primaryColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

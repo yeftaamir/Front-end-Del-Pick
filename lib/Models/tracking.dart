@@ -1,5 +1,5 @@
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-
+import 'package:geotypes/src/geojson.dart';
 import 'driver.dart';
 
 class Tracking {
@@ -47,7 +47,7 @@ class Tracking {
     );
   }
 
-  // Create a copy of the current tracking with updated fields
+// Corrected copyWith method for Tracking class
   Tracking copyWith({
     String? orderId,
     Driver? driver,
@@ -182,5 +182,7 @@ enum OrderStatus {
   driverHeadingToCustomer,
   driverArrived,
   completed,
-  cancelled,
+  cancelled;
+
+  bool get isCompleted => this == OrderStatus.completed || this == OrderStatus.cancelled;
 }

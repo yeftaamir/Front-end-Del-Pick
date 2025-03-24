@@ -1,26 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:del_pick/Common/global_style.dart';
+import 'package:lottie/lottie.dart'; // Add this import for Lottie animations
+import 'package:audioplayers/audioplayers.dart'; // Add this import for audio playback
 
 class LocationAccessScreen extends StatefulWidget {
   static const String route = "/Customers/LocationAccess";
 
-  const LocationAccessScreen({Key? key, required Null Function(String location) onLocationSelected}) : super(key: key);
+  final Function(String location) onLocationSelected;
+
+  const LocationAccessScreen({Key? key, required this.onLocationSelected}) : super(key: key);
 
   @override
   State<LocationAccessScreen> createState() => _LocationAccessScreenState();
 }
 
-class _LocationAccessScreenState extends State<LocationAccessScreen> {
+class _LocationAccessScreenState extends State<LocationAccessScreen> with SingleTickerProviderStateMixin {
   bool _isLoading = false;
   String _locationStatus = '';
   String? _currentAddress;
   bool _locationError = false;
+  bool _showAnimation = false;
+
+  // Create an audio player instance
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
 
   Future<void> _requestLocationPermission() async {
     setState(() {
       _isLoading = true;
       _locationError = false;
+      _showAnimation = false;
     });
 
     try {
@@ -62,9 +77,18 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> {
       // For this example, we'll return a fixed address
       setState(() {
         _currentAddress = 'Depan gerbang Institut Teknologi Del, Sitoluama, Kec. Balige, Toba, Sumatera Utara 22381';
+        _showAnimation = true;
       });
 
-      Navigator.pop(context, {'address': _currentAddress});
+      // Play the sound when location is found
+      await _audioPlayer.play(AssetSource('audio/found.wav'));
+
+      // Wait for animation to play before navigating back
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (mounted) {
+        Navigator.pop(context, {'address': _currentAddress});
+      }
 
     } catch (e) {
       setState(() {
@@ -72,9 +96,11 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> {
         _locationStatus = 'Error accessing location: ${e.toString()}';
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -95,15 +121,25 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset(
-                  'assets/images/location_icon.png',
-                  width: 100,
-                  height: 100,
-                  fit: BoxFit.cover,
-                ),
+                if (_showAnimation)
+                // Show animation when location is found
+                  Lottie.asset(
+                    'assets/animations/location_access.json',
+                    width: 200,
+                    height: 200,
+                    fit: BoxFit.contain,
+                    repeat: true,
+                  )
+                else
+                  Image.asset(
+                    'assets/images/location_icon.png',
+                    width: 100,
+                    height: 100,
+                    fit: BoxFit.cover,
+                  ),
                 const SizedBox(height: 24),
                 Text(
-                  'Dimana lokasi Anda?',
+                  _showAnimation ? 'Lokasi Ditemukan!' : 'Dimana lokasi Anda?',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -112,14 +148,27 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  'Kami perlu mengetahui lokasi Anda untuk menyarankan layanan terdekat',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: GlobalStyle.disableColor,
-                    fontFamily: GlobalStyle.fontFamily,
+                if (!_showAnimation)
+                  Text(
+                    'Kami perlu mengetahui lokasi Anda untuk menyarankan layanan terdekat',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: GlobalStyle.disableColor,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
                   ),
-                ),
+                if (_showAnimation && _currentAddress != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Text(
+                      _currentAddress!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: GlobalStyle.fontColor,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 24),
                 if (_currentAddress == null)
                   ElevatedButton(

@@ -4,6 +4,8 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Customers/profile_cust.dart';
 import 'package:del_pick/Views/Customers/store_detail.dart';
 import '../Component/cust_bottom_navigation.dart';
+import 'package:lottie/lottie.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 class Store {
   final String name;
@@ -36,6 +38,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   late AnimationController _fadeController;
   late AnimationController _slideController;
@@ -44,6 +47,16 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _scaleAnimation;
+
+  final List<String> _promotionalPhrases = [
+    "Lapar? Pilih makanan favoritmu sekarang!",
+    "Cek toko langganan mu, mungkin ada menu baru!",
+    "Yuk, pesan makanan kesukaanmu dalam sekali klik!",
+    "Hayo, lagi cari apa? Del Pick siap layani pesanan mu",
+    "Waktu makan siang! Pesan sekarang",
+    "Kelaparan? Del Pick siap mengantar!",
+    "Ingin makan enak tanpa ribet? Del Pick solusinya!",
+  ];
 
   final List<Store> _stores = [
     Store(
@@ -104,6 +117,62 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _scaleController.forward();
   }
 
+  void _showPromoDialog() {
+    // Play sound
+    _audioPlayer.play(AssetSource('audio/kring.mp3'));
+
+    // Get random promotional phrase
+    final randomPhrase = _promotionalPhrases[
+    DateTime.now().millisecondsSinceEpoch % _promotionalPhrases.length];
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.grey),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ),
+              Lottie.asset(
+                'assets/animations/pilih_pesanan.json',
+                height: 200,
+                width: 200,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                randomPhrase,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -155,6 +224,11 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _fadeController.forward();
     _slideController.forward();
     _scaleController.forward();
+
+    // Tampilkan dialog sekali saat halaman dibuka
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showPromoDialog();
+    });
   }
 
   @override
@@ -163,6 +237,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _fadeController.dispose();
     _slideController.dispose();
     _scaleController.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
