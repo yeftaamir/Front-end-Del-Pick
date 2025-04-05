@@ -1,27 +1,263 @@
 import 'package:del_pick/Common/global_style.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:provider/provider.dart';
+import '../../Services/ApiService.dart';
 import 'connectivity_service.dart';
 
-class Login extends StatefulWidget {
+class LoginPage extends StatefulWidget {
   static const String route = "/Controls/Login";
-
-  const Login({super.key});
+  //
+  const LoginPage({super.key});
 
   @override
-  createState() => LoginState();
+  LoginPageState createState() => LoginPageState();
+  // @override
+  // createState() => LoginState();
 }
 
-class LoginState extends State<Login> {
-  bool obscurePassword = true;
+class LoginPageState extends State<LoginPage> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+  bool _isLoading = false;
+  final FlutterSecureStorage _storage = FlutterSecureStorage();
+  bool obscurePassword = true;
+  // final TextEditingController emailController = TextEditingController();
+  // final TextEditingController passwordController = TextEditingController();
 
   @override
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
     super.dispose();
+  }
+
+  // Login function to handle authentication
+  // Login function to handle authentication
+  void _login() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Make the API call to login
+      final loginResponse = await ApiService.login(
+          emailController.text, passwordController.text);
+      print("Full Response Body: $loginResponse"); // Debugging full response
+
+      // Cek apakah response benar-benar memiliki 'token'
+      if (loginResponse == null || !loginResponse.containsKey('token')) {
+        print("Response is either null or does not contain 'token'");
+        showError("Response data is null.");
+        return;
+      }
+
+      // Ambil token langsung
+      final String token = loginResponse['token'] ?? ''; // Akses token langsung
+
+      if (token.isEmpty) {
+        print("Token is empty or null.");
+        showError("Token is null or empty.");
+        return;
+      }
+
+      print("Decoded Token: $token");
+
+      // Decode the token
+      if (token.contains('.')) {
+        final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
+        final String? role = decodedToken['role'];
+        print("Decoded Role: $role");
+
+        if (role == null || role.isEmpty) {
+          showError("Role is missing in token.");
+          return;
+        }
+
+        print("User Role: $role");
+
+        // Navigate to the correct page based on the user's role
+        if (role == 'customer') {
+          Navigator.pushReplacementNamed(context, '/Customers/HomePage');
+        } else if (role == 'store') {
+          Navigator.pushReplacementNamed(context, '/Store/HomePage');
+        } else if (role == 'driver') {
+          Navigator.pushReplacementNamed(context, '/Driver/HomePage');
+        } else {
+          // Handle unknown role
+          showError("Role not recognized");
+        }
+      } else {
+        showError("Token tidak valid");
+      }
+
+    } catch (e) {
+      print("Error: $e"); // Debugging error
+      showError(e.toString());
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  // void _login() async {
+  //   setState(() {
+  //     _isLoading = true;
+  //   });
+  //
+  //   try {
+  //     // Make the API call to login
+  //     final loginResponse = await ApiService.login(
+  //         emailController.text, passwordController.text);
+  //     print("Response Body: $loginResponse");
+  //
+  //     // Cek apakah response benar-benar memiliki data dan token
+  //     if (loginResponse == null || !loginResponse.containsKey('data')) {
+  //       print("Response is either null or does not contain 'data'");
+  //       showError("Response data is null.");
+  //       // showError("Response data is null.");
+  //       return;
+  //     }
+  //
+  //     // // Check if the response contains token data
+  //     // if (loginResponse['data'] == null || loginResponse['data']['token'] == null) {
+  //     //   showError("Response data is null.");
+  //     //   return;
+  //     // }
+  //
+  //     final String token = loginResponse['data']['token'] ?? '';  // Correctly access the token
+  //
+  //     if (token.isEmpty) {
+  //       showError("Token is null or empty.");
+  //       return;
+  //     }
+  //
+  //     print("Decoded Token: $token");
+  //
+  //     // Decode the token
+  //     if (token.contains('.')) {
+  //       final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
+  //       final String? role = decodedToken['role'];
+  //       print("Decoded Role: $role");
+  //
+  //       if (role == null || role.isEmpty) {
+  //         showError("Role is missing in token.");
+  //         return;
+  //       }
+  //
+  //       print("User Role: $role");
+  //
+  //       // Navigate to the correct page based on the user's role
+  //       if (role == 'customer') {
+  //         Navigator.pushReplacementNamed(context, '/Customers/HomePage');
+  //       }
+  //       else if (role == 'store') {
+  //         Navigator.pushReplacementNamed(context, '/Store/HomePage');
+  //       }
+  //       else if (role == 'driver') {
+  //         Navigator.pushReplacementNamed(context, '/Driver/HomePage');
+  //       }
+  //       else {
+  //         // Handle unknown role
+  //         showError("Role not recognized");
+  //       }
+  //     } else {
+  //       showError("Token tidak valid");
+  //     }
+  //
+  //   } catch (e) {
+  //     // Handle error and show message
+  //     showError(e.toString());
+  //   } finally {
+  //     setState(() {
+  //       _isLoading = false;
+  //     });
+  //   }
+  // }
+
+  // void _login() async {
+  //   setState(() {
+  //     _isLoading = true;
+  //   });
+  //
+  //   try {
+  //     // Make the API call to login
+  //     final loginResponse = await ApiService.login(
+  //         emailController.text, passwordController.text);
+  //     print(loginResponse);
+  //
+  //     // if (loginResponse['data'] == null) {
+  //     //   showError("Response data is null.");
+  //     //   return;
+  //     // }
+  //     if (loginResponse['token'] == null) {
+  //       showError("Response data is null.");
+  //       return;
+  //     }
+  //     // final String token = loginResponse['token'] ?? '';
+  //
+  //     final String token = loginResponse['data']['token'] ?? '';
+  //
+  //
+  //     // final String token = loginResponse['data']['token'];  // Get the token
+  //
+  //
+  //     if (token.isEmpty) {
+  //       showError("Token is null or empty.");
+  //       return;
+  //     }
+  //
+  //     print("Decoded Token: $token");
+  //
+  //     // Decode the token
+  //     if (token.contains('.')) {
+  //       final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
+  //       final String? role = decodedToken['role'];
+  //       print("Decoded Role: $role");
+  //       if (role == null || role.isEmpty) {
+  //         showError("Role is missing in token.");
+  //         return;
+  //       }
+  //       print("User Role: $role");
+  //
+  //       // Navigate to the correct page based on the user's role
+  //       if (role == 'customer') {
+  //         Navigator.pushReplacementNamed(context, '/Customers/HomePage');
+  //       }
+  //       else if (role == 'store') {
+  //         Navigator.pushReplacementNamed(context, '/Store/HomePage');
+  //       }
+  //       else if (role == 'driver') {
+  //         Navigator.pushReplacementNamed(context, '/Driver/HomePage');
+  //       }
+  //       else {
+  //         // Handle unknown role
+  //         showError("Role not recognized");
+  //       }
+  //     } else {
+  //       showError("Token tidak valid");
+  //     }
+  //
+  //     // final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
+  //
+  //     // Extract the role from the decoded token
+  //     // final String role = decodedToken['role'];  // Assuming the role is in the token
+  //
+  //   } catch (e) {
+  //     // Handle error and show message
+  //     showError(e.toString());
+  //   } finally {
+  //     setState(() {
+  //       _isLoading = false;
+  //     });
+  //   }
+  // }
+
+  // Error handling function
+  void showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _showRoleSelectionDialog() {
@@ -220,8 +456,11 @@ class LoginState extends State<Login> {
                     ),
                   ],
                 ),
-                child: TextButton(
-                  onPressed: _showRoleSelectionDialog,
+                child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : TextButton(
+                  // onPressed: _showRoleSelectionDialog,
+                  onPressed: _login,
                   child: const Text(
                     'Masuk',
                     style: TextStyle(

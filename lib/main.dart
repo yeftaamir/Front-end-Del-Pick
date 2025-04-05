@@ -192,7 +192,7 @@ class MyApp extends StatelessWidget {
       '/': (context) => const InternetConnectivityWrapper(child: SplashScreen()),
 
       // Control routes
-      Login.route: (context) => const InternetConnectivityWrapper(child: Login()),
+      LoginPage.route: (context) => const InternetConnectivityWrapper(child: LoginPage()),
 
       // Customer routes
       HomePage.route: (context) => const InternetConnectivityWrapper(child: HomePage()),
