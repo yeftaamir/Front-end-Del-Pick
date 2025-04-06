@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:lottie/lottie.dart';
 import '../Component/driver_bottom_navigation.dart';
 import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/store.dart';
@@ -275,223 +276,213 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
 
     return SlideTransition(
       position: _cardAnimations[index % _cardAnimations.length],
-      child: GestureDetector(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => HistoryDriverDetailPage(orderDetail: {
-                'customerName': 'Customer', // Usually would come from a Customer model
-                'date': formattedDate,
-                'amount': order.total,
-                'items': order.items.map((item) => {
-                  'name': item.name,
-                  'quantity': item.quantity,
-                  'price': item.price,
-                  'image': item.imageUrl
-                }).toList(),
-                'status': order.status.toString().split('.').last,
-                'deliveryFee': deliveryFee,
-                'customerAddress': order.deliveryAddress,
-                'storeAddress': order.store.address,
-                'storePhone': order.store.phoneNumber,
-                'customerPhone': '6281234567891', // Usually would come from a Customer model
-              }),
-            ),
-          );
-        },
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                spreadRadius: 1,
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: GlobalStyle.lightColor,
-                      borderRadius: BorderRadius.circular(8),
+      child: Card(
+        elevation: 3,
+        margin: const EdgeInsets.only(bottom: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+        color: Colors.white, // Changed card color to white
+        child: InkWell(
+          borderRadius: BorderRadius.circular(15),
+          onTap: () {
+            _navigateToOrderDetail(order, formattedDate, deliveryFee);
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: GlobalStyle.lightColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.local_shipping_outlined,
+                        color: GlobalStyle.primaryColor,
+                        size: 32,
+                      ),
                     ),
-                    child: Icon(
-                      Icons.local_shipping_outlined,
-                      color: GlobalStyle.primaryColor,
-                      size: 30,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  order.store.name,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              _buildStatusChip(statusText, statusColor),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            formattedDate,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            getOrderItemsText(order),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[800],
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
+                  ],
+                ),
+                const Divider(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                order.store.name,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              height: 30,
-                              width: 70,
-                              child: ElevatedButton(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => HistoryDriverDetailPage(orderDetail: {
-                                        'customerName': 'Customer',
-                                        'date': formattedDate,
-                                        'amount': order.total,
-                                        'items': order.items.map((item) => {
-                                          'name': item.name,
-                                          'quantity': item.quantity,
-                                          'price': item.price,
-                                          'image': item.imageUrl
-                                        }).toList(),
-                                        'status': order.status.toString().split('.').last,
-                                        'deliveryFee': deliveryFee,
-                                        'customerAddress': order.deliveryAddress,
-                                        'storeAddress': order.store.address,
-                                        'storePhone': order.store.phoneNumber,
-                                        'customerPhone': '6281234567891',
-                                      }),
-                                    ),
-                                  );
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.white,
-                                  foregroundColor: Colors.black87,
-                                  side: BorderSide(color: Colors.grey),
-                                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                                  textStyle: TextStyle(fontSize: 12),
-                                ),
-                                child: const Text('Lihat'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Text(
-                              formattedDate,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '•',
-                              style: TextStyle(color: Colors.grey[600]),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              statusText,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: statusColor,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
+                        Text(
+                          'Biaya Pengiriman',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[700],
+                          ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          getOrderItemsText(order),
+                          GlobalStyle.formatRupiah(deliveryFee.toDouble()),
                           style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: GlobalStyle.primaryColor,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Biaya Pengiriman',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                                Text(
-                                  NumberFormat.currency(
-                                    locale: 'id',
-                                    symbol: 'Rp ',
-                                    decimalDigits: 0,
-                                  ).format(deliveryFee),
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w500,
-                                    color: GlobalStyle.primaryColor,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
                         ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-            ],
+                    ElevatedButton(
+                      onPressed: () {
+                        _navigateToOrderDetail(order, formattedDate, deliveryFee);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Lihat Detail',
+                        style: TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
+  Widget _buildStatusChip(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  void _navigateToOrderDetail(Order order, String formattedDate, double deliveryFee) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => HistoryDriverDetailPage(orderDetail: {
+          'customerName': 'Customer', // Usually would come from a Customer model
+          'date': formattedDate,
+          'amount': order.total,
+          'items': order.items.map((item) => {
+            'name': item.name,
+            'quantity': item.quantity,
+            'price': item.price,
+            'image': item.imageUrl
+          }).toList(),
+          'status': order.status.toString().split('.').last,
+          'deliveryFee': deliveryFee,
+          'customerAddress': order.deliveryAddress,
+          'storeAddress': order.store.address,
+          'storePhone': order.store.phoneNumber,
+          'customerPhone': '6281234567891', // Usually would come from a Customer model
+        }),
+      ),
+    );
+  }
+
   Widget _buildEmptyState(String message) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.local_shipping_outlined, size: 70, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Lottie animation for empty state
+          Lottie.asset(
+            'assets/animations/empty.json',
+            width: 200,
+            height: 200,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            message,
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[700],
+              fontWeight: FontWeight.w500,
             ),
-          ],
-        ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Belum ada riwayat pengiriman',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
@@ -508,6 +499,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
         return false;
       },
       child: Scaffold(
+        backgroundColor: Colors.white,
         appBar: AppBar(
           elevation: 0,
           backgroundColor: Colors.white,
@@ -524,9 +516,9 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
               padding: const EdgeInsets.all(4.0),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.blue, width: 1.0),
+                border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
               ),
-              child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+              child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
             ),
             onPressed: () {
               Navigator.pushNamedAndRemoveUntil(
@@ -539,9 +531,10 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
           bottom: TabBar(
             controller: _tabController,
             isScrollable: true,
-            labelColor: Colors.blue,
+            labelColor: GlobalStyle.primaryColor,
             unselectedLabelColor: Colors.grey[600],
-            indicatorColor: Colors.blue,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+            indicatorColor: GlobalStyle.primaryColor,
             indicatorWeight: 3,
             tabs: _tabs.map((String tab) => Tab(text: tab)).toList(),
           ),

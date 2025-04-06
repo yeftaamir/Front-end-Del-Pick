@@ -376,7 +376,58 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
           ),
         ],
       ),
-      body: ListView.builder(
+      body: _items.isEmpty
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Lottie.asset(
+              'assets/animations/empty.json',
+              width: 250,
+              height: 250,
+              repeat: true,
+              animate: true,
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Belum ada item',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Tambahkan item baru dengan menekan tombol + di atas',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () => _navigateToAddEditForm(),
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah Item Sekarang'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GlobalStyle.primaryColor,
+                foregroundColor: Colors.white,
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      )
+          : ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: _items.length,
         itemBuilder: (context, index) {
@@ -432,7 +483,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                               ),
                               child: Image.asset(
                                 item.imageUrl,
-                                height: 120,
+                                height: 130,
                                 width: 120,
                                 fit: BoxFit.cover,
                               ),
@@ -452,7 +503,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      'Rp ${item.price.toStringAsFixed(0)}',
+                                      GlobalStyle.formatRupiah(item.price),
                                       style: TextStyle(
                                         fontSize: 16,
                                         color: GlobalStyle.primaryColor,
@@ -460,15 +511,25 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                       ),
                                     ),
                                     const SizedBox(height: 4),
-                                    Text(
-                                      'Stok: ${item.quantity}',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: isOutOfStock ? Colors.red : GlobalStyle.fontColor,
-                                        fontWeight: isOutOfStock ? FontWeight.bold : FontWeight.normal,
-                                      ),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.inventory_2_outlined,
+                                          size: 16,
+                                          color: isOutOfStock ? Colors.red : Colors.grey,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Stok: ${item.quantity}',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: isOutOfStock ? Colors.red : GlobalStyle.fontColor,
+                                            fontWeight: isOutOfStock ? FontWeight.bold : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(height: 4),
+                                    const SizedBox(height: 8),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 8,
@@ -508,15 +569,27 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                     ),
                                     if (item.description != null && item.description!.isNotEmpty)
                                       Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          item.description!,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.description_outlined,
+                                              size: 16,
+                                              color: Colors.grey[600],
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                item.description!,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                ),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                   ],
@@ -524,17 +597,17 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                               ),
                             ),
                             Padding(
-                              padding: const EdgeInsets.only(right: 12.0),
+                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                                 children: [
                                   // Improved Toggle Button
                                   Container(
-                                    width: 70,
-                                    height: 30,
-                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    width: 75,
+                                    height: 35,
+                                    margin: const EdgeInsets.symmetric(vertical: 5),
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(18),
                                       gradient: LinearGradient(
                                         colors: item.isAvailable
                                             ? [const Color(0xFF43A047), const Color(0xFF66BB6A)]
@@ -556,16 +629,27 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                     child: Material(
                                       color: Colors.transparent,
                                       child: InkWell(
-                                        borderRadius: BorderRadius.circular(15),
+                                        borderRadius: BorderRadius.circular(18),
                                         onTap: () => _toggleItemStatus(item),
                                         child: Center(
-                                          child: Text(
-                                            item.isAvailable ? 'BUKA' : 'TUTUP',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
-                                            ),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                item.isAvailable ? Icons.visibility : Icons.visibility_off,
+                                                color: Colors.white,
+                                                size: 16,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                item.isAvailable ? 'BUKA' : 'TUTUP',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ),
@@ -574,11 +658,11 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
 
                                   // Improved Edit Button
                                   Container(
-                                    width: 70,
-                                    height: 30,
-                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    width: 75,
+                                    height: 35,
+                                    margin: const EdgeInsets.symmetric(vertical: 5),
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(18),
                                       gradient: LinearGradient(
                                         colors: [GlobalStyle.primaryColor, GlobalStyle.primaryColor.withOpacity(0.8)],
                                         begin: Alignment.topLeft,
@@ -596,7 +680,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                     child: Material(
                                       color: Colors.transparent,
                                       child: InkWell(
-                                        borderRadius: BorderRadius.circular(15),
+                                        borderRadius: BorderRadius.circular(18),
                                         onTap: () => _navigateToAddEditForm(item: item),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -604,7 +688,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                             Icon(
                                               Icons.edit,
                                               color: Colors.white,
-                                              size: 14,
+                                              size: 16,
                                             ),
                                             SizedBox(width: 4),
                                             Text(
@@ -623,11 +707,11 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
 
                                   // Improved Delete Button
                                   Container(
-                                    width: 70,
-                                    height: 30,
-                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    width: 75,
+                                    height: 35,
+                                    margin: const EdgeInsets.symmetric(vertical: 5),
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(18),
                                       gradient: const LinearGradient(
                                         colors: [Colors.red, Color(0xFFF44336)],
                                         begin: Alignment.topLeft,
@@ -645,7 +729,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                     child: Material(
                                       color: Colors.transparent,
                                       child: InkWell(
-                                        borderRadius: BorderRadius.circular(15),
+                                        borderRadius: BorderRadius.circular(18),
                                         onTap: () => _showDeleteConfirmation(item),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -653,7 +737,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                                             Icon(
                                               Icons.delete,
                                               color: Colors.white,
-                                              size: 14,
+                                              size: 16,
                                             ),
                                             SizedBox(width: 4),
                                             Text(
@@ -677,9 +761,7 @@ class _AddItemPageState extends State<AddItemPage> with SingleTickerProviderStat
                       ),
                     ),
                     if (!item.isAvailable)
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
+                      Positioned(
                         top: 0,
                         right: 0,
                         child: Container(

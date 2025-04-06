@@ -201,7 +201,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     await _flutterLocalNotificationsPlugin.show(
       0,
       'Pesanan Baru!',
-      'Pelanggan: ${orderDetails['customerName']} - Rp ${NumberFormat('#,###').format(orderDetails['totalPrice'])}',
+      'Pelanggan: ${orderDetails['customerName']} - ${GlobalStyle.formatRupiah(orderDetails['totalPrice'].toDouble())}',
       platformChannelSpecifics,
     );
   }
@@ -257,7 +257,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                   ),
                 ),
                 Text(
-                  'Total: Rp ${NumberFormat('#,###').format(_newOrder['totalPrice'])}',
+                  'Total: ${GlobalStyle.formatRupiah(_newOrder['totalPrice'].toDouble())}',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
@@ -562,7 +562,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                             Icon(Icons.payments, color: GlobalStyle.primaryColor, size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              'Rp ${NumberFormat('#,###').format(order['totalPrice'])}',
+                              GlobalStyle.formatRupiah(order['totalPrice'].toDouble()),
                               style: TextStyle(
                                 color: GlobalStyle.primaryColor,
                                 fontWeight: FontWeight.bold,
@@ -668,17 +668,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: GlobalStyle.lightColor.withOpacity(0.3),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.inbox_rounded,
-              size: 80,
-              color: GlobalStyle.primaryColor,
-            ),
+          Lottie.asset(
+            'assets/animations/empty.json',
+            width: 200,
+            height: 200,
+            fit: BoxFit.contain,
           ),
           const SizedBox(height: 16),
           Text(

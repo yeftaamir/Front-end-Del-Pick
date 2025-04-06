@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:lottie/lottie.dart';
 import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';
-import 'package:del_pick/Models/customer.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Views/Store/home_store.dart';
@@ -242,11 +242,11 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
       case OrderStatus.driverAssigned:
         return 'Driver Ditugaskan';
       case OrderStatus.driverHeadingToStore:
-        return 'Dalam Pengambilan';
+        return 'Driver Menuju Toko';
       case OrderStatus.driverAtStore:
-        return 'Driver Di Toko';
+        return 'Di Toko';
       case OrderStatus.driverHeadingToCustomer:
-        return 'Dalam Pengantaran';
+        return 'Dalam Perjalanan';
       case OrderStatus.driverArrived:
         return 'Driver Tiba';
       default:
@@ -273,174 +273,184 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     }
   }
 
+  Widget _buildStatusChip(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  void _navigateToOrderDetail(Order order, String formattedDate) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => HistoryStoreDetailPage(orderDetail: {
+          'customerName': 'Customer', // Usually would come from a Customer model
+          'date': formattedDate,
+          'amount': order.total,
+          'icon': 'assets/images/user_avatar.jpg', // Default avatar
+          'items': order.items.map((item) => {
+            'name': item.name,
+            'quantity': item.quantity,
+            'price': item.price,
+            'image': item.imageUrl
+          }).toList(),
+          'status': order.status == OrderStatus.completed ? 'completed' : 'rejected',
+          'deliveryFee': order.serviceCharge,
+          'customerAddress': order.deliveryAddress,
+          'storeAddress': order.store.address,
+          'phoneNumber': '6281234567890', // Customer phone number
+        }),
+      ),
+    );
+  }
+
   Widget _buildOrderCard(Order order, int index) {
     final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
     final statusColor = getStatusColor(order.status);
     final statusText = getStatusText(order.status);
-    final customer = 'Pelanggan'; // Normally would come from a Customer model
+    final orderTotal = order.total; // Total order amount
 
     return SlideTransition(
       position: _cardAnimations[index % _cardAnimations.length],
-      child: Container(
+      child: Card(
+        elevation: 3,
         margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        color: Colors.white,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(15),
+          onTap: () {
+            _navigateToOrderDetail(order, formattedDate);
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 25,
-                  backgroundColor: GlobalStyle.lightColor,
-                  child: Icon(
-                    Icons.person,
-                    color: GlobalStyle.primaryColor,
-                    size: 30,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              customer,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            height: 30,
-                            width: 70,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => HistoryStoreDetailPage(orderDetail: {
-                                      'customerName': customer,
-                                      'date': formattedDate,
-                                      'amount': order.total,
-                                      'icon': 'assets/images/user_avatar.jpg', // Default avatar
-                                      'items': order.items.map((item) => {
-                                        'name': item.name,
-                                        'quantity': item.quantity,
-                                        'price': item.price,
-                                        'image': item.imageUrl
-                                      }).toList(),
-                                      'status': order.status == OrderStatus.completed ? 'completed' : 'rejected',
-                                      'deliveryFee': order.serviceCharge,
-                                      'customerAddress': order.deliveryAddress,
-                                      'storeAddress': order.store.address,
-                                      'phoneNumber': '6281234567890', // Customer phone number
-                                    }),
-                                  ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black87,
-                                side: BorderSide(color: Colors.grey),
-                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                                textStyle: TextStyle(fontSize: 12),
-                              ),
-                              child: const Text('Lihat'),
-                            ),
-                          ),
-                        ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: GlobalStyle.lightColor,
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
+                      child: Icon(
+                        Icons.person,
+                        color: GlobalStyle.primaryColor,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Customer', // Placeholder for customer name
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              _buildStatusChip(statusText, statusColor),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
                           Text(
                             formattedDate,
                             style: TextStyle(
                               fontSize: 14,
-                              color: Colors.grey[600],
+                              color: Colors.grey[700],
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(height: 6),
                           Text(
-                            '•',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            statusText,
+                            getOrderItemsText(order),
                             style: TextStyle(
                               fontSize: 14,
-                              color: statusColor,
-                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[800],
+                              fontWeight: FontWeight.w500,
                             ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        getOrderItemsText(order),
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
+                    ),
+                  ],
+                ),
+                const Divider(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Total Pesanan',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[700],
+                          ),
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Total Pesanan',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              Text(
-                                NumberFormat.currency(
-                                  locale: 'id',
-                                  symbol: 'Rp ',
-                                  decimalDigits: 0,
-                                ).format(order.total),
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                  color: GlobalStyle.primaryColor,
-                                ),
-                              ),
-                            ],
+                        const SizedBox(height: 4),
+                        Text(
+                          GlobalStyle.formatRupiah(orderTotal.toDouble()),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: GlobalStyle.primaryColor,
                           ),
-                        ],
+                        ),
+                      ],
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        _navigateToOrderDetail(order, formattedDate);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
-                    ],
-                  ),
+                      child: const Text(
+                        'Lihat Detail',
+                        style: TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -448,28 +458,36 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
 
   Widget _buildEmptyState(String message) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.history,
-              size: 70,
-              color: GlobalStyle.disableColor,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Lottie animation for empty state
+          Lottie.asset(
+            'assets/animations/empty.json',
+            width: 200,
+            height: 200,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            message,
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[700],
+              fontWeight: FontWeight.w500,
             ),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              style: TextStyle(
-                color: GlobalStyle.fontColor,
-                fontSize: 16,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Belum ada riwayat pesanan',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
             ),
-          ],
-        ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
@@ -486,6 +504,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         return false;
       },
       child: Scaffold(
+        backgroundColor: Colors.white,
         appBar: AppBar(
           elevation: 0,
           backgroundColor: Colors.white,
@@ -502,9 +521,9 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
               padding: const EdgeInsets.all(4.0),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.blue, width: 1.0),
+                border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
               ),
-              child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+              child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
             ),
             onPressed: () {
               Navigator.pushNamedAndRemoveUntil(
@@ -517,9 +536,10 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
           bottom: TabBar(
             controller: _tabController,
             isScrollable: true,
-            labelColor: Colors.blue,
+            labelColor: GlobalStyle.primaryColor,
             unselectedLabelColor: Colors.grey[600],
-            indicatorColor: Colors.blue,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+            indicatorColor: GlobalStyle.primaryColor,
             indicatorWeight: 3,
             tabs: _tabs.map((String tab) => Tab(text: tab)).toList(),
           ),

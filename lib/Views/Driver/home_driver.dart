@@ -181,7 +181,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     await _flutterLocalNotificationsPlugin.show(
       0,
       'Pesanan Baru!',
-      'Pelanggan: ${orderDetails['customerName']} - Rp ${NumberFormat('#,###').format(orderDetails['totalPrice'])}',
+      'Pelanggan: ${orderDetails['customerName']} - ${GlobalStyle.formatRupiah(orderDetails['totalPrice'].toDouble())}',
       platformChannelSpecifics,
     );
   }
@@ -237,7 +237,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                   ),
                 ),
                 Text(
-                  'Total: Rp ${NumberFormat('#,###').format(_deliveries[0]['totalPrice'])}',
+                  'Total: ${GlobalStyle.formatRupiah(_deliveries[0]['totalPrice'].toDouble())}',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
@@ -525,7 +525,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                             Icon(Icons.payments, color: GlobalStyle.primaryColor, size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              'Rp ${NumberFormat('#,###').format(delivery['totalPrice'])}',
+                              GlobalStyle.formatRupiah(delivery['totalPrice'].toDouble()),
                               style: TextStyle(
                                 color: GlobalStyle.primaryColor,
                                 fontWeight: FontWeight.bold,
@@ -630,17 +630,12 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: GlobalStyle.lightColor.withOpacity(0.3),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.local_shipping_outlined,
-              size: 80,
-              color: GlobalStyle.primaryColor,
-            ),
+          // Adding Lottie animation when there are no orders
+          Lottie.asset(
+            'assets/animations/empty.json',
+            width: 250,
+            height: 250,
+            fit: BoxFit.contain,
           ),
           const SizedBox(height: 16),
           Text(

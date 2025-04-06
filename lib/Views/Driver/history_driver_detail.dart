@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Driver/track_order.dart';
 import 'package:lottie/lottie.dart';
@@ -215,8 +216,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     String message = 'Halo, saya driver dari Del Pick mengenai pesanan Anda...';
     String url = 'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}';
 
-    if (await canLaunch(url)) {
-      await launch(url);
+    if (await canLaunchUrlString(url)) {
+      await launchUrlString(url);
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -309,7 +310,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     );
   }
 
-// Helper method to create a Tracking object
+  // Helper method to create a Tracking object
   Tracking _createTracking() {
     // Create sample driver
     final driver = Driver.sample();
@@ -355,7 +356,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   Widget _buildStoreInfoCard() {
     return _buildCard(
       index: 1,
-      child: Padding(
+      child: Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -364,88 +365,141 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               children: [
                 Icon(Icons.store, color: GlobalStyle.primaryColor),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   'Informasi Toko',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: GlobalStyle.borderColor),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      widget.orderDetail['storeImage'] ?? '',
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          width: 60,
-                          height: 60,
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.store),
-                        );
-                      },
-                    ),
+            Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    widget.orderDetail['storeImage'] ?? '',
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.grey[300]!),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.store,
+                            size: 30,
+                            color: Colors.grey[400],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.orderDetail['storeName'] ?? 'Toko',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.orderDetail['storeName'] ?? 'Toko',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: GlobalStyle.fontColor,
+                          fontFamily: GlobalStyle.fontFamily,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.orderDetail['storeAddress'] ?? '',
-                          style: TextStyle(
-                            color: GlobalStyle.fontColor,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.phone,
-                              size: 14,
-                              color: Colors.grey[600],
-                            ),
-                            const SizedBox(width: 4),
-                            GestureDetector(
-                              onTap: () => _openWhatsApp(widget.orderDetail['storePhone']),
-                              child: Text(
-                                widget.orderDetail['storePhone'] ?? '',
-                                style: TextStyle(
-                                  color: Colors.blue[600],
-                                  fontSize: 14,
-                                  decoration: TextDecoration.underline,
-                                ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on, color: Colors.grey[600], size: 16),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              widget.orderDetail['storeAddress'] ?? '',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
                               ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.star, color: Colors.amber, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            '4.8',
+                            style: TextStyle(
+                              color: Colors.grey[800],
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.call, color: Colors.white),
+                    label: const Text(
+                      'Hubungi',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () {
+                      _openWhatsApp(widget.orderDetail['storePhone'] ?? '');
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.message, color: Colors.white),
+                    label: const Text(
+                      'Pesan',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[600],
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () {
+                      _openWhatsApp(widget.orderDetail['storePhone'] ?? '');
+                    },
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -456,7 +510,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   Widget _buildCustomerInfoCard() {
     return _buildCard(
       index: 2,
-      child: Padding(
+      child: Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -465,86 +519,131 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               children: [
                 Icon(Icons.person, color: GlobalStyle.primaryColor),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   'Informasi Pelanggan',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: GlobalStyle.borderColor),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: GlobalStyle.lightColor,
-                      shape: BoxShape.circle,
-                    ),
+            Row(
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: ClipOval(
                     child: Center(
                       child: Icon(
                         Icons.person,
-                        color: GlobalStyle.primaryColor,
                         size: 30,
+                        color: Colors.grey[400],
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.orderDetail['customerName'] ?? 'Pelanggan',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.orderDetail['customerName'] ?? 'Pelanggan',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: GlobalStyle.fontColor,
+                          fontFamily: GlobalStyle.fontFamily,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.orderDetail['customerAddress'] ?? '',
-                          style: TextStyle(
-                            color: GlobalStyle.fontColor,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.phone,
-                              size: 14,
-                              color: Colors.grey[600],
-                            ),
-                            const SizedBox(width: 4),
-                            GestureDetector(
-                              onTap: () => _openWhatsApp(widget.orderDetail['customerPhone']),
-                              child: Text(
-                                widget.orderDetail['customerPhone'] ?? '',
-                                style: TextStyle(
-                                  color: Colors.blue[600],
-                                  fontSize: 14,
-                                  decoration: TextDecoration.underline,
-                                ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on, color: Colors.grey[600], size: 16),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              widget.orderDetail['customerAddress'] ?? '',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
                               ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.phone, color: Colors.grey[600], size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            widget.orderDetail['customerPhone'] ?? '',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.call, color: Colors.white),
+                    label: const Text(
+                      'Hubungi',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () {
+                      _openWhatsApp(widget.orderDetail['customerPhone'] ?? '');
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.message, color: Colors.white),
+                    label: const Text(
+                      'Pesan',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[600],
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () {
+                      _openWhatsApp(widget.orderDetail['customerPhone'] ?? '');
+                    },
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -553,12 +652,12 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   }
 
   Widget _buildItemsCard() {
-    final items = widget.orderDetail['items'] as List;
-    final totalAmount = widget.orderDetail['amount'];
-    final deliveryFee = widget.orderDetail['deliveryFee'];
+    final items = widget.orderDetail['items'] as List? ?? [];
+    final totalAmount = (widget.orderDetail['amount'] as num?)?.toDouble() ?? 0.0;
+    final deliveryFee = (widget.orderDetail['deliveryFee'] as num?)?.toDouble() ?? 0.0;
 
     return _buildCard(
-      index: 0, // Now using index 0 since we removed the location card
+      index: 0,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -568,11 +667,13 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               children: [
                 Icon(Icons.shopping_bag, color: GlobalStyle.primaryColor),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   'Item Pesanan',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),
               ],
@@ -617,7 +718,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Rp. ${item['price'] ?? 0}',
+                          GlobalStyle.formatRupiah((item['price'] as num?)?.toDouble() ?? 0.0),
                           style: TextStyle(
                             color: GlobalStyle.primaryColor,
                             fontWeight: FontWeight.w500,
@@ -658,7 +759,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                   ),
                 ),
                 Text(
-                  'Rp. $deliveryFee',
+                  GlobalStyle.formatRupiah(deliveryFee),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
@@ -672,7 +773,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  'Rp. $totalAmount',
+                  GlobalStyle.formatRupiah(totalAmount),
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: GlobalStyle.primaryColor,

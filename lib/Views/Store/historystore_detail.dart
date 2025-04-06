@@ -38,10 +38,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     // Initialize animation controllers for card sections
     _cardControllers = List.generate(
       4, // Number of card sections
-          (index) => AnimationController(
-        vsync: this,
-        duration: Duration(milliseconds: 600 + (index * 200)),
-      ),
+          (index) =>
+          AnimationController(
+            vsync: this,
+            duration: Duration(milliseconds: 600 + (index * 200)),
+          ),
     );
 
     // Create slide animations for each card
@@ -88,30 +89,10 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       case 'processing':
         return OrderStatus.pending; // Show as pending when being processed
       case 'ready_for_pickup':
-        return OrderStatus.driverHeadingToStore; // New status for ready to be picked up
+        return OrderStatus
+            .driverHeadingToStore; // New status for ready to be picked up
       default:
         return OrderStatus.pending;
-    }
-  }
-
-  Future<void> _openWhatsApp(String? phoneNumber,
-      {bool isDriver = false}) async {
-    if (phoneNumber == null) return;
-
-    String message = isDriver
-        ? 'Halo, saya dari toko mengenai pesanan yang akan diambil...'
-        : 'Halo, saya dari toko mengenai pesanan Anda...';
-    String url =
-        'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}';
-
-    if (await canLaunch(url)) {
-      await launch(url);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Tidak dapat membuka WhatsApp')),
-        );
-      }
     }
   }
 
@@ -156,7 +137,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(24),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 40, vertical: 12),
                   ),
                   child: const Text(
                     'Back to Home',
@@ -218,7 +200,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             borderRadius: BorderRadius.circular(16),
           ),
           title: const Text('Konfirmasi'),
-          content: const Text('Apakah pesanan sudah siap untuk diambil driver?'),
+          content: const Text(
+              'Apakah pesanan sudah siap untuk diambil driver?'),
           actions: <Widget>[
             TextButton(
               child: const Text('Batal'),
@@ -322,23 +305,26 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   Widget _buildOrderStatusCard() {
     // Create OrderItem objects from the items in orderDetail
-    final items = (widget.orderDetail['items'] as List? ?? []).map((item) => Item(
-      id: item['id'] ?? '',
-      name: item['name'] ?? '',
-      price: (item['price'] ?? 0).toDouble(),
-      quantity: item['quantity'] ?? 1,
-      imageUrl: item['image'] ?? '',
-      isAvailable: true,
-      status: 'available',
-      description: item['description'] ?? '',
-    )).toList();
+    final items = (widget.orderDetail['items'] as List? ?? []).map((item) =>
+        Item(
+          id: item['id'] ?? '',
+          name: item['name'] ?? '',
+          price: (item['price'] ?? 0).toDouble(),
+          quantity: item['quantity'] ?? 1,
+          imageUrl: item['image'] ?? '',
+          isAvailable: true,
+          status: 'available',
+          description: item['description'] ?? '',
+        )).toList();
 
     // Create Store object
     final store = StoreModel(
       name: widget.orderDetail['storeName'] ?? '',
       address: widget.orderDetail['storeAddress'] ?? '',
-      openHours: '08:00 - 22:00', // Default value
-      rating: 4.5, // Default value
+      openHours: '08:00 - 22:00',
+      // Default value
+      rating: 4.5,
+      // Default value
       reviewCount: 0,
       phoneNumber: widget.orderDetail['storePhone'] ?? '',
     );
@@ -349,7 +335,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       items: items,
       store: store,
       deliveryAddress: widget.orderDetail['customerAddress'] ?? '',
-      subtotal: ((widget.orderDetail['amount'] ?? 0) - (widget.orderDetail['deliveryFee'] ?? 0)).toDouble(),
+      subtotal: ((widget.orderDetail['amount'] ?? 0) -
+          (widget.orderDetail['deliveryFee'] ?? 0)).toDouble(),
       serviceCharge: (widget.orderDetail['deliveryFee'] ?? 0).toDouble(),
       total: (widget.orderDetail['amount'] ?? 0).toDouble(),
       orderDate: DateTime.now(),
@@ -364,7 +351,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   Widget _buildDriverInfoCard() {
-    final driverInfo = widget.orderDetail['driverInfo'] as Map<String, dynamic>?;
+    final driverInfo = widget.orderDetail['driverInfo'] as Map<String,
+        dynamic>?;
 
     // Show driver info based on status
     final currentStatus = widget.orderDetail['status'] as String? ?? 'pending';
@@ -442,10 +430,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 ),
                 IconButton(
                   icon: const Icon(Icons.chat),
-                  onPressed: () => _openWhatsApp(
-                    driverInfo['phone']?.toString(),
-                    isDriver: true,
-                  ),
+                  onPressed: () =>
+                      _openWhatsApp(
+                        driverInfo['phone']?.toString(),
+                        isDriver: true,
+                      ),
                   style: IconButton.styleFrom(
                     backgroundColor: Colors.blue.shade100,
                     foregroundColor: Colors.blue,
@@ -477,29 +466,32 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     fontFamily: GlobalStyle.fontFamily,
+                    color: GlobalStyle.fontColor,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Row(
               children: [
                 Container(
-                  width: 50,
-                  height: 50,
+                  width: 60,
+                  height: 60,
                   decoration: BoxDecoration(
-                    color: GlobalStyle.lightColor,
                     shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey[300]!),
                   ),
-                  child: Center(
-                    child: Icon(
-                      Icons.person,
-                      color: GlobalStyle.primaryColor,
-                      size: 30,
+                  child: ClipOval(
+                    child: Center(
+                      child: Icon(
+                        Icons.person,
+                        size: 30,
+                        color: Colors.grey[400],
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -507,31 +499,81 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       Text(
                         widget.orderDetail['customerName']?.toString() ?? '',
                         style: TextStyle(
-                          fontWeight: FontWeight.bold,
                           fontSize: 16,
+                          fontWeight: FontWeight.bold,
                           color: GlobalStyle.fontColor,
                           fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        widget.orderDetail['customerAddress']?.toString() ?? '',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on, color: Colors.grey[600],
+                              size: 16),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              widget.orderDetail['customerAddress']
+                                  ?.toString() ?? '',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.chat),
-                  onPressed: () => _openWhatsApp(
-                    widget.orderDetail['customerPhone']?.toString(),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.call, color: Colors.white),
+                    label: const Text(
+                      'Hubungi',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () {
+                      _callCustomer(
+                          widget.orderDetail['customerPhone']?.toString());
+                    },
                   ),
-                  style: IconButton.styleFrom(
-                    backgroundColor: Colors.blue.shade100,
-                    foregroundColor: Colors.blue,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.message, color: Colors.white),
+                    label: const Text(
+                      'Pesan',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[600],
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () {
+                      _openWhatsApp(
+                        widget.orderDetail['customerPhone']?.toString(),
+                        isDriver: false,
+                      );
+                    },
                   ),
                 ),
               ],
@@ -542,10 +584,247 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
+  Widget _buildStoreInfoCard() {
+    return _buildCard(
+      index: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.store, color: GlobalStyle.primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  'Informasi Toko',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: GlobalStyle.fontFamily,
+                    color: GlobalStyle.fontColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: ClipOval(
+                    child: Center(
+                      child: Icon(
+                        Icons.store,
+                        size: 30,
+                        color: Colors.grey[400],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.orderDetail['storeName']?.toString() ?? '',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: GlobalStyle.fontColor,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on, color: Colors.grey[600],
+                              size: 16),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              widget.orderDetail['storeAddress']?.toString() ??
+                                  '',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.star, color: Colors.amber, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            '4.8',
+                            style: TextStyle(
+                              color: Colors.grey[800],
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.call, color: Colors.white),
+                    label: const Text(
+                      'Hubungi',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () {
+                      _callStore(widget.orderDetail['storePhone']?.toString());
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.message, color: Colors.white),
+                    label: const Text(
+                      'Pesan',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[600],
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () {
+                      _openWhatsApp(
+                        widget.orderDetail['storePhone']?.toString(),
+                        isStore: true,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+// Add these methods to handle calls and WhatsApp messages
+  Future<void> _callCustomer(String? phoneNumber) async {
+    if (phoneNumber == null) return;
+
+    String url = 'tel:$phoneNumber';
+
+    if (await canLaunch(url)) {
+      await launch(url);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tidak dapat melakukan panggilan')),
+        );
+      }
+    }
+  }
+
+  Future<void> _callStore(String? phoneNumber) async {
+    if (phoneNumber == null) return;
+
+    String url = 'tel:$phoneNumber';
+
+    if (await canLaunch(url)) {
+      await launch(url);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tidak dapat melakukan panggilan')),
+        );
+      }
+    }
+  }
+
+// Replace the second _openWhatsApp method (around line 387-411) with this updated version
+  Future<void> _openWhatsApp(String? phoneNumber,
+      {bool isDriver = false, bool isStore = false}) async {
+    if (phoneNumber == null) return;
+
+    String message = '';
+    if (isDriver) {
+      message = 'Halo, saya dari toko mengenai pesanan yang akan diambil...';
+    } else if (isStore) {
+      message = 'Halo, saya ingin bertanya mengenai toko Anda...';
+    } else {
+      message = 'Halo, saya dari toko mengenai pesanan Anda...';
+    }
+
+    String url = 'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}';
+
+    if (await canLaunch(url)) {
+      await launch(url);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tidak dapat membuka WhatsApp')),
+        );
+      }
+    }
+  }
+
+// Update the _buildPaymentRow method to use the Rupiah format
+  Widget _buildPaymentRow(String label, double amount, {bool isTotal = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+            fontSize: isTotal ? 16 : 14,
+          ),
+        ),
+        Text(
+          GlobalStyle.formatRupiah(amount),
+          style: TextStyle(
+            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+            fontSize: isTotal ? 16 : 14,
+            color: isTotal ? GlobalStyle.primaryColor : Colors.black,
+          ),
+        ),
+      ],
+    );
+  }
+
+// Update the item price display in _buildItemsCard
   Widget _buildItemsCard() {
     final items = widget.orderDetail['items'] as List?;
-    final totalAmount = widget.orderDetail['amount'];
-    final deliveryFee = widget.orderDetail['deliveryFee'];
+    final totalAmount = double.tryParse(
+        widget.orderDetail['amount']?.toString() ?? '0') ?? 0;
+    final deliveryFee = double.tryParse(
+        widget.orderDetail['deliveryFee']?.toString() ?? '0') ?? 0;
 
     if (items == null) {
       return const SizedBox.shrink();
@@ -573,110 +852,88 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               ],
             ),
             const SizedBox(height: 16),
-            ...items.map((item) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                border: Border.all(color: GlobalStyle.borderColor),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      item['image']?.toString() ?? '',
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
+            ...items.map((item) =>
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: GlobalStyle.borderColor),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          item['image']?.toString() ?? '',
                           width: 60,
                           height: 60,
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.error),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item['name']?.toString() ?? '',
-                          style: const TextStyle(
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: 60,
+                              height: 60,
+                              color: Colors.grey[300],
+                              child: const Icon(Icons.error),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item['name']?.toString() ?? '',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              GlobalStyle.formatRupiah(double.tryParse(
+                                  item['price']?.toString() ?? '0') ?? 0),
+                              style: TextStyle(
+                                color: GlobalStyle.primaryColor,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.lightColor,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          'x${item['quantity']?.toString() ?? '0'}',
+                          style: TextStyle(
+                            color: GlobalStyle.primaryColor,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Rp. ${item['price']?.toString() ?? '0'}',
-                          style: TextStyle(
-                            color: GlobalStyle.primaryColor,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: GlobalStyle.lightColor,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      'x${item['quantity']?.toString() ?? '0'}',
-                      style: TextStyle(
-                        color: GlobalStyle.primaryColor,
-                        fontWeight: FontWeight.w600,
                       ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
-            )).toList(),
+                )).toList(),
 
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Divider(),
             ),
 
-            _buildPaymentRow('Biaya Layanan', double.tryParse(deliveryFee?.toString() ?? '0') ?? 0),
+            _buildPaymentRow('Subtotal', totalAmount - deliveryFee),
             const SizedBox(height: 8),
-            _buildPaymentRow(
-                'Total Pembayaran',
-                double.tryParse(totalAmount?.toString() ?? '0') ?? 0,
-                isTotal: true
-            ),
+            _buildPaymentRow('Biaya Layanan', deliveryFee),
+            const SizedBox(height: 8),
+            _buildPaymentRow('Total Pembayaran', totalAmount, isTotal: true),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildPaymentRow(String label, double amount, {bool isTotal = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            fontSize: isTotal ? 16 : 14,
-          ),
-        ),
-        Text(
-          'Rp. ${amount.toStringAsFixed(0)}',
-          style: TextStyle(
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            fontSize: isTotal ? 16 : 14,
-            color: isTotal ? GlobalStyle.primaryColor : Colors.black,
-          ),
-        ),
-      ],
     );
   }
 
@@ -844,6 +1101,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
+// Make sure to update the build method to include the new store info card
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -865,7 +1123,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               shape: BoxShape.circle,
               border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
             ),
-            child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+            child: Icon(
+                Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor,
+                size: 18),
           ),
           onPressed: () => Navigator.pop(context),
         ),
@@ -879,6 +1139,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               children: [
                 _buildOrderStatusCard(),
                 _buildDriverInfoCard(),
+                _buildStoreInfoCard(), // Added new store info card
                 _buildCustomerInfoCard(),
                 _buildItemsCard(),
               ],

@@ -255,6 +255,32 @@ class _StoreDetailState extends State<StoreDetail> {
     );
   }
 
+  // Add item directly to cart from list
+  void _addItemToCart(MenuItem item) {
+    setState(() {
+      // If quantity is 0, set it to 1
+      if (item.quantity == 0) {
+        item.quantity = 1;
+      }
+    });
+  }
+
+  // Decrement item quantity in cart
+  void _decrementItem(MenuItem item) {
+    setState(() {
+      if (item.quantity > 0) {
+        item.quantity--;
+      }
+    });
+  }
+
+  // Increment item quantity in cart
+  void _incrementItem(MenuItem item) {
+    setState(() {
+      item.quantity++;
+    });
+  }
+
   void _showItemDetail(MenuItem item) {
     showModalBottomSheet(
       context: context,
@@ -267,7 +293,7 @@ class _StoreDetailState extends State<StoreDetail> {
             item.quantity = quantity;
           });
         },
-        onZeroQuantity: _showZeroQuantityDialog, // Pass the dialog function
+        onZeroQuantity: _showZeroQuantityDialog,
       ),
     );
   }
@@ -594,28 +620,29 @@ class _StoreDetailState extends State<StoreDetail> {
   }
 
   Widget _buildListMenuItem(MenuItem item) {
-    return GestureDetector(
-      onTap: () => _showItemDetail(item),
-      child: Container(
-        height: 140, // Reduced height
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.2),
-              spreadRadius: 1,
-              blurRadius: 6,
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            // Main content with image and text
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
+    return Container(
+      height: 140, // Reduced height
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            spreadRadius: 1,
+            blurRadius: 6,
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Main content with image and text
+          Row(
+            children: [
+              // Text section on the left (clickable for details)
+              Expanded(
+                flex: 2,
+                child: GestureDetector(
+                  onTap: () => _showItemDetail(item),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -644,9 +671,12 @@ class _StoreDetailState extends State<StoreDetail> {
                     ),
                   ),
                 ),
-                // Image on the right
-                Expanded(
-                  flex: 1,
+              ),
+              // Image on the right (clickable for details)
+              Expanded(
+                flex: 1,
+                child: GestureDetector(
+                  onTap: () => _showItemDetail(item),
                   child: ClipRRect(
                     borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
                     child: Image.asset(
@@ -656,39 +686,101 @@ class _StoreDetailState extends State<StoreDetail> {
                     ),
                   ),
                 ),
-              ],
-            ),
-            // "Tambah" button positioned on the right, overlapping the image
-            Positioned(
-              bottom: 10,
-              right: 20,
-              child: SizedBox(
-                height: 30,
-                width: 90,
-                child: ElevatedButton(
-                  onPressed: () => _showItemDetail(item),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: GlobalStyle.primaryColor,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    // Add elevation for better visibility over the image
-                    elevation: 3,
-                  ),
-                  child: const Text(
-                    'Tambah',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+              ),
+            ],
+          ),
+          // Button to add item or quantity control
+          Positioned(
+            bottom: 10,
+            right: 20,
+            child: item.quantity > 0
+                ? _buildQuantityControl(item)
+                : _buildAddButton(item),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Add button widget
+  Widget _buildAddButton(MenuItem item) {
+    return SizedBox(
+      height: 30,
+      width: 90,
+      child: ElevatedButton(
+        onPressed: () => _addItemToCart(item),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: GlobalStyle.primaryColor,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(6),
+          ),
+          elevation: 3,
+        ),
+        child: const Text(
+          'Tambah',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Quantity control widget (- count +)
+  Widget _buildQuantityControl(MenuItem item) {
+    return Container(
+      height: 30,
+      decoration: BoxDecoration(
+        color: GlobalStyle.primaryColor,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Minus button
+          InkWell(
+            onTap: () => _decrementItem(item),
+            child: Container(
+              width: 30,
+              height: 30,
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.remove,
+                color: Colors.white,
+                size: 16,
               ),
             ),
-          ],
-        ),
+          ),
+          // Quantity display
+          Container(
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              '${item.quantity}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          // Plus button
+          InkWell(
+            onTap: () => _incrementItem(item),
+            child: Container(
+              width: 30,
+              height: 30,
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.add,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -781,7 +873,7 @@ class _StoreDetailState extends State<StoreDetail> {
 class DraggableItemDetail extends StatefulWidget {
   final MenuItem item;
   final Function(int) onQuantityChanged;
-  final VoidCallback onZeroQuantity; // Add callback for zero quantity
+  final VoidCallback onZeroQuantity;
 
   const DraggableItemDetail({
     Key? key,
@@ -806,7 +898,8 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
-      initialChildSize: 0.6,
+      // Increase initial child size to show the add to cart button immediately
+      initialChildSize: 0.75,
       minChildSize: 0.2,
       maxChildSize: 0.9,
       builder: (context, scrollController) {
