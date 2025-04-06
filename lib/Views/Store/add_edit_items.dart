@@ -1222,7 +1222,7 @@ class _AddItemPageState extends State<AddItemPage> with TickerProviderStateMixin
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Rp ${item.price.toStringAsFixed(0)}',
+                              GlobalStyle.formatRupiah(item.price),
                               style: TextStyle(
                                 fontSize: 14,
                                 color: GlobalStyle.primaryColor,

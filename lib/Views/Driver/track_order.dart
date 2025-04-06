@@ -387,141 +387,141 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     }
 
     return SlideTransition(
-        position: _cardAnimations[2],
-        child: Container(
+      position: _cardAnimations[2],
+      child: Container(
         padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(16),
-    boxShadow: [
-    BoxShadow(
-    color: Colors.black.withOpacity(0.08),
-    blurRadius: 10,
-    offset: const Offset(0, 4),
-    ),
-    ],
-    ),
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    Row(
-    children: [
-    Icon(Icons.shopping_bag, color: GlobalStyle.primaryColor),
-    const SizedBox(width: 8),
-    Text(
-    'Detail Pesanan',
-    style: TextStyle(
-    fontSize: 16,
-    fontWeight: FontWeight.bold,
-    color: GlobalStyle.fontColor,
-    ),
-    ),
-    ],
-    ),
-    const SizedBox(height: 12),
-    ListView.builder(
-    physics: const NeverScrollableScrollPhysics(),
-    shrinkWrap: true,
-    itemCount: _order?.items.length ?? 0,
-    itemBuilder: (context, index) {
-    final item = _order!.items[index];
-    return Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(8),
-    decoration: BoxDecoration(
-    border: Border.all(color: GlobalStyle.borderColor),
-    borderRadius: BorderRadius.circular(12),
-    ),
-    child: Row(
-    children: [
-    ClipRRect(
-    borderRadius: BorderRadius.circular(8),
-    child: Image.asset(
-    item.imageUrl,
-    width: 60,
-    height: 60,
-    fit: BoxFit.cover,
-    ),
-    ),
-    const SizedBox(width: 12),
-    Expanded(
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    Text(
-    item.name,
-    style: const TextStyle(
-    fontWeight: FontWeight.w600,
-    ),
-    ),
-    const SizedBox(height: 4),
-    Text(
-    'Rp ${item.price.toStringAsFixed(0)}',
-    style: TextStyle(
-    color: GlobalStyle.primaryColor,
-    fontWeight: FontWeight.w500,
-    ),
-    ),
-    ],
-    ),
-    ),
-    Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-    decoration: BoxDecoration(
-    color: GlobalStyle.lightColor,
-    borderRadius: BorderRadius.circular(16),
-    ),
-    child: Text(
-    'x${item.quantity}',
-    style: TextStyle(
-    color: GlobalStyle.primaryColor,
-    fontWeight: FontWeight.w600,
-    ),
-    ),
-    ),
-    ],
-    ),
-    );
-    },
-    ),
-    const Divider(height: 24),
-    Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-    const Text(
-    'Total Pembayaran',
-    style: TextStyle(
-    fontSize: 16,
-    fontWeight: FontWeight.bold,
-    ),
-    ),
-    Text(
-      'Rp ${_calculateTotal().toStringAsFixed(0)}',
-      style: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
-        color: GlobalStyle.primaryColor,
-      ),
-    ),
-    ],
-    ),
-      const SizedBox(height: 8),
-      const Row(
-        children: [
-          Icon(Icons.payment, size: 16, color: Colors.grey),
-          SizedBox(width: 8),
-          Text(
-            'Metode Pembayaran: Tunai',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: 14,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          ),
-        ],
-      ),
-    ],
-    ),
+          ],
         ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.shopping_bag, color: GlobalStyle.primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  'Detail Pesanan',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ListView.builder(
+              physics: const NeverScrollableScrollPhysics(),
+              shrinkWrap: true,
+              itemCount: _order?.items.length ?? 0,
+              itemBuilder: (context, index) {
+                final item = _order!.items[index];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: GlobalStyle.borderColor),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.asset(
+                          item.imageUrl,
+                          width: 60,
+                          height: 60,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              GlobalStyle.formatRupiah(item.price),
+                              style: TextStyle(
+                                color: GlobalStyle.primaryColor,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.lightColor,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          'x${item.quantity}',
+                          style: TextStyle(
+                            color: GlobalStyle.primaryColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const Divider(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Total Pembayaran',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  GlobalStyle.formatRupiah(_calculateTotal()),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.primaryColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Row(
+              children: [
+                Icon(Icons.payment, size: 16, color: Colors.grey),
+                SizedBox(width: 8),
+                Text(
+                  'Metode Pembayaran: Tunai',
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -712,7 +712,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                                       ),
                                     ),
                                     Text(
-                                      'Rp ${_calculateTotal().toStringAsFixed(0)}',
+                                      GlobalStyle.formatRupiah(_calculateTotal()),
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
