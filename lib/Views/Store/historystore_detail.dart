@@ -35,14 +35,13 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   void initState() {
     super.initState();
 
-    // Initialize animation controllers for card sections
+    // Initialize animation controllers for card sections - changed from 4 to 5 to match all cards
     _cardControllers = List.generate(
-      4, // Number of card sections
-          (index) =>
-          AnimationController(
-            vsync: this,
-            duration: Duration(milliseconds: 600 + (index * 200)),
-          ),
+      5, // Updated to 5 to match the number of cards being used
+          (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 200)),
+      ),
     );
 
     // Create slide animations for each card
@@ -351,8 +350,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   Widget _buildDriverInfoCard() {
-    final driverInfo = widget.orderDetail['driverInfo'] as Map<String,
-        dynamic>?;
+    final driverInfo = widget.orderDetail['driverInfo'] as Map<String, dynamic>?;
 
     // Show driver info based on status
     final currentStatus = widget.orderDetail['status'] as String? ?? 'pending';
@@ -586,7 +584,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   Widget _buildStoreInfoCard() {
     return _buildCard(
-      index: 4,
+      index: 3, // Changed from 4 to 3 to maintain proper sequence
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -734,7 +732,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
-// Add these methods to handle calls and WhatsApp messages
+  // Add these methods to handle calls and WhatsApp messages
   Future<void> _callCustomer(String? phoneNumber) async {
     if (phoneNumber == null) return;
 
@@ -767,7 +765,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-// Replace the second _openWhatsApp method (around line 387-411) with this updated version
   Future<void> _openWhatsApp(String? phoneNumber,
       {bool isDriver = false, bool isStore = false}) async {
     if (phoneNumber == null) return;
@@ -794,7 +791,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-// Update the _buildPaymentRow method to use the Rupiah format
+  // Update the _buildPaymentRow method to use the Rupiah format
   Widget _buildPaymentRow(String label, double amount, {bool isTotal = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -818,7 +815,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
-// Update the item price display in _buildItemsCard
+  // Update the item price display in _buildItemsCard
   Widget _buildItemsCard() {
     final items = widget.orderDetail['items'] as List?;
     final totalAmount = double.tryParse(
@@ -831,7 +828,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
 
     return _buildCard(
-      index: 3,
+      index: 4, // Changed from 3 to 4 to maintain proper sequence
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
