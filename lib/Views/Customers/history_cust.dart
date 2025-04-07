@@ -6,6 +6,7 @@ import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Views/Customers/history_detail.dart';
+import 'package:del_pick/Common/global_style.dart';
 import 'home_cust.dart';
 
 class HistoryCustomer extends StatefulWidget {
@@ -284,28 +285,21 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     }
   }
 
-  // New method to handle navigation based on order status
-  void navigateToCartScreen(Order order) {
-    // Convert Order items to MenuItem items if needed for CartScreen
-    List<MenuItem> menuItems = order.items.map((item) =>
-        MenuItem(
-          id: item.id,
-          name: item.name,
-          price: item.price,
-          imageUrl: item.imageUrl,
-          isAvailable: item.isAvailable,
-          status: item.status,
-        )
-    ).toList();
-
-    // Navigate to CartScreen with the order as completedOrder parameter
-    Navigator.pushNamed(
-      context,
-      '/Customers/Cart',
-      arguments: {
-        'cartItems': menuItems,
-        'completedOrder': order,
-      },
+  Widget _buildStatusChip(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
     );
   }
 
@@ -317,140 +311,149 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
 
     return SlideTransition(
       position: _cardAnimations[index % _cardAnimations.length],
-      child: Container(
+      child: Card(
+        elevation: 3,
         margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        color: Colors.white,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(15),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => HistoryDetailPage(
+                  order: order,
+                ),
+              ),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    image: DecorationImage(
-                      image: AssetImage(order.items.first.imageUrl),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              order.store.name,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          // Smaller right-aligned view button - Updated to navigate to CartScreen
-                          SizedBox(
-                            height: 30,
-                            width: 70,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                // Always navigate to HistoryDetailPage for all order statuses
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => HistoryDetailPage(
-                                      order: order,
-                                    ),
-                                  ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black87,
-                                side: const BorderSide(color: Colors.grey),
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                                textStyle: const TextStyle(fontSize: 12),
-                              ),
-                              child: const Text('Lihat'),
-                            ),
-                          ),
-                        ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        image: DecorationImage(
+                          image: AssetImage(order.items.first.imageUrl),
+                          fit: BoxFit.cover,
+                        ),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  order.store.name,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              _buildStatusChip(statusText, statusColor),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
                           Text(
                             formattedDate,
                             style: TextStyle(
                               fontSize: 14,
-                              color: Colors.grey[600],
+                              color: Colors.grey[700],
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(height: 6),
                           Text(
-                            '•',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            statusText,
+                            itemsText,
                             style: TextStyle(
                               fontSize: 14,
-                              color: statusColor,
-                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[800],
+                              fontWeight: FontWeight.w500,
                             ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        itemsText,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
+                    ),
+                  ],
+                ),
+                const Divider(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Total Pembayaran',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[700],
+                          ),
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        NumberFormat.currency(
-                          locale: 'id',
-                          symbol: 'Rp ',
-                          decimalDigits: 0,
-                        ).format(order.total),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
+                        const SizedBox(height: 4),
+                        Text(
+                          NumberFormat.currency(
+                            locale: 'id',
+                            symbol: 'Rp ',
+                            decimalDigits: 0,
+                          ).format(order.total),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => HistoryDetailPage(
+                              order: order,
+                            ),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                    ],
-                  ),
+                      child: const Text(
+                        'Lihat Detail',
+                        style: TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -474,6 +477,15 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               ),
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 12),
+            Text(
+              'Belum ada pesanan untuk ditampilkan',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
@@ -482,100 +494,79 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          HomePage.route,
+              (route) => false,
+        );
+        return false;
+      },
+      child: Scaffold(
         backgroundColor: Colors.white,
-        title: const Text(
-          'Riwayat Pesanan',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        leading: IconButton(
-          icon: Container(
-            padding: const EdgeInsets.all(5.0),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.blue, width: 1.0),
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.white,
+          title: const Text(
+            'Riwayat Pesanan',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
             ),
-            child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
           ),
-          onPressed: () {
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              HomePage.route,
-                  (route) => false,
-            );
-          },
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          labelColor: Colors.blue,
-          unselectedLabelColor: Colors.grey[600],
-          indicatorColor: Colors.blue,
-          indicatorWeight: 3,
-          tabs: _tabs.map((String tab) => Tab(text: tab)).toList(),
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: List.generate(_tabs.length, (tabIndex) {
-          final filteredOrders = getFilteredOrders(tabIndex);
-
-          if (filteredOrders.isEmpty) {
-            return _buildEmptyState('Tidak ada pesanan ${_tabs[tabIndex].toLowerCase()}');
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: filteredOrders.length,
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                onTap: () {
-                  // Always navigate to HistoryDetailPage for all order statuses
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => HistoryDetailPage(
-                        order: filteredOrders[index],
-                      ),
-                    ),
-                  );
-                },
-                child: _buildOrderCard(filteredOrders[index], index),
+          leading: IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(4.0),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.blue, width: 1.0),
+              ),
+              child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+            ),
+            onPressed: () {
+              Navigator.pushNamedAndRemoveUntil(
+                context,
+                HomePage.route,
+                    (route) => false,
               );
             },
-          );
-        }),
-      ),
-      bottomNavigationBar: CustomBottomNavigation(
-        selectedIndex: _selectedIndex,
-        onItemTapped: _onItemTapped,
+          ),
+          bottom: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            labelColor: Colors.blue,
+            unselectedLabelColor: Colors.grey[600],
+            labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+            indicatorColor: Colors.blue,
+            indicatorWeight: 3,
+            tabs: _tabs.map((String tab) => Tab(text: tab)).toList(),
+          ),
+        ),
+        body: TabBarView(
+          controller: _tabController,
+          children: List.generate(_tabs.length, (tabIndex) {
+            final filteredOrders = getFilteredOrders(tabIndex);
+
+            if (filteredOrders.isEmpty) {
+              return _buildEmptyState('Tidak ada pesanan ${_tabs[tabIndex].toLowerCase()}');
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: filteredOrders.length,
+              itemBuilder: (context, index) {
+                return _buildOrderCard(filteredOrders[index], index);
+              },
+            );
+          }),
+        ),
+        bottomNavigationBar: CustomBottomNavigation(
+          selectedIndex: _selectedIndex,
+          onItemTapped: _onItemTapped,
+        ),
       ),
     );
   }
-}
-
-// Helper class to match CartScreen's expected item type
-class MenuItem {
-  final String id;
-  final String name;
-  final double price;
-  final String imageUrl;
-  final bool isAvailable;
-  final String status;
-  int quantity = 1;
-
-  MenuItem({
-    required this.id,
-    required this.name,
-    required this.price,
-    required this.imageUrl,
-    required this.isAvailable,
-    required this.status,
-  });
 }
