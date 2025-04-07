@@ -204,39 +204,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               ),
 
               // Driver Information Section
-              _buildCard(
-                index: 3,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person, color: GlobalStyle.primaryColor),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Informasi Driver',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: GlobalStyle.fontColor,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '$driverName\n$vehicleNumber',
-                      style: TextStyle(
-                        color: GlobalStyle.fontColor,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+// Driver Information Section
+              _buildDriverInfo(),
 
               // Store and Items Section
               _buildCard(
@@ -544,6 +513,190 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         ),
       ],
     );
+  }
+
+  // Tambahkan fungsi ini ke dalam class _HistoryDetailPageState
+  Widget _buildDriverInfo() {
+    final driverName = widget.order.tracking?.driverName ?? 'Driver belum ditugaskan';
+    final vehicleNumber = widget.order.tracking?.vehicleNumber ?? '-';
+
+    return _buildCard(
+      index: 3,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.delivery_dining, color: GlobalStyle.primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'Informasi Driver',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: GlobalStyle.fontColor,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          widget.order.tracking != null ? Row(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: ClipOval(
+                  child: Center(
+                    child: Icon(
+                      Icons.person,
+                      size: 30,
+                      color: Colors.grey[400],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      driverName,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: GlobalStyle.fontColor,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.motorcycle, color: Colors.grey[600], size: 16),
+                        const SizedBox(width: 4),
+                        Text(
+                          vehicleNumber,
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.star, color: Colors.amber, size: 16),
+                        const SizedBox(width: 4),
+                        Text(
+                          '4.8',
+                          style: TextStyle(
+                            color: Colors.grey[800],
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ) : Center(
+            child: Text(
+              'Driver belum ditugaskan',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+          ),
+
+          // Hanya tampilkan tombol jika pesanan memiliki driver dan status masih dalam proses
+          if (widget.order.tracking != null &&
+              widget.order.status != 'completed' &&
+              widget.order.status != 'cancelled')
+            Padding(
+              padding: const EdgeInsets.only(top: 16.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.call, color: Colors.white),
+                      label: const Text(
+                        'Hubungi',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () {
+                        _callDriver();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.message, color: Colors.white),
+                      label: const Text(
+                        'Pesan',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey[600],
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () {
+                        _messageDriver();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+// Tambahkan fungsi-fungsi untuk menangani aksi tombol
+  void _callDriver() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Menghubungi driver...'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    // Implementasi fungsi panggilan ke driver di sini
+    // Misalnya: launch('tel:${widget.order.tracking?.driverPhone ?? ''}');
+  }
+
+  void _messageDriver() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Membuka chat dengan driver...'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    // Implementasi fungsi chat dengan driver di sini
   }
 }
 
