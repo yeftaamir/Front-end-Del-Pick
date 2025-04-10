@@ -8,7 +8,7 @@ class ApiService {
   // static final FlutterSecureStorage _storage = FlutterSecureStorage();
 
   // Update baseUrl to use the hosted API URL
-  static final String baseUrl = dotenv.env['BASE_URL'] ?? 'https://delpick.fun/api/v1'; // Menggunakan dotenv untuk load base URL
+  static final String baseUrl = dotenv.env['BASE_URL'] ?? 'https://delpick.horas-code.my.id/api/v1'; // Menggunakan dotenv untuk load base URL
   // static const String baseUrl = 'https://delpick.fun/api/v1';  // Update to hosted backend URL
   static final FlutterSecureStorage _storage = FlutterSecureStorage();
 

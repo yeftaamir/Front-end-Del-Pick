@@ -8,6 +8,7 @@ import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:geotypes/geotypes.dart' as geotypes;
+import 'package:audioplayers/audioplayers.dart';
 
 import '../../Models/driver.dart';
 
@@ -24,6 +25,8 @@ class HistoryStoreDetailPage extends StatefulWidget {
 
 class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     with TickerProviderStateMixin {
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   // For status tracking
   String _statusFromDriver = '';
 
@@ -35,9 +38,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   void initState() {
     super.initState();
 
-    // Initialize animation controllers for card sections - changed from 4 to 5 to match all cards
+    // Initialize animation controllers for card sections - increased to 6 to include review card
     _cardControllers = List.generate(
-      5, // Updated to 5 to match the number of cards being used
+      6, // Updated to 6 to match the number of cards being used (including review card)
           (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
@@ -69,6 +72,15 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       controller.dispose();
     }
     super.dispose();
+  }
+
+  // Supporting function to play sound effects
+  Future<void> _playSound(String assetPath) async {
+    try {
+      await _audioPlayer.play(AssetSource(assetPath));
+    } catch (e) {
+      debugPrint('Error playing sound: $e');
+    }
   }
 
   // Convert the current status to OrderStatus enum
@@ -350,7 +362,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   Widget _buildDriverInfoCard() {
-    final driverInfo = widget.orderDetail['driverInfo'] as Map<String, dynamic>?;
+    final driverInfo = widget.orderDetail['driverInfo'] as Map<String,
+        dynamic>?;
 
     // Show driver info based on status
     final currentStatus = widget.orderDetail['status'] as String? ?? 'pending';
@@ -778,7 +791,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       message = 'Halo, saya dari toko mengenai pesanan Anda...';
     }
 
-    String url = 'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}';
+    String url = 'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(
+        message)}';
 
     if (await canLaunch(url)) {
       await launch(url);
@@ -934,6 +948,165 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
+  Widget _buildStoreReviewCard() {
+    // Check if review data exists and order is completed
+    final reviewData = widget.orderDetail['review'] as Map<String, dynamic>?;
+    final isCompleted = widget.orderDetail['status'] == 'completed';
+
+    // Don't show review card if order is not completed or there's no review
+    if (!isCompleted || reviewData == null) {
+      return const SizedBox.shrink();
+    }
+
+    final double rating = (reviewData['rating'] as num?)?.toDouble() ?? 0.0;
+    final String reviewText = reviewData['comment']?.toString() ?? '';
+
+    return _buildCard(
+      index: 4, // Adjust index as needed based on your card sequence
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: GlobalStyle.borderColor.withOpacity(0.1)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.star, color: Colors.amber),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Ulasan Pelanggan',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.amber.shade800,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                      Icons.person, color: Colors.amber, size: 30),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.orderDetail['customerName']?.toString() ??
+                            'Pelanggan',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Order #${widget.orderDetail['id']
+                            ?.toString()
+                            .substring(0, 8) ?? ''}',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Rating',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: GlobalStyle.fontColor,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: GlobalStyle.lightColor.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: GlobalStyle.primaryColor.withOpacity(0.1),
+                  width: 1,
+                ),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (index) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Icon(
+                      index < rating ? Icons.star : Icons.star_border,
+                      color: index < rating ? Colors.amber : Colors.grey[400],
+                      size: 40,
+                    ),
+                  );
+                }),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Komentar',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: GlobalStyle.fontColor,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: GlobalStyle.borderColor.withOpacity(0.3),
+                ),
+              ),
+              child: Text(
+                reviewText.isEmpty ? 'Tidak ada komentar' : reviewText,
+                style: TextStyle(
+                  color: Colors.grey[800],
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildActionButtons() {
     // Get current status from order detail
     String status = widget.orderDetail['status'] as String? ?? 'pending';
@@ -942,34 +1115,45 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       case 'pending':
         return Row(
           children: [
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () {
-                setState(() {
-                  widget.orderDetail['status'] = 'rejected';
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Pesanan Ditolak')),
-                );
-              },
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.red.shade100,
-                foregroundColor: Colors.red,
-              ),
-            ),
-            const SizedBox(width: 8),
             Expanded(
               child: ElevatedButton(
-                onPressed: _showConfirmationDialog,
+                onPressed: () {
+                  setState(() {
+                    widget.orderDetail['status'] = 'rejected';
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Pesanan Dibatalkan')),
+                  );
+                },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
+                  backgroundColor: Colors.red,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(24),
                   ),
                 ),
                 child: const Text(
-                  'Di Proses',
+                  'Batalkan Pesanan',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: _showConfirmationDialog,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GlobalStyle.primaryColor,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                ),
+                child: const Text(
+                  'Ambil Pesanan',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -1098,7 +1282,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-// Make sure to update the build method to include the new store info card
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1136,7 +1319,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               children: [
                 _buildOrderStatusCard(),
                 _buildDriverInfoCard(),
-                _buildStoreInfoCard(), // Added new store info card
+                _buildStoreReviewCard(), // Add the new review card here
+                _buildStoreInfoCard(),
                 _buildCustomerInfoCard(),
                 _buildItemsCard(),
               ],
