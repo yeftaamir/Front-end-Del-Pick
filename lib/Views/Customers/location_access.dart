@@ -7,9 +7,9 @@ import 'package:audioplayers/audioplayers.dart'; // Add this import for audio pl
 class LocationAccessScreen extends StatefulWidget {
   static const String route = "/Customers/LocationAccess";
 
-  final Function(String location) onLocationSelected;
+  final Function(String location)? onLocationSelected;
 
-  const LocationAccessScreen({Key? key, required this.onLocationSelected}) : super(key: key);
+  const LocationAccessScreen({Key? key, this.onLocationSelected}) : super(key: key);
 
   @override
   State<LocationAccessScreen> createState() => _LocationAccessScreenState();
@@ -31,6 +31,7 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> with Single
     super.dispose();
   }
 
+// In LocationAccessScreen.dart
   Future<void> _requestLocationPermission() async {
     setState(() {
       _isLoading = true;
@@ -87,7 +88,11 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> with Single
       await Future.delayed(const Duration(seconds: 2));
 
       if (mounted) {
-        Navigator.pop(context, {'address': _currentAddress});
+        Navigator.pop(context, {
+          'address': _currentAddress,
+          'latitude': position.latitude,
+          'longitude': position.longitude
+        });
       }
 
     } catch (e) {
@@ -105,8 +110,12 @@ class _LocationAccessScreenState extends State<LocationAccessScreen> with Single
   }
 
   void _enterLocationManually() {
+    // For manual entry, we'll use a fixed location (Del Institute coordinates)
+    // In a real app, this would open an address input form
     Navigator.pop(context, {
-      'address': 'Depan gerbang Institut Teknologi Del, Sitoluama, Kec. Balige, Toba, Sumatera Utara 22381'
+      'address': 'Depan gerbang Institut Teknologi Del, Sitoluama, Kec. Balige, Toba, Sumatera Utara 22381',
+      'latitude': 2.3833,  // Approximate coordinates for IT Del
+      'longitude': 99.1483
     });
   }
 

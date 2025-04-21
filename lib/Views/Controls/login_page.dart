@@ -3,18 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:provider/provider.dart';
-import '../../Services/ApiService.dart';
+import 'package:del_pick/services/auth_service.dart';
+import 'package:del_pick/services/core/token_service.dart';
 import 'connectivity_service.dart';
+import 'dart:io';
 
 class LoginPage extends StatefulWidget {
   static const String route = "/Controls/Login";
-  //
   const LoginPage({super.key});
 
   @override
   LoginPageState createState() => LoginPageState();
-  // @override
-  // createState() => LoginState();
 }
 
 class LoginPageState extends State<LoginPage> {
@@ -23,8 +22,36 @@ class LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   final FlutterSecureStorage _storage = FlutterSecureStorage();
   bool obscurePassword = true;
-  // final TextEditingController emailController = TextEditingController();
-  // final TextEditingController passwordController = TextEditingController();
+  bool rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkSavedCredentials();
+  }
+
+  // Check for saved credentials on startup
+  Future<void> _checkSavedCredentials() async {
+    try {
+      final String? savedEmail = await _storage.read(key: 'remembered_email');
+      final String? savedPassword = await _storage.read(key: 'remembered_password');
+      final String? isRemembered = await _storage.read(key: 'is_remembered');
+
+      if (savedEmail != null && savedPassword != null && isRemembered == 'true') {
+        setState(() {
+          emailController.text = savedEmail;
+          passwordController.text = savedPassword;
+          rememberMe = true;
+        });
+
+        // Optionally auto-login if credentials are saved
+        // Uncomment the next line if you want auto-login
+        // _login();
+      }
+    } catch (e) {
+      print("Error retrieving saved credentials: $e");
+    }
+  }
 
   @override
   void dispose() {
@@ -33,49 +60,89 @@ class LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // Login function to handle authentication
-  // Login function to handle authentication
+  // Save or clear credentials based on Remember Me
+  Future<void> _handleRememberMe() async {
+    if (rememberMe) {
+      await _storage.write(key: 'remembered_email', value: emailController.text);
+      await _storage.write(key: 'remembered_password', value: passwordController.text);
+      await _storage.write(key: 'is_remembered', value: 'true');
+    } else {
+      await _storage.delete(key: 'remembered_email');
+      await _storage.delete(key: 'remembered_password');
+      await _storage.write(key: 'is_remembered', value: 'false');
+    }
+  }
+
+  // Login function to handle authentication with improved error handling
   void _login() async {
+    // Check if the input fields are not empty
+    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
+      showError("Email dan kata sandi tidak boleh kosong.");
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // Make the API call to login
-      final loginResponse = await ApiService.login(
-          emailController.text, passwordController.text);
-      print("Full Response Body: $loginResponse"); // Debugging full response
-
-      // Cek apakah response benar-benar memiliki 'token'
-      if (loginResponse == null || !loginResponse.containsKey('token')) {
-        print("Response is either null or does not contain 'token'");
-        showError("Response data is null.");
+      // Check internet connectivity first
+      bool hasConnection = await _checkInternetConnection();
+      if (!hasConnection) {
+        showError("Tidak ada koneksi internet. Silakan periksa koneksi Anda.");
+        setState(() {
+          _isLoading = false;
+        });
         return;
       }
 
-      // Ambil token langsung
-      final String token = loginResponse['token'] ?? ''; // Akses token langsung
+      // Make the API call to login using AuthService
+      final loginResponse = await AuthService.login(
+          emailController.text, passwordController.text);
+
+      // Handle Remember Me functionality
+      await _handleRememberMe();
+
+      // Check if response is valid
+      if (loginResponse == null || !loginResponse.containsKey('token')) {
+        showError("Gagal login: Data respons tidak valid.");
+        return;
+      }
+
+      // Get token
+      final String token = loginResponse['token'] ?? '';
 
       if (token.isEmpty) {
-        print("Token is empty or null.");
-        showError("Token is null or empty.");
+        showError("Gagal login: Token kosong atau tidak valid.");
         return;
       }
 
-      print("Decoded Token: $token");
+      print("Login berhasil, token diterima");
+
+      // Save token
+      await TokenService.saveToken(token);
 
       // Decode the token
       if (token.contains('.')) {
         final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
         final String? role = decodedToken['role'];
-        print("Decoded Role: $role");
 
         if (role == null || role.isEmpty) {
-          showError("Role is missing in token.");
+          showError("Peran tidak ditemukan dalam token.");
           return;
         }
 
         print("User Role: $role");
+
+        // Save user role
+        await TokenService.saveUserRole(role);
+
+        // Save user data if available
+        if (loginResponse.containsKey('user')) {
+          await _storage.write(
+              key: 'user_profile',
+              value: loginResponse['user'].toString());
+        }
 
         // Navigate to the correct page based on the user's role
         if (role == 'customer') {
@@ -86,15 +153,23 @@ class LoginPageState extends State<LoginPage> {
           Navigator.pushReplacementNamed(context, '/Driver/HomePage');
         } else {
           // Handle unknown role
-          showError("Role not recognized");
+          showError("Peran tidak dikenali");
         }
       } else {
         showError("Token tidak valid");
       }
-
+    } on SocketException catch (e) {
+      print("Socket Error: $e");
+      showError("Gagal terhubung ke server. Silakan periksa koneksi internet Anda.");
+    } on HttpException catch (e) {
+      print("HTTP Error: $e");
+      showError("Terjadi kesalahan pada server. Silakan coba lagi nanti.");
+    } on FormatException catch (e) {
+      print("Format Error: $e");
+      showError("Format respons tidak valid. Silakan hubungi administrator.");
     } catch (e) {
-      print("Error: $e"); // Debugging error
-      showError(e.toString());
+      print("Error: $e");
+      showError("Terjadi kesalahan: ${e.toString()}");
     } finally {
       setState(() {
         _isLoading = false;
@@ -102,167 +177,33 @@ class LoginPageState extends State<LoginPage> {
     }
   }
 
-  // void _login() async {
-  //   setState(() {
-  //     _isLoading = true;
-  //   });
-  //
-  //   try {
-  //     // Make the API call to login
-  //     final loginResponse = await ApiService.login(
-  //         emailController.text, passwordController.text);
-  //     print("Response Body: $loginResponse");
-  //
-  //     // Cek apakah response benar-benar memiliki data dan token
-  //     if (loginResponse == null || !loginResponse.containsKey('data')) {
-  //       print("Response is either null or does not contain 'data'");
-  //       showError("Response data is null.");
-  //       // showError("Response data is null.");
-  //       return;
-  //     }
-  //
-  //     // // Check if the response contains token data
-  //     // if (loginResponse['data'] == null || loginResponse['data']['token'] == null) {
-  //     //   showError("Response data is null.");
-  //     //   return;
-  //     // }
-  //
-  //     final String token = loginResponse['data']['token'] ?? '';  // Correctly access the token
-  //
-  //     if (token.isEmpty) {
-  //       showError("Token is null or empty.");
-  //       return;
-  //     }
-  //
-  //     print("Decoded Token: $token");
-  //
-  //     // Decode the token
-  //     if (token.contains('.')) {
-  //       final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
-  //       final String? role = decodedToken['role'];
-  //       print("Decoded Role: $role");
-  //
-  //       if (role == null || role.isEmpty) {
-  //         showError("Role is missing in token.");
-  //         return;
-  //       }
-  //
-  //       print("User Role: $role");
-  //
-  //       // Navigate to the correct page based on the user's role
-  //       if (role == 'customer') {
-  //         Navigator.pushReplacementNamed(context, '/Customers/HomePage');
-  //       }
-  //       else if (role == 'store') {
-  //         Navigator.pushReplacementNamed(context, '/Store/HomePage');
-  //       }
-  //       else if (role == 'driver') {
-  //         Navigator.pushReplacementNamed(context, '/Driver/HomePage');
-  //       }
-  //       else {
-  //         // Handle unknown role
-  //         showError("Role not recognized");
-  //       }
-  //     } else {
-  //       showError("Token tidak valid");
-  //     }
-  //
-  //   } catch (e) {
-  //     // Handle error and show message
-  //     showError(e.toString());
-  //   } finally {
-  //     setState(() {
-  //       _isLoading = false;
-  //     });
-  //   }
-  // }
-
-  // void _login() async {
-  //   setState(() {
-  //     _isLoading = true;
-  //   });
-  //
-  //   try {
-  //     // Make the API call to login
-  //     final loginResponse = await ApiService.login(
-  //         emailController.text, passwordController.text);
-  //     print(loginResponse);
-  //
-  //     // if (loginResponse['data'] == null) {
-  //     //   showError("Response data is null.");
-  //     //   return;
-  //     // }
-  //     if (loginResponse['token'] == null) {
-  //       showError("Response data is null.");
-  //       return;
-  //     }
-  //     // final String token = loginResponse['token'] ?? '';
-  //
-  //     final String token = loginResponse['data']['token'] ?? '';
-  //
-  //
-  //     // final String token = loginResponse['data']['token'];  // Get the token
-  //
-  //
-  //     if (token.isEmpty) {
-  //       showError("Token is null or empty.");
-  //       return;
-  //     }
-  //
-  //     print("Decoded Token: $token");
-  //
-  //     // Decode the token
-  //     if (token.contains('.')) {
-  //       final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
-  //       final String? role = decodedToken['role'];
-  //       print("Decoded Role: $role");
-  //       if (role == null || role.isEmpty) {
-  //         showError("Role is missing in token.");
-  //         return;
-  //       }
-  //       print("User Role: $role");
-  //
-  //       // Navigate to the correct page based on the user's role
-  //       if (role == 'customer') {
-  //         Navigator.pushReplacementNamed(context, '/Customers/HomePage');
-  //       }
-  //       else if (role == 'store') {
-  //         Navigator.pushReplacementNamed(context, '/Store/HomePage');
-  //       }
-  //       else if (role == 'driver') {
-  //         Navigator.pushReplacementNamed(context, '/Driver/HomePage');
-  //       }
-  //       else {
-  //         // Handle unknown role
-  //         showError("Role not recognized");
-  //       }
-  //     } else {
-  //       showError("Token tidak valid");
-  //     }
-  //
-  //     // final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
-  //
-  //     // Extract the role from the decoded token
-  //     // final String role = decodedToken['role'];  // Assuming the role is in the token
-  //
-  //   } catch (e) {
-  //     // Handle error and show message
-  //     showError(e.toString());
-  //   } finally {
-  //     setState(() {
-  //       _isLoading = false;
-  //     });
-  //   }
-  // }
+  // Check internet connection
+  Future<bool> _checkInternetConnection() async {
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (_) {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   // Error handling function
   void showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showRoleSelectionDialog() {
     // Periksa koneksi dari ConnectivityService
-    final connectivityService = Provider.of<ConnectivityService>(context, listen: false);
+    final connectivityService =
+    Provider.of<ConnectivityService>(context, listen: false);
     if (!connectivityService.isConnected) {
       return; // Tidak perlu menampilkan dialog, karena overlay akan muncul otomatis
     }
@@ -285,25 +226,29 @@ class LoginPageState extends State<LoginPage> {
                 _buildRoleButton(
                   'Customer',
                   Icons.person,
-                      () => Navigator.pushReplacementNamed(context, '/Customers/HomePage'),
+                      () => Navigator.pushReplacementNamed(
+                      context, '/Customers/HomePage'),
                 ),
                 const SizedBox(height: 10),
                 _buildRoleButton(
                   'Admin',
                   Icons.admin_panel_settings,
-                      () => Navigator.pushReplacementNamed(context, '/Admin/HomePage'),
+                      () => Navigator.pushReplacementNamed(
+                      context, '/Admin/HomePage'),
                 ),
                 const SizedBox(height: 10),
                 _buildRoleButton(
                   'Driver',
                   Icons.delivery_dining,
-                      () => Navigator.pushReplacementNamed(context, '/Driver/HomePage'),
+                      () => Navigator.pushReplacementNamed(
+                      context, '/Driver/HomePage'),
                 ),
                 const SizedBox(height: 10),
                 _buildRoleButton(
                   'Store',
                   Icons.store,
-                      () => Navigator.pushReplacementNamed(context, '/Store/HomePage'),
+                      () => Navigator.pushReplacementNamed(
+                      context, '/Store/HomePage'),
                 ),
               ],
             ),
@@ -394,6 +339,7 @@ class LoginPageState extends State<LoginPage> {
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10.0),
                         ),
+                        hintText: 'Masukkan email Anda',
                       ),
                     ),
                   ],
@@ -423,9 +369,12 @@ class LoginPageState extends State<LoginPage> {
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10.0),
                         ),
+                        hintText: 'Masukkan kata sandi Anda',
                         suffixIcon: IconButton(
                           icon: Icon(
-                            obscurePassword ? Icons.visibility_off : Icons.visibility,
+                            obscurePassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
                           ),
                           onPressed: () {
                             setState(() {
@@ -438,7 +387,34 @@ class LoginPageState extends State<LoginPage> {
                   ],
                 ),
               ),
-              const SizedBox(height: 30.0),
+
+              // Remember Me Checkbox
+              SizedBox(
+                width: screenWidth * 0.8,
+                child: Row(
+                  children: [
+                    Checkbox(
+                      value: rememberMe,
+                      activeColor: GlobalStyle.primaryColor,
+                      onChanged: (bool? value) {
+                        setState(() {
+                          rememberMe = value ?? false;
+                        });
+                      },
+                    ),
+                    Text(
+                      'Ingat Saya',
+                      style: TextStyle(
+                        color: GlobalStyle.fontColor,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const Spacer(),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20.0),
 
               // Login Button
               Container(
@@ -457,9 +433,12 @@ class LoginPageState extends State<LoginPage> {
                   ],
                 ),
                 child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : TextButton(
-                  // onPressed: _showRoleSelectionDialog,
+                    ? const Center(
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                  ),
+                )
+                    : TextButton(
                   onPressed: _login,
                   child: const Text(
                     'Masuk',

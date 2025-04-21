@@ -9,6 +9,11 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:del_pick/Views/Store/historystore_detail.dart';
+import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/store_service.dart';
+import 'package:del_pick/Services/image_service.dart';
+
+import '../../Models/order_enum.dart';
 
 class HistoryStorePage extends StatefulWidget {
   static const String route = '/Store/HistoryStore';
@@ -23,6 +28,12 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   int _currentIndex = 2; // History tab selected
   late TabController _tabController;
 
+  // State management variables
+  bool _isLoading = true;
+  bool _hasError = false;
+  String _errorMessage = '';
+  List<Order> _orders = [];
+
   // Animation controllers for cards
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
@@ -30,166 +41,84 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   // Tab categories
   final List<String> _tabs = ['Semua', 'Diproses', 'Selesai', 'Dibatalkan'];
 
-  // Sample orders for a store
-  final List<Order> orders = [
-    Order(
-      id: 'ORD-001',
-      items: [
-        Item(
-          id: 'ITM-001',
-          name: 'Nasi Ayam Bakar Komplit + EsTeh / Teh Hangat',
-          price: 27700,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-          description: 'Nasi dengan ayam bakar dan lalapan',
-        ),
-      ],
-      store: StoreModel(
-        name: 'RM Padang Sabana 01',
-        address: 'Jl. Padang Sabana No. A1',
-        openHours: '07:00 - 21:00',
-        phoneNumber: '6281234567892',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 27700,
-      serviceCharge: 12000,
-      total: 39700,
-      status: OrderStatus.completed,
-      orderDate: DateTime.parse('2024-12-24 09:05:00'),
-      tracking: Tracking.sample(),
-    ),
-    Order(
-      id: 'ORD-002',
-      items: [
-        Item(
-          id: 'ITM-002',
-          name: 'Sepasang 3',
-          price: 41100,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-          description: 'Menu sepasang 3 porsi',
-        ),
-      ],
-      store: StoreModel(
-        name: 'Keju Kesu, Letda Sujono',
-        address: 'Jl. Letda Sujono',
-        openHours: '08:00 - 22:00',
-        phoneNumber: '6281234567893',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 41100,
-      serviceCharge: 12000,
-      total: 53100,
-      status: OrderStatus.completed,
-      orderDate: DateTime.parse('2024-11-26 08:05:00'),
-      tracking: Tracking.sample(),
-    ),
-    Order(
-      id: 'ORD-003',
-      items: [
-        Item(
-          id: 'ITM-003',
-          name: 'Nasi Telor Dadar',
-          price: 21600,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-          description: 'Nasi dengan telur dadar',
-        ),
-        Item(
-          id: 'ITM-004',
-          name: 'Nasi Ayam Goreng',
-          price: 21600,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-          description: 'Nasi dengan ayam goreng',
-        ),
-      ],
-      store: StoreModel(
-        name: 'RM Padang Sabana 01',
-        address: 'Jl. Padang Sabana No. A1',
-        openHours: '07:00 - 21:00',
-        phoneNumber: '6281234567894',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 43200,
-      serviceCharge: 12000,
-      total: 55200,
-      status: OrderStatus.cancelled,
-      orderDate: DateTime.parse('2024-09-16 09:05:00'),
-      tracking: Tracking.sample(),
-    ),
-    // Added in-progress order for example
-    Order(
-      id: 'ORD-004',
-      items: [
-        Item(
-          id: 'ITM-005',
-          name: 'Bakso Jumbo Spesial',
-          price: 25000,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-          description: 'Bakso jumbo dengan daging sapi pilihan',
-        ),
-      ],
-      store: StoreModel(
-        name: 'Bakso Pak Joko',
-        address: 'Jl. Melati No. 5',
-        openHours: '10:00 - 22:00',
-        phoneNumber: '6281234567895',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 25000,
-      serviceCharge: 12000,
-      total: 37000,
-      status: OrderStatus.driverHeadingToCustomer,
-      orderDate: DateTime.parse('2024-12-28 14:15:00'),
-      tracking: Tracking.sample(),
-    ),
-  ];
-
   @override
   void initState() {
     super.initState();
 
     _tabController = TabController(length: _tabs.length, vsync: this);
 
-    // Initialize animation controllers for the maximum possible number of cards
-    final totalCards = orders.length;
-    _cardControllers = List.generate(
-      totalCards,
-          (index) => AnimationController(
-        vsync: this,
-        duration: Duration(milliseconds: 600 + (index * 100)),
-      ),
-    );
+    // Initialize with empty controllers and animations
+    _cardControllers = [];
+    _cardAnimations = [];
 
-    // Create slide animations for each card
-    _cardAnimations = _cardControllers.map((controller) {
-      return Tween<Offset>(
-        begin: const Offset(0.5, 0),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(
-        parent: controller,
-        curve: Curves.easeOutCubic,
-      ));
-    }).toList();
+    // Fetch order data
+    _fetchOrderHistory();
+  }
 
-    // Start animations sequentially
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (var controller in _cardControllers) {
-        controller.forward();
-      }
+  // Fetch order history from the API
+  Future<void> _fetchOrderHistory() async {
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
     });
+
+    try {
+      // Fetch orders data using the store service
+      final orderData = await OrderService.getStoreOrders();
+      final List<dynamic> ordersList = orderData['orders'];
+
+      // Convert raw order data to Order objects
+      List<Order> orders = [];
+
+      for (var orderJson in ordersList) {
+        try {
+          Order order = Order.fromJson(orderJson);
+          orders.add(order);
+        } catch (e) {
+          print('Error parsing order: $e');
+          // Continue with next order if one fails to parse
+        }
+      }
+
+      // Sort orders by date (newest first)
+      orders.sort((a, b) => b.orderDate.compareTo(a.orderDate));
+
+      setState(() {
+        _orders = orders;
+        _isLoading = false;
+
+        // Initialize animation controllers for each order card
+        _cardControllers = List.generate(
+          orders.length,
+              (index) => AnimationController(
+            vsync: this,
+            duration: Duration(milliseconds: 600 + (index * 100)),
+          ),
+        );
+
+        // Create slide animations for each card
+        _cardAnimations = _cardControllers.map((controller) {
+          return Tween<Offset>(
+            begin: const Offset(0.5, 0),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(
+            parent: controller,
+            curve: Curves.easeOutCubic,
+          ));
+        }).toList();
+
+        // Start animations sequentially
+        for (var controller in _cardControllers) {
+          controller.forward();
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+        _errorMessage = 'Failed to load order history: $e';
+      });
+    }
   }
 
   @override
@@ -205,27 +134,38 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   List<Order> getFilteredOrders(int tabIndex) {
     switch (tabIndex) {
       case 0: // All orders
-        return orders;
+        return _orders;
       case 1: // In progress
-        return orders.where((order) =>
+        return _orders.where((order) =>
         order.status != OrderStatus.completed &&
-            order.status != OrderStatus.cancelled
+            order.status != OrderStatus.cancelled &&
+            order.status != OrderStatus.delivered
         ).toList();
       case 2: // Completed
-        return orders.where((order) => order.status == OrderStatus.completed).toList();
+        return _orders.where((order) =>
+        order.status == OrderStatus.completed ||
+            order.status == OrderStatus.delivered
+        ).toList();
       case 3: // Cancelled
-        return orders.where((order) => order.status == OrderStatus.cancelled).toList();
+        return _orders.where((order) => order.status == OrderStatus.cancelled).toList();
       default:
-        return orders;
+        return _orders;
     }
   }
 
   Color getStatusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.completed:
+      case OrderStatus.delivered:
         return Colors.green;
       case OrderStatus.cancelled:
         return Colors.red;
+      case OrderStatus.approved:
+        return Colors.teal;
+      case OrderStatus.preparing:
+        return Colors.orange;
+      case OrderStatus.on_delivery:
+        return Colors.blue;
       default:
         return Colors.blue;
     }
@@ -234,19 +174,26 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   String getStatusText(OrderStatus status) {
     switch (status) {
       case OrderStatus.completed:
+      case OrderStatus.delivered:
         return 'Selesai';
       case OrderStatus.cancelled:
-        return 'Dibatalkan';
+        return 'Di Batalkan';
       case OrderStatus.pending:
         return 'Menunggu';
+      case OrderStatus.approved:
+        return 'Disetujui';
+      case OrderStatus.preparing:
+        return 'Disiapkan';
+      case OrderStatus.on_delivery:
+        return 'Diantar';
       case OrderStatus.driverAssigned:
         return 'Driver Ditugaskan';
       case OrderStatus.driverHeadingToStore:
-        return 'Driver Menuju Toko';
+        return 'Di Ambil';
       case OrderStatus.driverAtStore:
         return 'Di Toko';
       case OrderStatus.driverHeadingToCustomer:
-        return 'Dalam Perjalanan';
+        return 'Di Antar';
       case OrderStatus.driverArrived:
         return 'Driver Tiba';
       default:
@@ -264,7 +211,9 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   }
 
   String getOrderItemsText(Order order) {
-    if (order.items.length == 1) {
+    if (order.items.isEmpty) {
+      return "Tidak ada item";
+    } else if (order.items.length == 1) {
       return order.items[0].name;
     } else {
       final firstItem = order.items[0].name;
@@ -291,27 +240,12 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     );
   }
 
-  void _navigateToOrderDetail(Order order, String formattedDate) {
+  void _navigateToOrderDetail(Order order) {
+    // Navigate to order detail page with orderId
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => HistoryStoreDetailPage(orderDetail: {
-          'customerName': 'Customer', // Usually would come from a Customer model
-          'date': formattedDate,
-          'amount': order.total,
-          'icon': 'assets/images/user_avatar.jpg', // Default avatar
-          'items': order.items.map((item) => {
-            'name': item.name,
-            'quantity': item.quantity,
-            'price': item.price,
-            'image': item.imageUrl
-          }).toList(),
-          'status': order.status == OrderStatus.completed ? 'completed' : 'rejected',
-          'deliveryFee': order.serviceCharge,
-          'customerAddress': order.deliveryAddress,
-          'storeAddress': order.store.address,
-          'phoneNumber': '6281234567890', // Customer phone number
-        }),
+        builder: (context) => HistoryStoreDetailPage(orderId: order.id),
       ),
     );
   }
@@ -320,10 +254,13 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
     final statusColor = getStatusColor(order.status);
     final statusText = getStatusText(order.status);
-    final orderTotal = order.total; // Total order amount
+    final orderTotal = order.total;
+
+    // Ensure index is within bounds of animations array
+    final animationIndex = index < _cardAnimations.length ? index : 0;
 
     return SlideTransition(
-      position: _cardAnimations[index % _cardAnimations.length],
+      position: _cardAnimations[animationIndex],
       child: Card(
         elevation: 3,
         margin: const EdgeInsets.only(bottom: 16),
@@ -334,7 +271,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         child: InkWell(
           borderRadius: BorderRadius.circular(15),
           onTap: () {
-            _navigateToOrderDetail(order, formattedDate);
+            _navigateToOrderDetail(order);
           },
           child: Container(
             padding: const EdgeInsets.all(16),
@@ -344,19 +281,35 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: GlobalStyle.lightColor,
-                        borderRadius: BorderRadius.circular(12),
+                    // Customer image if available
+                    if (order.customerId != null)
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.lightColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.person,
+                          color: GlobalStyle.primaryColor,
+                          size: 32,
+                        ),
+                      )
+                    else
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.lightColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.person,
+                          color: GlobalStyle.primaryColor,
+                          size: 32,
+                        ),
                       ),
-                      child: Icon(
-                        Icons.person,
-                        color: GlobalStyle.primaryColor,
-                        size: 32,
-                      ),
-                    ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -367,7 +320,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Customer', // Placeholder for customer name
+                                  'Order #${order.id.substring(0, min(order.id.length, 8))}',
                                   style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
@@ -420,7 +373,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          GlobalStyle.formatRupiah(orderTotal.toDouble()),
+                          GlobalStyle.formatRupiah(orderTotal),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -431,7 +384,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                     ),
                     ElevatedButton(
                       onPressed: () {
-                        _navigateToOrderDetail(order, formattedDate);
+                        _navigateToOrderDetail(order);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: GlobalStyle.primaryColor,
@@ -454,6 +407,11 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         ),
       ),
     );
+  }
+
+  // Helper function to get minimum of two integers
+  int min(int a, int b) {
+    return a < b ? a : b;
   }
 
   Widget _buildEmptyState(String message) {
@@ -486,6 +444,77 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
               color: Colors.grey[600],
             ),
             textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Loading state widget
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: GlobalStyle.primaryColor),
+          const SizedBox(height: 16),
+          Text(
+            'Memuat riwayat pesanan...',
+            style: TextStyle(
+              color: GlobalStyle.fontColor,
+              fontSize: 16,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Error state widget
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, color: Colors.red, size: 64),
+          const SizedBox(height: 16),
+          Text(
+            'Gagal memuat riwayat pesanan',
+            style: TextStyle(
+              color: GlobalStyle.fontColor,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage,
+            style: TextStyle(
+              color: GlobalStyle.fontColor.withOpacity(0.7),
+              fontSize: 14,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _fetchOrderHistory,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            child: Text(
+              'Coba Lagi',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
           ),
         ],
       ),
@@ -533,6 +562,13 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
               );
             },
           ),
+          actions: [
+            // Add a refresh button
+            IconButton(
+              icon: Icon(Icons.refresh, color: GlobalStyle.primaryColor),
+              onPressed: _fetchOrderHistory,
+            ),
+          ],
           bottom: TabBar(
             controller: _tabController,
             isScrollable: true,
@@ -544,7 +580,11 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
             tabs: _tabs.map((String tab) => Tab(text: tab)).toList(),
           ),
         ),
-        body: TabBarView(
+        body: _isLoading
+            ? _buildLoadingState()
+            : _hasError
+            ? _buildErrorState()
+            : TabBarView(
           controller: _tabController,
           children: List.generate(_tabs.length, (tabIndex) {
             final filteredOrders = getFilteredOrders(tabIndex);

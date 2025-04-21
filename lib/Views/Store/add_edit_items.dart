@@ -2,36 +2,52 @@ import 'package:flutter/material.dart';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../../Common/global_style.dart';
 import '../../Models/item_model.dart';
-import 'add_edit_items.dart' as add_item;
+import '../../Models/menu_item.dart';
+import '../../Services/menu_service.dart';
+import '../../Services/image_service.dart';
+import 'add_item.dart';
 
 class AddEditItemForm extends StatefulWidget {
   static const String route = '/Store/AddEditItems';
   final Item? item;
+  final MenuItem? menuItem;
 
-  const AddEditItemForm({Key? key, this.item}) : super(key: key);
+  const AddEditItemForm({Key? key, this.item, this.menuItem}) : super(key: key);
 
   @override
   State<AddEditItemForm> createState() => _AddEditItemFormState();
 }
 
-class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderStateMixin {
+class _AddEditItemFormState extends State<AddEditItemForm>
+    with TickerProviderStateMixin {
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
   final _stockController = TextEditingController();
 
   // Status options for order status
-  final List<String> _statusOptions = ['Available', 'Out of Stock', 'Limited'];
-  String _selectedStatus = 'Available';
+  final List<String> _statusOptions = ['available', 'out_of_stock', 'limited'];
+  String _selectedStatus = 'available';
 
-  // Image picker
-  File? _imageFile;
+  // Image handling
   final ImagePicker _picker = ImagePicker();
   String? _selectedImageUrl;
+  Map<String, dynamic>? _imageData;
+  bool _isUploading = false;
+
+  // Form state
+  bool _isLoading = false;
+  bool _isSaving = false;
+  bool _hasError = false;
+  String _errorMessage = '';
+
+  // Save the original item ID
+  int? _originalItemId;
 
   // Animation controllers
   late List<AnimationController> _cardControllers;
@@ -83,14 +99,10 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
     });
 
     // Initialize with existing item data if available
-    if (widget.item != null) {
-      _nameController.text = widget.item!.name;
-      _descriptionController.text = widget.item!.description ?? '';
-      _priceController.text = widget.item!.price.toString();
-      _stockController.text = widget.item!.quantity.toString();
-      _quantity = widget.item!.quantity;
-      _selectedImageUrl = widget.item!.imageUrl;
-      _selectedStatus = widget.item!.status.isNotEmpty ? widget.item!.status : 'Available';
+    if (widget.menuItem != null) {
+      _initializeFromMenuItem(widget.menuItem!);
+    } else if (widget.item != null) {
+      _initializeFromItem(widget.item!);
     }
 
     // Add listeners to track changes
@@ -98,6 +110,28 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
     _descriptionController.addListener(_onChange);
     _priceController.addListener(_onChange);
     _stockController.addListener(_onChange);
+  }
+
+  void _initializeFromMenuItem(MenuItem menuItem) {
+    _nameController.text = menuItem.name;
+    _descriptionController.text = menuItem.description ?? '';
+    _priceController.text = menuItem.price.toString();
+    _stockController.text = menuItem.quantity.toString();
+    _quantity = menuItem.quantity;
+    _selectedImageUrl = menuItem.imageUrl;
+    _selectedStatus = menuItem.status.toLowerCase();
+    _originalItemId = menuItem.id;
+  }
+
+  void _initializeFromItem(Item item) {
+    _nameController.text = item.name;
+    _descriptionController.text = item.description ?? '';
+    _priceController.text = item.price.toString();
+    _stockController.text = item.quantity.toString();
+    _quantity = item.quantity;
+    _selectedImageUrl = item.imageUrl;
+    _selectedStatus = item.status.toLowerCase();
+    _originalItemId = int.tryParse(item.id);
   }
 
   void _onChange() {
@@ -125,15 +159,32 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
 
   Future<void> _pickImage() async {
     try {
-      final XFile? pickedImage = await _picker.pickImage(source: ImageSource.gallery);
-      if (pickedImage != null) {
+      setState(() {
+        _isUploading = true;
+      });
+
+      // Use updated ImageService to pick and encode image
+      final imageData = await ImageService.pickAndEncodeImage(
+          source: ImageSource.gallery
+      );
+
+      if (imageData != null) {
         setState(() {
-          _imageFile = File(pickedImage.path);
-          _selectedImageUrl = pickedImage.path; // This is temporary, in real app you'd upload and get URL
+          _imageData = imageData;
+          _selectedImageUrl = imageData['base64'];
+          _isUploading = false;
           _hasChanges = true;
+        });
+      } else {
+        setState(() {
+          _isUploading = false;
         });
       }
     } catch (e) {
+      setState(() {
+        _isUploading = false;
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error selecting image: $e')),
       );
@@ -197,7 +248,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                     TextButton(
                       onPressed: () => Navigator.pop(context, false),
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(30),
                           side: BorderSide(color: Colors.grey[300]!),
@@ -210,7 +262,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                       style: ElevatedButton.styleFrom(
                         backgroundColor: GlobalStyle.primaryColor,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(30),
                         ),
@@ -227,7 +280,80 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
     );
 
     if (result == true) {
-      _showSuccessAnimation();
+      await _saveItemToDatabase();
+    }
+  }
+
+  Future<void> _saveItemToDatabase() async {
+    setState(() {
+      _isSaving = true;
+      _hasError = false;
+    });
+
+    try {
+      final String name = _nameController.text;
+      final String description = _descriptionController.text;
+      final double price = double.tryParse(_priceController.text) ?? 0.0;
+      final int stock = int.tryParse(_stockController.text) ?? 0;
+      final bool isAvailable = _selectedStatus == 'available';
+
+      // Prepare image URL - could be existing URL or base64 data
+      final String imageUrl = _selectedImageUrl ?? '';
+
+      if (_originalItemId != null) {
+        // Update existing item
+        final Map<String, dynamic> itemData = {
+          'name': name,
+          'description': description,
+          'price': price,
+          'quantity': stock,
+          'isAvailable': isAvailable,
+          'status': _selectedStatus,
+        };
+
+        // Update the item data first
+        final bool updated = await MenuService.updateItem(_originalItemId!, itemData);
+
+        // If we have a new image, upload it
+        if (_imageData != null && updated) {
+          // No need to manually extract base64 data - the service handles it
+          await MenuService.uploadItemImage(_originalItemId!, _imageData!['base64']);
+        }
+
+        _showSuccessAnimation();
+      } else {
+        // Add new item
+        final Item newItem = await MenuService.addItem(
+            name,
+            price.toInt(),
+            description,
+            stock,
+            imageUrl,
+            isAvailable
+        );
+
+        // If we have a new image, upload it
+        if (_imageData != null) {
+          // Parse the ID from the new item
+          final int itemId = int.tryParse(newItem.id) ?? 0;
+          if (itemId > 0) {
+            // No need to manually extract base64 data - the service handles it
+            await MenuService.uploadItemImage(itemId, _imageData!['base64']);
+          }
+        }
+
+        _showSuccessAnimation();
+      }
+    } catch (e) {
+      setState(() {
+        _isSaving = false;
+        _hasError = true;
+        _errorMessage = 'Failed to save item: $e';
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error saving item: $e')),
+      );
     }
   }
 
@@ -278,28 +404,17 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
 
     // Auto-dismiss dialog after 3 seconds and navigate back to AddItemPage
     Future.delayed(const Duration(seconds: 3), () {
-      // Create updated item
-      int stock = int.tryParse(_stockController.text) ?? _quantity;
-
-      // Create updated item
-      final updatedItem = Item(
-        id: widget.item?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        name: _nameController.text,
-        description: _descriptionController.text,
-        price: double.tryParse(_priceController.text) ?? 0.0,
-        imageUrl: _selectedImageUrl ?? 'assets/images/menu_item.jpg', // Default image path
-        quantity: stock,
-        isAvailable: _selectedStatus == 'Available',
-        status: _selectedStatus,
-      );
+      setState(() {
+        _isSaving = false;
+      });
 
       // Close the success dialog if it's showing
       if (Navigator.canPop(context)) {
         Navigator.pop(context);
       }
 
-      // Return to the AddItemPage with the updated item
-      Navigator.pushNamed(context, AddItemPage.route);
+      // Return to the AddItemPage
+      Navigator.pushReplacementNamed(context, AddItemPage.route);
     });
   }
 
@@ -315,7 +430,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Discard changes?'),
-        content: const Text('You have unsaved changes. Are you sure you want to discard them?'),
+        content: const Text(
+            'You have unsaved changes. Are you sure you want to discard them?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -356,7 +472,7 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
   @override
   Widget build(BuildContext context) {
     // Return full image view if in full image mode
-    if (_isViewingFullImage && (_imageFile != null || _selectedImageUrl != null)) {
+    if (_isViewingFullImage && _selectedImageUrl != null) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: GestureDetector(
@@ -371,12 +487,10 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                   child: InteractiveViewer(
                     minScale: 0.5,
                     maxScale: 4.0,
-                    child: Image(
-                      image: _imageFile != null
-                          ? FileImage(_imageFile!) as ImageProvider
-                          : (_selectedImageUrl?.startsWith('assets/') ?? false)
-                          ? AssetImage(_selectedImageUrl!) as ImageProvider
-                          : FileImage(File(_selectedImageUrl!)),
+                    child: ImageService.displayImage(
+                      imageSource: _selectedImageUrl!,
+                      width: double.infinity,
+                      height: double.infinity,
                       fit: BoxFit.contain,
                     ),
                   ),
@@ -415,14 +529,15 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                 shape: BoxShape.circle,
                 border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
               ),
-              child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+              child: Icon(Icons.arrow_back_ios_new,
+                  color: GlobalStyle.primaryColor, size: 18),
             ),
             onPressed: () => _onWillPop().then((canPop) {
               if (canPop) Navigator.pop(context);
             }),
           ),
           title: Text(
-            widget.item != null ? 'Edit Item' : 'Add Item',
+            _originalItemId != null ? 'Edit Item' : 'Add Item',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -434,11 +549,15 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
           actions: [
             IconButton(
               icon: Icon(Icons.save_outlined, color: GlobalStyle.primaryColor),
-              onPressed: _saveItem,
+              onPressed: _isSaving ? null : _saveItem,
             ),
           ],
         ),
-        body: SingleChildScrollView(
+        body: _isLoading
+            ? Center(
+          child: CircularProgressIndicator(color: GlobalStyle.primaryColor),
+        )
+            : SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
@@ -454,7 +573,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.info_outline, color: GlobalStyle.primaryColor),
+                            Icon(Icons.info_outline,
+                                color: GlobalStyle.primaryColor),
                             const SizedBox(width: 8),
                             const Text(
                               'Informasi Dasar',
@@ -493,7 +613,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.attach_money, color: GlobalStyle.primaryColor),
+                            Icon(Icons.attach_money,
+                                color: GlobalStyle.primaryColor),
                             const SizedBox(width: 8),
                             const Text(
                               'Harga & Ketersediaan',
@@ -517,7 +638,7 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                           label: 'Stok',
                           controller: _stockController,
                           keyboardType: TextInputType.number,
-                          hint: widget.item != null ? widget.item!.quantity.toString() : '0',
+                          hint: '0',
                           icon: Icons.inventory_2_outlined,
                         ),
                         const SizedBox(height: 16),
@@ -526,7 +647,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                           children: [
                             Row(
                               children: [
-                                Icon(Icons.circle, size: 16, color: GlobalStyle.primaryColor),
+                                Icon(Icons.circle,
+                                    size: 16, color: GlobalStyle.primaryColor),
                                 const SizedBox(width: 8),
                                 Text(
                                   'Status Item',
@@ -540,7 +662,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                             ),
                             const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              padding:
+                              const EdgeInsets.symmetric(horizontal: 16),
                               decoration: BoxDecoration(
                                 color: GlobalStyle.lightColor.withOpacity(0.3),
                                 borderRadius: BorderRadius.circular(12),
@@ -553,8 +676,12 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                                 child: DropdownButton<String>(
                                   isExpanded: true,
                                   value: _selectedStatus,
-                                  icon: Icon(Icons.arrow_drop_down, color: GlobalStyle.primaryColor),
+                                  icon: Icon(Icons.arrow_drop_down,
+                                      color: GlobalStyle.primaryColor),
                                   items: _statusOptions.map((String status) {
+                                    String displayStatus = status.split('_').map((s) =>
+                                    s[0].toUpperCase() + s.substring(1)).join(' ');
+
                                     return DropdownMenuItem<String>(
                                       value: status,
                                       child: Row(
@@ -564,15 +691,15 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                                             height: 12,
                                             decoration: BoxDecoration(
                                               shape: BoxShape.circle,
-                                              color: status == 'Available'
+                                              color: status == 'available'
                                                   ? Colors.green
-                                                  : status == 'Out of Stock'
+                                                  : status == 'out_of_stock'
                                                   ? Colors.red
                                                   : Colors.orange,
                                             ),
                                           ),
                                           const SizedBox(width: 8),
-                                          Text(status),
+                                          Text(displayStatus),
                                         ],
                                       ),
                                     );
@@ -617,7 +744,17 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                           ],
                         ),
                         const SizedBox(height: 16),
-                        _imageFile != null || (widget.item != null && widget.item!.imageUrl != null)
+                        _isUploading
+                            ? Center(
+                          child: Column(
+                            children: [
+                              CircularProgressIndicator(color: GlobalStyle.primaryColor),
+                              const SizedBox(height: 16),
+                              const Text('Memuat gambar...'),
+                            ],
+                          ),
+                        )
+                            : _selectedImageUrl != null
                             ? Column(
                           children: [
                             GestureDetector(
@@ -636,13 +773,20 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                                         offset: const Offset(0, 4),
                                       ),
                                     ],
-                                    image: DecorationImage(
-                                      image: _imageFile != null
-                                          ? FileImage(_imageFile!) as ImageProvider
-                                          : (_selectedImageUrl?.startsWith('assets/') ?? false)
-                                          ? AssetImage(_selectedImageUrl!) as ImageProvider
-                                          : FileImage(File(_selectedImageUrl!)),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: ImageService.displayImage(
+                                      imageSource: _selectedImageUrl!,
+                                      width: double.infinity,
+                                      height: 250,
                                       fit: BoxFit.cover,
+                                      placeholder: Container(
+                                        width: double.infinity,
+                                        height: 250,
+                                        color: Colors.grey[300],
+                                        child: const Icon(Icons.image, size: 64, color: Colors.grey),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -658,14 +802,18 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                                   label: const Text('Ganti Gambar'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.white,
-                                    foregroundColor: GlobalStyle.primaryColor,
+                                    foregroundColor:
+                                    GlobalStyle.primaryColor,
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 16,
                                       vertical: 8,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(30),
-                                      side: BorderSide(color: GlobalStyle.primaryColor),
+                                      borderRadius:
+                                      BorderRadius.circular(30),
+                                      side: BorderSide(
+                                          color:
+                                          GlobalStyle.primaryColor),
                                     ),
                                     elevation: 0,
                                   ),
@@ -676,14 +824,17 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                                   icon: const Icon(Icons.fullscreen),
                                   label: const Text('Lihat Full'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: GlobalStyle.lightColor,
-                                    foregroundColor: GlobalStyle.primaryColor,
+                                    backgroundColor:
+                                    GlobalStyle.lightColor,
+                                    foregroundColor:
+                                    GlobalStyle.primaryColor,
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 16,
                                       vertical: 8,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(30),
+                                      borderRadius:
+                                      BorderRadius.circular(30),
                                     ),
                                     elevation: 0,
                                   ),
@@ -723,7 +874,7 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Format: JPG, PNG (Max 5MB)',
+                                  'Format: JPG, PNG (Max 1MB)',
                                   style: TextStyle(
                                     color: Colors.grey[500],
                                     fontSize: 12,
@@ -735,14 +886,17 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                                   icon: const Icon(Icons.upload_file),
                                   label: const Text('Telusuri Gambar'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: GlobalStyle.lightColor,
-                                    foregroundColor: GlobalStyle.primaryColor,
+                                    backgroundColor:
+                                    GlobalStyle.lightColor,
+                                    foregroundColor:
+                                    GlobalStyle.primaryColor,
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 24,
                                       vertical: 12,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(30),
+                                      borderRadius:
+                                      BorderRadius.circular(30),
                                     ),
                                   ),
                                 ),
@@ -765,7 +919,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.lightbulb_outline, color: Colors.amber[700]),
+                            Icon(Icons.lightbulb_outline,
+                                color: Colors.amber[700]),
                             const SizedBox(width: 8),
                             const Text(
                               'Tips',
@@ -779,20 +934,58 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                         const SizedBox(height: 12),
                         _buildTipItem(
                           icon: Icons.photo_size_select_actual_outlined,
-                          text: 'Gambar dengan rasio 1:1 akan ditampilkan dengan optimal',
+                          text:
+                          'Gambar dengan rasio 1:1 akan ditampilkan dengan optimal',
                         ),
                         _buildTipItem(
                           icon: Icons.description_outlined,
-                          text: 'Deskripsi yang detail akan membantu pelanggan memahami produk Anda',
+                          text:
+                          'Deskripsi yang detail akan membantu pelanggan memahami produk Anda',
                         ),
                         _buildTipItem(
                           icon: Icons.price_change_outlined,
-                          text: 'Tetapkan harga yang kompetitif untuk meningkatkan penjualan',
+                          text:
+                          'Tetapkan harga yang kompetitif untuk meningkatkan penjualan',
                         ),
                       ],
                     ),
                   ),
                 ),
+
+                // Error message if exists
+                if (_hasError)
+                  Container(
+                    margin: const EdgeInsets.only(top: 16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.red[50],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red[300]!),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.error_outline, color: Colors.red[700]),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Error',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red[700],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _errorMessage,
+                          style: TextStyle(color: Colors.red[700]),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -810,7 +1003,7 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
             ],
           ),
           child: ElevatedButton(
-            onPressed: _saveItem,
+            onPressed: _isSaving ? null : _saveItem,
             style: ElevatedButton.styleFrom(
               backgroundColor: GlobalStyle.primaryColor,
               foregroundColor: Colors.white,
@@ -819,8 +1012,31 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
                 borderRadius: BorderRadius.circular(30),
               ),
               elevation: 2,
+              disabledBackgroundColor: Colors.grey,
             ),
-            child: Row(
+            child: _isSaving
+                ? Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Menyimpan...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            )
+                : Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Icon(Icons.save_outlined),
@@ -854,7 +1070,8 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
       children: [
         Row(
           children: [
-            if (icon != null) Icon(icon, size: 16, color: GlobalStyle.primaryColor),
+            if (icon != null)
+              Icon(icon, size: 16, color: GlobalStyle.primaryColor),
             if (icon != null) const SizedBox(width: 8),
             Text(
               label,
@@ -916,427 +1133,6 @@ class _AddEditItemFormState extends State<AddEditItemForm> with TickerProviderSt
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class AddItemPage extends StatefulWidget {
-  static const String route = '/Store/AddItem';
-
-  const AddItemPage({Key? key}) : super(key: key);
-
-  @override
-  State<AddItemPage> createState() => _AddItemPageState();
-}
-
-class _AddItemPageState extends State<AddItemPage> with TickerProviderStateMixin {
-  List<Item> _items = [];
-  bool _isLoading = false;
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(_fadeController);
-    _loadItems();
-  }
-
-  @override
-  void dispose() {
-    _fadeController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadItems() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    // Simulate loading items from a data source
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    // In a real app, you would get items from a database or API
-    // For demonstration, we'll use mock data
-    setState(() {
-      _items = [
-        Item(
-          id: '1',
-          name: 'Sample Item 1',
-          description: 'This is a sample item description.',
-          price: 25000,
-          imageUrl: 'assets/images/menu_item.jpg',
-          quantity: 10,
-          isAvailable: true,
-          status: 'Available',
-        ),
-        Item(
-          id: '2',
-          name: 'Sample Item 2',
-          description: 'Another sample item with description.',
-          price: 30000,
-          imageUrl: 'assets/images/menu_item.jpg',
-          quantity: 5,
-          isAvailable: true,
-          status: 'Limited',
-        ),
-      ];
-      _isLoading = false;
-    });
-
-    _fadeController.forward();
-  }
-
-  void _addNewItem() {
-    Navigator.pushNamed(
-      context,
-      AddEditItemForm.route,
-    ).then((result) {
-      if (result != null && result is Item) {
-        setState(() {
-          // Check if item exists, update it; otherwise add as new
-          final existingIndex = _items.indexWhere((item) => item.id == result.id);
-          if (existingIndex >= 0) {
-            _items[existingIndex] = result;
-          } else {
-            _items.add(result);
-          }
-        });
-
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Item "${result.name}" has been saved successfully.'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    });
-  }
-
-  void _editItem(Item item) {
-    Navigator.pushNamed(
-      context,
-      AddEditItemForm.route,
-      arguments: item,
-    ).then((result) {
-      if (result != null && result is Item) {
-        setState(() {
-          final index = _items.indexWhere((i) => i.id == result.id);
-          if (index >= 0) {
-            _items[index] = result;
-          }
-        });
-      }
-    });
-  }
-
-  void _deleteItem(String itemId) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Deletion'),
-        content: const Text('Are you sure you want to delete this item?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('CANCEL'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                _items.removeWhere((item) => item.id == itemId);
-              });
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Item has been deleted.'),
-                  backgroundColor: Colors.red,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-            child: const Text('DELETE'),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Try to get an item that might have been passed as a result
-    final item = ModalRoute.of(context)?.settings.arguments as Item?;
-
-    // If an item was passed, update the list
-    if (item != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        setState(() {
-          final index = _items.indexWhere((i) => i.id == item.id);
-          if (index >= 0) {
-            _items[index] = item;
-          } else {
-            _items.add(item);
-          }
-        });
-
-        // Clear the arguments to prevent re-adding
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            settings: const RouteSettings(name: AddItemPage.route),
-            builder: (context) => const AddItemPage(),
-          ),
-        );
-      });
-    }
-
-    return Scaffold(
-      backgroundColor: const Color(0xffD6E6F2),
-      appBar: AppBar(
-        title: const Text(
-          'Item Management',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.black,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.search, color: GlobalStyle.primaryColor),
-            onPressed: () {
-              // Implement search functionality
-            },
-          ),
-          IconButton(
-            icon: Icon(Icons.filter_list, color: GlobalStyle.primaryColor),
-            onPressed: () {
-              // Implement filter functionality
-            },
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _items.isEmpty
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.inventory_2_outlined,
-              size: 80,
-              color: Colors.grey[400],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Belum Ada Item',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[700],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tambahkan item untuk mulai berjualan',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _addNewItem,
-              icon: const Icon(Icons.add),
-              label: const Text('Tambah Item Baru'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GlobalStyle.primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-            ),
-          ],
-        ),
-      )
-          : FadeTransition(
-        opacity: _fadeAnimation,
-        child: ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: _items.length,
-          itemBuilder: (context, index) {
-            final item = _items[index];
-            return Card(
-              margin: const EdgeInsets.only(bottom: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              elevation: 4,
-              child: InkWell(
-                onTap: () => _editItem(item),
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          image: DecorationImage(
-                            image: item.imageUrl.startsWith('assets/')
-                                ? AssetImage(item.imageUrl) as ImageProvider
-                                : FileImage(File(item.imageUrl)),
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.name,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              GlobalStyle.formatRupiah(item.price),
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: GlobalStyle.primaryColor,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: item.status == 'Available'
-                                        ? Colors.green[50]
-                                        : item.status == 'Out of Stock'
-                                        ? Colors.red[50]
-                                        : Colors.orange[50],
-                                    borderRadius: BorderRadius.circular(30),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        width: 8,
-                                        height: 8,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: item.status == 'Available'
-                                              ? Colors.green
-                                              : item.status == 'Out of Stock'
-                                              ? Colors.red
-                                              : Colors.orange,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        item.status,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: item.status == 'Available'
-                                              ? Colors.green[700]
-                                              : item.status == 'Out of Stock'
-                                              ? Colors.red[700]
-                                              : Colors.orange[700],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Stock: ${item.quantity}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      PopupMenuButton<String>(
-                        icon: Icon(
-                          Icons.more_vert,
-                          color: Colors.grey[600],
-                        ),
-                        onSelected: (value) {
-                          if (value == 'edit') {
-                            _editItem(item);
-                          } else if (value == 'delete') {
-                            _deleteItem(item.id);
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: 'edit',
-                            child: Row(
-                              children: [
-                                Icon(Icons.edit_outlined, size: 20),
-                                SizedBox(width: 8),
-                                Text('Edit'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'delete',
-                            child: Row(
-                              children: [
-                                Icon(Icons.delete_outlined, size: 20, color: Colors.red),
-                                SizedBox(width: 8),
-                                Text('Delete', style: TextStyle(color: Colors.red)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-      floatingActionButton: _items.isEmpty
-          ? null
-          : FloatingActionButton(
-        onPressed: _addNewItem,
-        backgroundColor: GlobalStyle.primaryColor,
-        child: const Icon(Icons.add),
       ),
     );
   }

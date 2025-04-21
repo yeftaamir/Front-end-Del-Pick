@@ -3,16 +3,66 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
 import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/services/auth_service.dart';
 
-class ProfileStorePage extends StatelessWidget {
+class ProfileStorePage extends StatefulWidget {
   static const String route = "/Store/Profile";
-
-  final StoreModel store;
 
   const ProfileStorePage({
     super.key,
-    required this.store,
   });
+
+  @override
+  State<ProfileStorePage> createState() => _ProfileStorePageState();
+}
+
+class _ProfileStorePageState extends State<ProfileStorePage> {
+  StoreModel? store;
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStoreData();
+  }
+
+  Future<void> _loadStoreData() async {
+    try {
+      // Get user data from AuthService
+      final userData = await AuthService.getUserData();
+
+      if (userData != null && userData.containsKey('store')) {
+        setState(() {
+          store = StoreModel.fromJson(userData['store']);
+          isLoading = false;
+        });
+      } else {
+        // Attempt to get profile data if store not found in cached user data
+        final profileData = await AuthService.getProfile();
+
+        if (profileData.containsKey('store')) {
+          setState(() {
+            store = StoreModel.fromJson(profileData['store']);
+            isLoading = false;
+          });
+        } else {
+          setState(() {
+            isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Data toko tidak ditemukan')),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal memuat data: $e')),
+      );
+    }
+  }
 
   void _handleLogout(BuildContext context) {
     showDialog(
@@ -44,13 +94,44 @@ class ProfileStorePage extends StatelessWidget {
               ),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(context); // Close dialog
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SplashScreen()),
-                      (route) => false, // Remove all previous routes
+
+                // Show loading indicator
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => const Center(
+                    child: CircularProgressIndicator(),
+                  ),
                 );
+
+                // Call logout service
+                try {
+                  final success = await AuthService.logout();
+
+                  // Close loading indicator
+                  Navigator.pop(context);
+
+                  if (success) {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SplashScreen()),
+                          (route) => false, // Remove all previous routes
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Gagal logout, silahkan coba lagi')),
+                    );
+                  }
+                } catch (e) {
+                  // Close loading indicator
+                  Navigator.pop(context);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
               },
               child: Text(
                 'Keluar',
@@ -74,7 +155,23 @@ class ProfileStorePage extends StatelessWidget {
 
     return Scaffold(
       body: SafeArea(
-        child: Column(
+        child: isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : store == null
+            ? Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Data toko tidak tersedia'),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadStoreData,
+                child: const Text('Coba Lagi'),
+              ),
+            ],
+          ),
+        )
+            : Column(
           children: [
             // Fixed header with back button and title
             Padding(
@@ -114,11 +211,34 @@ class ProfileStorePage extends StatelessWidget {
                 top: Radius.circular(0),
                 bottom: Radius.circular(16),
               ),
-              child: Image.network(
-                store.imageUrl,
+              child: store!.imageUrl.isEmpty
+                  ? Container(
+                width: double.infinity,
+                height: imageHeight,
+                color: Colors.grey[300],
+                child: const Icon(
+                  Icons.store,
+                  size: 64,
+                  color: Colors.grey,
+                ),
+              )
+                  : Image.network(
+                store!.imageUrl,
                 width: double.infinity,
                 height: imageHeight,
                 fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    width: double.infinity,
+                    height: imageHeight,
+                    color: Colors.grey[300],
+                    child: const Icon(
+                      Icons.error,
+                      size: 64,
+                      color: Colors.grey,
+                    ),
+                  );
+                },
               ),
             ),
 
@@ -149,44 +269,42 @@ class ProfileStorePage extends StatelessWidget {
                             _buildInfoTile(
                               icon: FontAwesomeIcons.store,
                               title: 'Nama Toko',
-                              value: store.name,
-                            ),
-                            const Divider(height: 1, indent: 20),
-                            _buildInfoTile(
-                              icon: FontAwesomeIcons.locationDot,
-                              title: 'Alamat',
-                              value: store.address,
-                            ),
-                            const Divider(height: 1, indent: 20),
-                            _buildInfoTile(
-                              icon: FontAwesomeIcons.clock,
-                              title: 'Jam Buka',
-                              value: store.openHours,
-                            ),
-                            const Divider(height: 1, indent: 20),
-                            _buildInfoTile(
-                              icon: FontAwesomeIcons.star,
-                              title: 'Penilaian',
-                              value: store.formattedRating,
-                            ),
-                            const Divider(height: 1, indent: 20),
-                            _buildInfoTile(
-                              icon: FontAwesomeIcons.phone,
-                              title: 'Nomor Telepon',
-                              value: store.phoneNumber,
-                            ),
-                            const Divider(height: 1, indent: 20),
-                            _buildInfoTile(
-                              icon: FontAwesomeIcons.box,
-                              title: 'Jumlah Produk',
-                              value: store.formattedProductCount,
+                              value: store!.name,
                             ),
                             const Divider(height: 1, indent: 20),
                             _buildInfoTile(
                               icon: FontAwesomeIcons.circleInfo,
                               title: 'Keterangan',
-                              value: store.description,
+                              value: store!.description.isNotEmpty
+                                  ? store!.description
+                                  : 'Tidak ada keterangan',
                               isDescription: true,
+                            ),
+                            const Divider(height: 1, indent: 20),
+                            _buildInfoTile(
+                              icon: FontAwesomeIcons.locationDot,
+                              title: 'Alamat',
+                              value: store!.address,
+                            ),
+                            const Divider(height: 1, indent: 20),
+                            _buildInfoTile(
+                              icon: FontAwesomeIcons.clock,
+                              title: 'Jam Buka',
+                              value: store!.openHours,
+                            ),
+                            const Divider(height: 1, indent: 20),
+                            _buildInfoTile(
+                              icon: FontAwesomeIcons.star,
+                              title: 'Penilaian',
+                              value: store!.rating > 0
+                                  ? store!.formattedRating
+                                  : 'Belum ada penilaian',
+                            ),
+                            const Divider(height: 1, indent: 20),
+                            _buildInfoTile(
+                              icon: FontAwesomeIcons.phone,
+                              title: 'Nomor Telepon',
+                              value: store!.phoneNumber,
                             ),
                           ],
                         ),

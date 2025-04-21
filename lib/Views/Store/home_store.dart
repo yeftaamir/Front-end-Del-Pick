@@ -9,6 +9,11 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:del_pick/Services/store_service.dart';
+import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Models/customer.dart';
+import 'package:del_pick/Services/auth_service.dart';
 
 class HomeStore extends StatefulWidget {
   static const String route = '/Store/HomePage';
@@ -24,121 +29,24 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
   bool _isStoreActive = false;
-  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  bool _isLoading = true;
+  bool _hasError = false;
+  String _errorMessage = '';
+
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
+  FlutterLocalNotificationsPlugin();
   final AudioPlayer _audioPlayer = AudioPlayer();
 
-  // Dummy data with status field
-  final List<Map<String, dynamic>> _orders = [
-    {
-      'customerName': 'John Doe',
-      'orderTime': DateTime.now(),
-      'totalPrice': 150000,
-      'status': 'processed',
-      'items': [
-        {
-          'name': 'Product 1',
-          'quantity': 2,
-          'price': 75000,
-          'image': 'https://example.com/image1.jpg'
-        }
-      ],
-      'deliveryFee': 10000,
-      'amount': 160000,
-      'storeAddress': 'Store Address 1',
-      'customerAddress': 'Customer Address 1',
-      'phoneNumber': '6281234567890'
-    },
-    {
-      'customerName': 'Jane Smith',
-      'orderTime': DateTime.now().subtract(const Duration(hours: 2)),
-      'totalPrice': 75000,
-      'status': 'detained',
-      'items': [
-        {
-          'name': 'Product 2',
-          'quantity': 1,
-          'price': 75000,
-          'image': 'https://example.com/image2.jpg'
-        }
-      ],
-      'deliveryFee': 10000,
-      'amount': 85000,
-      'storeAddress': 'Store Address 2',
-      'customerAddress': 'Customer Address 2',
-      'phoneNumber': '6281234567891'
-    },
-    {
-      'customerName': 'Bob Wilson',
-      'orderTime': DateTime.now().subtract(const Duration(hours: 4)),
-      'totalPrice': 200000,
-      'status': 'picked_up',
-      'items': [
-        {
-          'name': 'Product 3',
-          'quantity': 2,
-          'price': 100000,
-          'image': 'https://example.com/image3.jpg'
-        }
-      ],
-      'deliveryFee': 10000,
-      'amount': 210000,
-      'storeAddress': 'Store Address 3',
-      'customerAddress': 'Customer Address 3',
-      'phoneNumber': '6281234567892'
-    }
-  ];
-
-  // Sample new order for notification demo
-  final Map<String, dynamic> _newOrder = {
-    'customerName': 'Alice Johnson',
-    'orderTime': DateTime.now(),
-    'totalPrice': 180000,
-    'status': 'new',
-    'items': [
-      {
-        'name': 'Product 4',
-        'quantity': 3,
-        'price': 60000,
-        'image': 'https://example.com/image4.jpg'
-      }
-    ],
-    'deliveryFee': 10000,
-    'amount': 190000,
-    'storeAddress': 'Store Address 1',
-    'customerAddress': 'Customer Address 4',
-    'phoneNumber': '6281234567893'
-  };
+  // Real orders list to replace the dummy data
+  List<Map<String, dynamic>> _orders = [];
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize animation controllers for each order card
-    _cardControllers = List.generate(
-      _orders.length,
-          (index) => AnimationController(
-        vsync: this,
-        duration: Duration(milliseconds: 600 + (index * 200)),
-      ),
-    );
-
-    // Create slide animations for each card
-    _cardAnimations = _cardControllers.map((controller) {
-      return Tween<Offset>(
-        begin: const Offset(0, 0.5),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(
-        parent: controller,
-        curve: Curves.easeOutCubic,
-      ));
-    }).toList();
-
-    // Start animations sequentially
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (var controller in _cardControllers) {
-        controller.forward();
-      }
-    });
+    // Initialize with empty controllers and animations
+    _cardControllers = [];
+    _cardAnimations = [];
 
     // Initialize notifications
     _initializeNotifications();
@@ -146,17 +54,165 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     // Request notification permissions
     _requestPermissions();
 
-    // Simulate new order after 3 seconds (for demo purposes)
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        _simulateNewOrder();
-      }
+    // Fetch orders data
+    fetchOrders();
+  }
+
+  // In _HomeStoreState class, replace this:
+  Future<void> fetchOrders() async {
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
     });
+
+    try {
+      // Directly use OrderService instead of the static method
+      final orderData = await OrderService.getStoreOrders();
+      // Process the response properly
+      List<Map<String, dynamic>> processedOrders = [];
+
+      if (orderData != null && orderData['orders'] != null) {
+        // Map each order to the format your UI expects
+        processedOrders = (orderData['orders'] as List).map((orderJson) {
+          // Extract customer name
+          String customerName = 'Customer';
+          if (orderJson['user'] != null) {
+            customerName = orderJson['user']['name'] ?? 'Customer';
+          }
+
+          // Process items if available
+          List<Map<String, dynamic>> items = [];
+          if (orderJson['items'] != null && orderJson['items'] is List) {
+            items = (orderJson['items'] as List).map((item) => {
+              'name': item['name'] ?? 'Product',
+              'quantity': item['quantity'] ?? 1,
+              'price': item['price'] ?? 0,
+              'image': item['imageUrl'] ?? ''
+            }).toList();
+          }
+
+          return {
+            'id': orderJson['id']?.toString() ?? '',
+            'customerName': customerName,
+            'orderTime': orderJson['orderDate'] != null ?
+            DateTime.parse(orderJson['orderDate']) : DateTime.now(),
+            'totalPrice': orderJson['subtotal'] ?? 0,
+            'status': orderJson['order_status'] ?? 'pending',
+            'items': items,
+            'deliveryFee': orderJson['serviceCharge'] ?? 0,
+            'amount': orderJson['total'] ?? 0,
+            'storeAddress': orderJson['store']?['address'] ?? 'Store address',
+            'customerAddress': orderJson['deliveryAddress'] ?? '',
+            'phoneNumber': orderJson['user']?['phone'] ?? '',
+          };
+        }).toList();
+      }
+
+      setState(() {
+        _orders = processedOrders;
+        _isLoading = false;
+
+        // Initialize animation controllers
+        _cardControllers = List.generate(
+          _orders.length,
+              (index) => AnimationController(
+            vsync: this,
+            duration: Duration(milliseconds: 600 + (index * 200)),
+          ),
+        );
+
+        // Create animations
+        _cardAnimations = _cardControllers.map((controller) {
+          return Tween<Offset>(
+            begin: const Offset(0, 0.5),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(
+            parent: controller,
+            curve: Curves.easeOutCubic,
+          ));
+        }).toList();
+
+        // Start animations
+        for (var controller in _cardControllers) {
+          controller.forward();
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+        _errorMessage = 'Failed to load orders: $e';
+      });
+    }
+  }
+
+// Remove the static getStoreOrders method completely
+  // Get store orders from the API
+  static Future<List<Map<String, dynamic>>> getStoreOrders() async {
+    try {
+      final orderData = await OrderService.getStoreOrders();
+      final List<dynamic> orders = orderData['orders'];
+
+      return await Future.wait(orders.map((order) async {
+        // Try to get customer data for each order if customerId is available
+        String customerName = 'Customer';
+        String phoneNumber = '';
+
+        if (order['customerId'] != null) {
+          try {
+            // This is a placeholder - you would need to implement a service method
+            // to fetch customer data by ID if your API supports it
+            // For now, we'll use the ID directly
+            customerName = 'Customer #${order['customerId']}';
+          } catch (e) {
+            print('Error fetching customer data: $e');
+          }
+        }
+
+        // Process order items
+        List<Map<String, dynamic>> items = [];
+        if (order['items'] != null && order['items'] is List) {
+          items = (order['items'] as List).map((item) => {
+            'name': item['name'] ?? 'Product',
+            'quantity': item['quantity'] ?? 1,
+            'price': item['price'] ?? 0,
+            'image': item['imageUrl'] ?? 'https://example.com/image.jpg'
+          }).toList();
+        } else {
+          // Fallback if no items available
+          items = [
+            {
+              'name': 'Product',
+              'quantity': 1,
+              'price': order['subtotal'] ?? 0,
+              'image': 'https://example.com/image.jpg'
+            }
+          ];
+        }
+
+        return {
+          'id': order['id']?.toString() ?? '',
+          'customerName': customerName,
+          'orderTime': DateTime.parse(order['orderDate'] ?? DateTime.now().toIso8601String()),
+          'totalPrice': order['subtotal'] ?? 0,
+          'status': order['order_status'] ?? 'pending',
+          'items': items,
+          'deliveryFee': order['serviceCharge'] ?? 0,
+          'amount': order['total'] ?? 0,
+          'storeAddress': order['store']?['address'] ?? 'Store address',
+          'customerAddress': order['deliveryAddress'] ?? '',
+          'phoneNumber': phoneNumber,
+        };
+      }).toList());
+    } catch (e) {
+      print('Error in getStoreOrders: $e');
+      throw Exception('Failed to fetch store orders: $e');
+    }
   }
 
   Future<void> _initializeNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-    AndroidInitializationSettings('@mipmap/ic_launcher');
+    AndroidInitializationSettings('@drawable/launch_background');
 
     const DarwinInitializationSettings initializationSettingsIOS =
     DarwinInitializationSettings(
@@ -165,7 +221,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       requestAlertPermission: true,
     );
 
-    const InitializationSettings initializationSettings = InitializationSettings(
+    const InitializationSettings initializationSettings =
+    InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsIOS,
     );
@@ -174,7 +231,10 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse details) {
         // Handle notification tap
-        _showNewOrderDialog();
+        if (details.payload != null) {
+          // You could parse order details from the payload and show dialog
+          _showNewOrderDialog();
+        }
       },
     );
   }
@@ -203,27 +263,26 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       'Pesanan Baru!',
       'Pelanggan: ${orderDetails['customerName']} - ${GlobalStyle.formatRupiah(orderDetails['totalPrice'].toDouble())}',
       platformChannelSpecifics,
+      payload: orderDetails['id'], // Pass the order ID as payload
     );
-  }
-
-  void _simulateNewOrder() {
-    if (_isStoreActive) {
-      // Show notification
-      _showNotification(_newOrder);
-
-      // Play sound and show dialog
-      _showNewOrderDialog();
-    }
   }
 
   Future<void> _playSound(String assetPath) async {
     await _audioPlayer.play(AssetSource(assetPath));
   }
 
-  Future<void> _showNewOrderDialog() async {
+  // Show a dialog when a new order comes in
+  Future<void> _showNewOrderDialog({Map<String, dynamic>? orderDetails}) async {
     await _playSound('audio/kring.mp3');
 
     if (mounted) {
+      // Use provided order details or placeholder if none
+      final order = orderDetails ?? {
+        'id': 'new-order-${DateTime.now().millisecondsSinceEpoch}',
+        'customerName': 'New Customer',
+        'totalPrice': 0.0,
+      };
+
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -250,14 +309,14 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Pelanggan: ${_newOrder['customerName']}',
+                  'Pelanggan: ${order['customerName']}',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),
                 Text(
-                  'Total: ${GlobalStyle.formatRupiah(_newOrder['totalPrice'].toDouble())}',
+                  'Total: ${GlobalStyle.formatRupiah(order['totalPrice'].toDouble())}',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
@@ -272,31 +331,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.of(context).pop();
-                    // Add the new order to the list with processed status
-                    setState(() {
-                      Map<String, dynamic> processedOrder = Map.from(_newOrder);
-                      processedOrder['status'] = 'processed';
-                      _orders.insert(0, processedOrder);
-
-                      // Add a new animation controller for the new order
-                      AnimationController newController = AnimationController(
-                        vsync: this,
-                        duration: const Duration(milliseconds: 600),
-                      );
-
-                      Animation<Offset> newAnimation = Tween<Offset>(
-                        begin: const Offset(0, 0.5),
-                        end: Offset.zero,
-                      ).animate(CurvedAnimation(
-                        parent: newController,
-                        curve: Curves.easeOutCubic,
-                      ));
-
-                      _cardControllers.insert(0, newController);
-                      _cardAnimations.insert(0, newAnimation);
-
-                      newController.forward();
-                    });
+                    // Refresh orders to get the latest data
+                    fetchOrders();
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
@@ -426,9 +462,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                setState(() {
-                  _isStoreActive = false;
-                });
+                _toggleStoreStatus();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
@@ -448,14 +482,24 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   }
 
   void _toggleStoreStatus() {
+    // Here you would call the API to update the store status
+    // For now, we just update the local state
+    setState(() {
+      _isStoreActive = !_isStoreActive;
+    });
+
     if (_isStoreActive) {
-      _showDeactivateConfirmationDialog();
-    } else {
-      setState(() {
-        _isStoreActive = true;
-      });
       _showStoreActiveDialog();
     }
+
+    // In a real implementation, you would call an API like:
+    // StoreService.updateStoreStatus(_isStoreActive ? 'active' : 'inactive')
+    //   .then((_) {
+    //     // Handle success
+    //   })
+    //   .catchError((error) {
+    //     // Handle error
+    //   });
   }
 
   @override
@@ -467,12 +511,15 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // Filter orders based on status
   List<Map<String, dynamic>> get filteredOrders {
-    return _orders.where((order) =>
-        ['processed', 'detained', 'picked_up'].contains(order['status'])
-    ).toList();
+    return _orders
+        .where((order) => ['processed', 'detained', 'picked_up', 'pending', 'approved', 'preparing']
+        .contains(order['status']))
+        .toList();
   }
 
+  // Get status color based on order status
   Color _getStatusColor(String status) {
     switch (status) {
       case 'processed':
@@ -481,29 +528,44 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         return Colors.orange;
       case 'picked_up':
         return Colors.purple;
+      case 'approved':
+        return Colors.green;
+      case 'preparing':
+        return Colors.amber;
       default:
         return Colors.grey;
     }
   }
 
+  // Get readable status label
   String _getStatusLabel(String status) {
     switch (status) {
       case 'processed':
-        return 'Diprosess';
+        return 'Diproses';
       case 'detained':
         return 'Ditahan';
       case 'picked_up':
         return 'Diambil';
+      case 'approved':
+        return 'Disetujui';
+      case 'preparing':
+        return 'Sedang Disiapkan';
+      case 'pending':
+        return 'Menunggu';
       default:
         return 'Unknown';
     }
   }
 
+  // Build an order card for the list
   Widget _buildOrderCard(Map<String, dynamic> order, int index) {
     String status = order['status'] as String;
 
+    // Ensure index is within bounds of animations array
+    final animationIndex = index < _cardAnimations.length ? index : 0;
+
     return SlideTransition(
-      position: _cardAnimations[index],
+      position: _cardAnimations[animationIndex],
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
@@ -532,12 +594,15 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                           children: [
                             Icon(Icons.person, color: GlobalStyle.primaryColor),
                             const SizedBox(width: 8),
-                            Text(
-                              order['customerName'],
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                fontFamily: GlobalStyle.fontFamily,
+                            Expanded(
+                              child: Text(
+                                order['customerName'] ?? 'Customer',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
@@ -545,10 +610,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            Icon(Icons.access_time, color: GlobalStyle.fontColor, size: 16),
+                            Icon(Icons.access_time,
+                                color: GlobalStyle.fontColor, size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              DateFormat('dd MMM yyyy HH:mm').format(order['orderTime']),
+                              DateFormat('dd MMM yyyy HH:mm')
+                                  .format(order['orderTime']),
                               style: TextStyle(
                                 color: GlobalStyle.fontColor,
                                 fontFamily: GlobalStyle.fontFamily,
@@ -559,10 +626,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            Icon(Icons.payments, color: GlobalStyle.primaryColor, size: 16),
+                            Icon(Icons.payments,
+                                color: GlobalStyle.primaryColor, size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              GlobalStyle.formatRupiah(order['totalPrice'].toDouble()),
+                              GlobalStyle.formatRupiah(
+                                  order['totalPrice'].toDouble()),
                               style: TextStyle(
                                 color: GlobalStyle.primaryColor,
                                 fontWeight: FontWeight.bold,
@@ -575,7 +644,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: _getStatusColor(status),
                       borderRadius: BorderRadius.circular(20),
@@ -600,14 +670,15 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.shopping_basket, color: GlobalStyle.primaryColor),
+                    Icon(Icons.shopping_basket,
+                        color: GlobalStyle.primaryColor),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Jumlah Item: ${order['items'].length}',
+                            'Jumlah Item: ${order['items']?.length ?? 0}',
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 12,
@@ -616,11 +687,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'No. HP: ${order['phoneNumber']}',
+                            'Alamat Pengiriman: ${order['customerAddress'] ?? 'No address'}',
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 12,
                             ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -663,6 +736,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
+  // Empty state widget
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -703,6 +777,77 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               fontSize: 14,
               fontWeight: FontWeight.bold,
               fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Loading state widget
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: GlobalStyle.primaryColor),
+          const SizedBox(height: 16),
+          Text(
+            'Memuat pesanan...',
+            style: TextStyle(
+              color: GlobalStyle.fontColor,
+              fontSize: 16,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Error state widget
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, color: Colors.red, size: 64),
+          const SizedBox(height: 16),
+          Text(
+            'Gagal memuat pesanan',
+            style: TextStyle(
+              color: GlobalStyle.fontColor,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage,
+            style: TextStyle(
+              color: GlobalStyle.fontColor.withOpacity(0.7),
+              fontSize: 14,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: fetchOrders,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            child: Text(
+              'Coba Lagi',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
             ),
           ),
         ],
@@ -754,7 +899,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              DateFormat('EEEE, dd MMMM yyyy').format(DateTime.now()),
+                              DateFormat('EEEE, dd MMMM yyyy')
+                                  .format(DateTime.now()),
                               style: TextStyle(
                                 color: GlobalStyle.fontColor,
                                 fontSize: 12,
@@ -765,7 +911,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                         ),
                         GestureDetector(
                           onTap: () {
-                            Navigator.pushNamed(context, ProfileStorePage.route);
+                            Navigator.pushNamed(
+                                context, ProfileStorePage.route);
                           },
                           child: Container(
                             padding: const EdgeInsets.all(8),
@@ -785,21 +932,30 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                     const SizedBox(height: 16),
                     // Status toggle button
                     ElevatedButton.icon(
-                      onPressed: _toggleStoreStatus,
+                      onPressed: () {
+                        if (_isStoreActive) {
+                          _showDeactivateConfirmationDialog();
+                        } else {
+                          _toggleStoreStatus();
+                        }
+                      },
                       icon: Icon(
                         _isStoreActive ? Icons.toggle_on : Icons.toggle_off,
                         color: Colors.white,
                         size: 24,
                       ),
                       label: Text(
-                        _isStoreActive ? 'Status Toko: Aktif' : 'Status Toko: Tidak Aktif',
+                        _isStoreActive
+                            ? 'Status Toko: Aktif'
+                            : 'Status Toko: Tidak Aktif',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _isStoreActive ? Colors.green : Colors.red,
+                        backgroundColor:
+                        _isStoreActive ? Colors.green : Colors.red,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -810,13 +966,18 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(height: 16),
-              // Orders List
+              // Orders List or appropriate state widget
               Expanded(
-                child: orders.isEmpty
+                child: _isLoading
+                    ? _buildLoadingState()
+                    : _hasError
+                    ? _buildErrorState()
+                    : orders.isEmpty
                     ? _buildEmptyState()
                     : ListView.builder(
                   itemCount: orders.length,
-                  itemBuilder: (context, index) => _buildOrderCard(orders[index], index),
+                  itemBuilder: (context, index) =>
+                      _buildOrderCard(orders[index], index),
                 ),
               ),
             ],

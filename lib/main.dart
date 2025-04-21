@@ -41,6 +41,12 @@ import 'Views/Driver/profil_driver.dart';
 import 'Views/Store/profil_store.dart';
 import 'Views/SplashScreen/splash_screen.dart';
 
+// Import services
+import 'Services/auth_service.dart';
+import 'Services/store_service.dart';
+import 'Services/core/token_service.dart';
+import 'Services/order_service.dart';
+
 Future<void> main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
@@ -136,70 +142,30 @@ class MyApp extends StatelessWidget {
   }
 
   Map<String, Widget Function(BuildContext)> _buildRoutes() {
-    // Create a demo customer for the profile page
-    final demoCustomer = Customer(
-      id: 'customer123',
-      name: 'John Doe',
-      phoneNumber: '+62 812 3456 7890',
-      email: 'johndoe@example.com',
-      profileImageUrl: null,
-    );
-
-    // Create a demo driver for the profile page
-    final demoDriver = Driver(
-      id: 'driver123',
-      name: 'Ahmad Supir',
-      phoneNumber: '+62 856 7890 1234',
-      email: 'ahmad@driver.com',
-      profileImageUrl: null,
-      rating: 4.7,
-      vehicleNumber: 'B 1234 XYZ',
-    );
-
-    // Create a sample order for HistoryDetailPage and HistoryDriverDetailPage
-    final sampleOrder = Order.sample();
-
-    // Convert Order object to Map for HistoryDriverDetailPage
-    final sampleOrderDetail = {
-      'customerName': 'John Doe',
-      'customerPhone': '+62 812 3456 7890',
-      'customerAddress': 'Jl. Merdeka No. 123, Jakarta',
-      'storeName': 'Toko Indonesia',
-      'storePhone': '+62 8132635487',
-      'storeAddress': 'Jl. Pahlawan No. 123, Jakarta Selatan',
-      'storeImage': 'https://storage.googleapis.com/a1aa/image/5Cq_e1zvmarYJk2l1nLIWCqWm-vE7i5hHEUmyboR2mo.jpg',
-      'status': 'assigned',
-      'amount': 150000,
-      'deliveryFee': 10000,
-      'items': [
-        {
-          'name': 'Product 1',
-          'price': 50000,
-          'quantity': 2,
-          'image': 'https://via.placeholder.com/150',
-        },
-        {
-          'name': 'Product 2',
-          'price': 40000,
-          'quantity': 1,
-          'image': 'https://via.placeholder.com/150',
-        },
-      ],
-    };
-
     return {
       // Add splash screen route
-      '/': (context) => const InternetConnectivityWrapper(child: SplashScreen()),
+      '/': (context) =>
+      const InternetConnectivityWrapper(child: SplashScreen()),
 
       // Control routes
-      LoginPage.route: (context) => const InternetConnectivityWrapper(child: LoginPage()),
+      LoginPage.route: (context) =>
+      const InternetConnectivityWrapper(child: LoginPage()),
 
       // Customer routes
-      HomePage.route: (context) => const InternetConnectivityWrapper(child: HomePage()),
-      StoreDetail.route: (context) => const InternetConnectivityWrapper(child: StoreDetail()),
-      ProfilePage.route: (context) => InternetConnectivityWrapper(child: ProfilePage(customer: demoCustomer)),
-      HistoryCustomer.route: (context) => const InternetConnectivityWrapper(child: HistoryCustomer()),
-      CartScreen.route: (context) => const InternetConnectivityWrapper(child: CartScreen(cartItems: [])),
+      HomePage.route: (context) =>
+      const InternetConnectivityWrapper(child: HomePage()),
+      StoreDetail.route: (context) =>
+      const InternetConnectivityWrapper(child: StoreDetail()),
+      // Updated ProfilePage route to use the new implementation
+      ProfilePage.route: (context) =>
+      const InternetConnectivityWrapper(child: ProfilePage()),
+      HistoryCustomer.route: (context) =>
+      const InternetConnectivityWrapper(child: HistoryCustomer()),
+      CartScreen.route: (context) => const InternetConnectivityWrapper(
+          child: CartScreen(
+            cartItems: [],
+            storeId: 0,
+          )),
       LocationAccessScreen.route: (context) => InternetConnectivityWrapper(
         child: LocationAccessScreen(
           onLocationSelected: (String location) {
@@ -208,15 +174,126 @@ class MyApp extends StatelessWidget {
           },
         ),
       ),
-      TrackCustOrderScreen.route: (context) => const InternetConnectivityWrapper(child: TrackCustOrderScreen()),
-      // Updated HistoryDetailPage route to use Order model
-      HistoryDetailPage.route: (context) => InternetConnectivityWrapper(child: HistoryDetailPage(order: sampleOrder)),
-      RatingCustomerPage.route: (context) => const InternetConnectivityWrapper(
-        child: RatingCustomerPage(
-          storeName: 'Store Name',
-          driverName: 'Driver Name',
-          vehicleNumber: 'B 1234 ABC',
-          orderItems: [],
+      TrackCustOrderScreen.route: (context) =>
+      const InternetConnectivityWrapper(child: TrackCustOrderScreen()),
+      // Updated HistoryDetailPage route to use Order fetching
+      HistoryDetailPage.route: (context) => InternetConnectivityWrapper(
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            } else if (snapshot.hasError) {
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Text('Error: ${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            } else if (!snapshot.hasData) {
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.info_outline, size: 60, color: Colors.orange),
+                      const SizedBox(height: 16),
+                      const Text('No order data available.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.orange),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            final order = Order.fromJson(snapshot.data!);
+            return HistoryDetailPage(order: order);
+          },
+        ),
+      ),
+      // Updated RatingCustomerPage route to use Order data
+      RatingCustomerPage.route: (context) => InternetConnectivityWrapper(
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            } else if (snapshot.hasError) {
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Text('Error: ${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            } else if (!snapshot.hasData) {
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.info_outline, size: 60, color: Colors.orange),
+                      const SizedBox(height: 16),
+                      const Text('No order data available for rating.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.orange),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            final order = Order.fromJson(snapshot.data!);
+            return RatingCustomerPage(order: order);
+          },
         ),
       ),
 
@@ -228,49 +305,217 @@ class MyApp extends StatelessWidget {
       ),
 
       // Driver routes
-      HomeDriverPage.route: (context) => const InternetConnectivityWrapper(child: HomeDriverPage()),
-      HistoryDriverPage.route: (context) => const InternetConnectivityWrapper(child: HistoryDriverPage()),
-      // Updated HistoryDriverDetailPage to pass orderDetail parameter instead of order
+      HomeDriverPage.route: (context) =>
+      const InternetConnectivityWrapper(child: HomeDriverPage()),
+      HistoryDriverPage.route: (context) =>
+      const InternetConnectivityWrapper(child: HistoryDriverPage()),
+      // Updated HistoryDriverDetailPage to use OrderService
       HistoryDriverDetailPage.route: (context) => InternetConnectivityWrapper(
-        child: HistoryDriverDetailPage(orderDetail: sampleOrderDetail),
-      ),
-      ProfileDriverPage.route: (context) => InternetConnectivityWrapper(child: ProfileDriverPage(driver: demoDriver)),
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            } else if (snapshot.hasError) {
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Text('Error: ${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            } else if (!snapshot.hasData) {
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.info_outline, size: 60, color: Colors.orange),
+                      const SizedBox(height: 16),
+                      const Text('No order data available.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.orange),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
 
-      // Store routes
-      '/Store/HomePage': (context) => const InternetConnectivityWrapper(child: HomeStore()),
-      '/Store/AddItem': (context) => InternetConnectivityWrapper(child: add_item.AddItemPage()),
-      AddEditItemForm.route: (context) => const InternetConnectivityWrapper(child: AddEditItemForm()),
-      // Updated HistoryStoreDetailPage with an example order detail
-      HistoryStoreDetailPage.route: (context) => const InternetConnectivityWrapper(
-        child: HistoryStoreDetailPage(
-          orderDetail: {
-            'customerName': 'Customer Name',
-            'date': '2022-01-01T00:00:00.000Z',
-            'status': 'Delivered',
-            'amount': 100000,
-            'icon': 'https://via.placeholder.com/150',
+            // Process the order data to match the expected format for HistoryDriverDetailPage
+            final orderData = snapshot.data!;
+            final Map<String, dynamic> orderDetail = {
+              'customerName': orderData['user']?['name'] ?? 'Customer',
+              'customerPhone': orderData['user']?['phone'] ?? '-',
+              'customerAddress': orderData['deliveryAddress'] ?? '-',
+              'storeName': orderData['store']?['name'] ?? 'Store',
+              'storePhone': orderData['store']?['phone'] ?? '-',
+              'storeAddress': orderData['store']?['address'] ?? '-',
+              'storeImage': orderData['store']?['image'] ?? '',
+              'status': orderData['order_status'] ?? 'pending',
+              'amount': orderData['total'] ?? 0,
+              'deliveryFee': orderData['serviceCharge'] ?? 0,
+              'items': (orderData['items'] as List<dynamic>?)?.map((item) => {
+                'name': item['name'] ?? 'Product',
+                'price': item['price'] ?? 0,
+                'quantity': item['quantity'] ?? 0,
+                'image': item['imageUrl'] ?? '',
+              }).toList() ?? [],
+            };
+
+            return HistoryDriverDetailPage(orderDetail: orderDetail);
           },
         ),
       ),
-      HistoryStorePage.route: (context) => const InternetConnectivityWrapper(child: HistoryStorePage()),
-      AddEditItemForm.route: (context) => const InternetConnectivityWrapper(child: AddEditItemForm()),
-      // Updated ProfileStorePage route to use a temporary dummy store for initialization
-      ProfileStorePage.route: (context) {
-        // Create a dummy store for initialization
-        final dummyStore = StoreModel(
-          name: 'Toko Indonesia',
-          address: 'Jl. Pahlawan No. 123, Jakarta Selatan',
-          openHours: '08:00 - 21:00',
-          imageUrl: 'https://storage.googleapis.com/a1aa/image/5Cq_e1zvmarYJk2l1nLIWCqWm-vE7i5hHEUmyboR2mo.jpg',
-          phoneNumber: '+62 8132635487',
-          productCount: 10,
-          rating: 4.8,
-          description: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
-        );
+      ProfileDriverPage.route: (context) =>
+      const InternetConnectivityWrapper(child: ProfileDriverPage()),
 
-        return InternetConnectivityWrapper(child: ProfileStorePage(store: dummyStore));
-      },
+      // Store routes
+      '/Store/HomePage': (context) =>
+      const InternetConnectivityWrapper(child: HomeStore()),
+      '/Store/AddItem': (context) =>
+          InternetConnectivityWrapper(child: add_item.AddItemPage()),
+      AddEditItemForm.route: (context) =>
+      const InternetConnectivityWrapper(child: AddEditItemForm()),
+      // Updated HistoryStoreDetailPage to use OrderService
+      HistoryStoreDetailPage.route: (context) => InternetConnectivityWrapper(
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            } else if (snapshot.hasError) {
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Text('Error: ${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            } else if (!snapshot.hasData) {
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.info_outline, size: 60, color: Colors.orange),
+                      const SizedBox(height: 16),
+                      const Text('No order data available.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.orange),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            // Process the order data for HistoryStoreDetailPage
+            final orderData = snapshot.data!;
+            final Map<String, dynamic> orderDetail = {
+              'customerName': orderData['user']?['name'] ?? 'Customer',
+              'date': orderData['orderDate'] ?? DateTime.now().toIso8601String(),
+              'status': orderData['order_status'] ?? 'pending',
+              'amount': orderData['total'] ?? 0,
+              'icon': orderData['user']?['avatar'] ?? '',
+            };
+
+            return HistoryStoreDetailPage(orderDetail: orderDetail);
+          },
+        ),
+      ),
+      HistoryStorePage.route: (context) =>
+      const InternetConnectivityWrapper(child: HistoryStorePage()),
+
+      // Updated ProfileStorePage route to use actual service data instead of dummy data
+      ProfileStorePage.route: (context) =>
+      const InternetConnectivityWrapper(child: ProfileStorePage()),
     };
+  }
+
+  // Helper method to get order data
+  static Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
+    if (orderId == null || orderId.isEmpty) {
+      throw Exception('Order ID is required');
+    }
+
+    try {
+      // Fetch order data using OrderService
+      return await OrderService.getOrderById(orderId);
+    } catch (e) {
+      print('Error fetching order data: $e');
+      rethrow; // Rethrow to handle in the FutureBuilder
+    }
+  }
+
+  // Helper method to get store data from service
+  static Future<Store> _getStoreData() async {
+    try {
+      // Get user data to check if we have a store ID
+      final userData = await AuthService.getUserData();
+
+      if (userData == null) {
+        throw Exception('User data not found. Please log in again.');
+      }
+
+      // If user has a store ID, fetch the store
+      final storeId = userData['store_id'] ?? userData['id'];
+
+      if (storeId == null) {
+        throw Exception('Store ID not found in user data.');
+      }
+
+      // Fetch store data by ID
+      return await StoreService.fetchStoreById(storeId);
+
+    } catch (e) {
+      print('Error fetching store data: $e');
+      rethrow; // Rethrow to handle in the FutureBuilder
+    }
   }
 
   @override

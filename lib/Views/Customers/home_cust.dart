@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:del_pick/Models/store.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:del_pick/Common/global_style.dart';
@@ -6,24 +9,12 @@ import 'package:del_pick/Views/Customers/store_detail.dart';
 import '../Component/cust_bottom_navigation.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
-
-class Store {
-  final String name;
-  final String address;
-  final String imageUrl;
-  final double rating;
-  final String category;
-  final String description;
-
-  Store({
-    required this.name,
-    required this.address,
-    required this.imageUrl,
-    this.rating = 0.0,
-    required this.category,
-    required this.description,
-  });
-}
+import 'package:del_pick/Services/store_service.dart';
+import 'package:del_pick/Services/image_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
+import 'package:del_pick/Services/core/token_service.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class HomePage extends StatefulWidget {
   static const String route = "/Customers/HomePage";
@@ -58,34 +49,17 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     "Ingin makan enak tanpa ribet? Del Pick solusinya!",
   ];
 
-  final List<Store> _stores = [
-    Store(
-      name: 'Ayam Geprek SH, Umbulmartani',
-      address: 'Umbulmartani, Sleman',
-      imageUrl: 'assets/images/store_front.jpg',
-      rating: 4.8,
-      category: 'Restaurant',
-      description: 'Bakmie, Ayam & bebek, Minuman',
-    ),
-    Store(
-      name: 'McDonald\'s Yogyakarta',
-      address: 'Jl. Malioboro No. 123, Yogyakarta',
-      imageUrl: 'assets/images/mcd.jpg',
-      rating: 4.5,
-      category: 'Fast Food',
-      description: 'Burger, Ayam Goreng, Minuman Soda',
-    ),
-    Store(
-      name: 'KFC Adisucipto',
-      address: 'Jl. Laksda Adisucipto No. 45, Yogyakarta',
-      imageUrl: 'assets/images/kfc.jpg',
-      rating: 4.6,
-      category: 'Fast Food',
-      description: 'Ayam Goreng, Burger, Minuman',
-    ),
-  ];
+  List<StoreModel> _stores = [];
+  bool _isLoading = true;
+  String _errorMessage = '';
+  String? _userName = '';
+  Position? _currentPosition;
+  bool _isLoadingLocation = false;
 
-  List<Store> get _filteredStores {
+  // Keep track of calculated distances separately
+  Map<int, double> _storeDistances = {};
+
+  List<StoreModel> get _filteredStores {
     if (_searchQuery.isEmpty && !_isSearching) {
       return _stores;
     }
@@ -173,9 +147,159 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // Get user's current location
+  Future<void> _getCurrentLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
+    });
+
+    try {
+      // Check if location permission is granted
+      var status = await Permission.location.status;
+      if (!status.isGranted) {
+        status = await Permission.location.request();
+        if (!status.isGranted) {
+          throw Exception('Location permission denied');
+        }
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        _currentPosition = position;
+        _isLoadingLocation = false;
+      });
+
+      // Now fetch stores with location info
+      await _fetchStoresWithLocation();
+    } catch (e) {
+      print('Error getting location: $e');
+      setState(() {
+        _isLoadingLocation = false;
+      });
+
+      // Fetch stores without location
+      await _fetchStores();
+    }
+  }
+
+  // Fetch stores with location information
+  Future<void> _fetchStoresWithLocation() async {
+    if (_currentPosition == null) {
+      await _fetchStores();
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    try {
+      // Call the fetch stores method
+      final stores = await StoreService.fetchStores();
+
+      // Calculate distances if we have location
+      _calculateDistances(stores);
+
+      // Sort stores by distance
+      stores.sort((a, b) {
+        final distanceA = _storeDistances[a.id] ?? double.infinity;
+        final distanceB = _storeDistances[b.id] ?? double.infinity;
+        return distanceA.compareTo(distanceB);
+      });
+
+      if (mounted) {
+        setState(() {
+          _stores = stores;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to load stores: $e';
+          _isLoading = false;
+        });
+        print('Error fetching stores with location: $e');
+      }
+    }
+  }
+
+  // Calculate distances to stores
+  void _calculateDistances(List<StoreModel> stores) {
+    if (_currentPosition == null) return;
+
+    for (var store in stores) {
+      if (store.latitude != null && store.longitude != null) {
+        double distanceInMeters = Geolocator.distanceBetween(
+          _currentPosition!.latitude,
+          _currentPosition!.longitude,
+          store.latitude!,
+          store.longitude!,
+        );
+
+        // Convert to kilometers and store
+        _storeDistances[store.id] = distanceInMeters / 1000;
+      }
+    }
+  }
+
+  // Fetch stores without location information
+  Future<void> _fetchStores() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    try {
+      final stores = await StoreService.fetchStores();
+      if (mounted) {
+        setState(() {
+          _stores = stores;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to load stores: $e';
+          _isLoading = false;
+        });
+        print('Error fetching stores: $e');
+      }
+    }
+  }
+
+  // Get user profile data
+  Future<void> _getUserData() async {
+    try {
+      // Check if user is logged in
+      final userData = await AuthService.getUserData();
+
+      if (userData != null) {
+        setState(() {
+          _userName = userData['name'] ?? '';
+        });
+      }
+    } catch (e) {
+      print('Error getting user data: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+
+    // Get user data
+    _getUserData();
+
+    // Get location and fetch stores
+    _getCurrentLocation();
+
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text;
@@ -225,7 +349,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _slideController.forward();
     _scaleController.forward();
 
-    // Tampilkan dialog sekali saat halaman dibuka
+    // Show dialog once when the page is opened
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showPromoDialog();
     });
@@ -254,7 +378,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             padding: const EdgeInsets.all(7.0),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
+              border:
+              Border.all(color: GlobalStyle.primaryColor, width: 1.0),
             ),
             child: Icon(Icons.arrow_back_ios_new,
                 color: GlobalStyle.primaryColor, size: 18),
@@ -288,12 +413,27 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             fontSize: GlobalStyle.fontSize,
           ),
         )
-            : const Text(
-          'Del Pick',
-          style: TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.bold,
-          ),
+            : Row(
+          children: [
+            Text(
+              'Del Pick',
+              style: TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            if (_userName != null && _userName!.isNotEmpty)
+              Text(
+                ' • Hi, $_userName',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 14,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
         ),
         actions: [
           Padding(
@@ -309,6 +449,32 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
       body: Column(
         children: [
+          if (_isLoadingLocation && !_isLoading)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+              color: Colors.blue.shade50,
+              width: double.infinity,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: GlobalStyle.primaryColor,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Mendapatkan lokasi terdekat...',
+                    style: TextStyle(
+                      color: GlobalStyle.primaryColor,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (_isSearching && _searchQuery.isEmpty)
             const Expanded(
               child: Center(
@@ -323,35 +489,126 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           if (!_isSearching || _searchQuery.isNotEmpty)
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16.0),
-                itemCount: _filteredStores.length,
-                itemBuilder: (context, index) {
-                  final store = _filteredStores[index];
-                  return AnimatedBuilder(
-                    animation: _slideController,
-                    builder: (context, child) {
-                      final delay = index * 0.2;
-                      final slideAnimation = Tween<Offset>(
-                        begin: const Offset(1.0, 0.0),
-                        end: Offset.zero,
-                      ).animate(
-                        CurvedAnimation(
-                          parent: _slideController,
-                          curve: Interval(
-                            delay.clamp(0.0, 1.0),
-                            (delay + 0.4).clamp(0.0, 1.0),
-                            curve: Curves.elasticOut,
-                          ),
+              child: _isLoading
+                  ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: GlobalStyle.primaryColor),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Memuat daftar toko...',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 16,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+                  : _errorMessage.isNotEmpty
+                  ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      LucideIcons.alertTriangle,
+                      color: Colors.orange,
+                      size: 50,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _errorMessage,
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 16,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () {
+                        _currentPosition != null
+                            ? _fetchStoresWithLocation()
+                            : _fetchStores();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
                         ),
-                      );
-                      return SlideTransition(
-                        position: slideAnimation,
-                        child: _buildStoreCard(store),
-                      );
-                    },
-                  );
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                      child: const Text('Coba Lagi'),
+                    ),
+                  ],
+                ),
+              )
+                  : _filteredStores.isEmpty
+                  ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      LucideIcons.store,
+                      color: Colors.grey[400],
+                      size: 50,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Tidak ada toko yang ditemukan',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+                  : RefreshIndicator(
+                onRefresh: () async {
+                  if (_currentPosition != null) {
+                    await _fetchStoresWithLocation();
+                  } else {
+                    await _getCurrentLocation();
+                  }
                 },
+                color: GlobalStyle.primaryColor,
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16.0),
+                  itemCount: _filteredStores.length,
+                  itemBuilder: (context, index) {
+                    final store = _filteredStores[index];
+                    return AnimatedBuilder(
+                      animation: _slideController,
+                      builder: (context, child) {
+                        final delay = index * 0.2;
+                        final slideAnimation = Tween<Offset>(
+                          begin: const Offset(1.0, 0.0),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: _slideController,
+                            curve: Interval(
+                              delay.clamp(0.0, 1.0),
+                              (delay + 0.4).clamp(0.0, 1.0),
+                              curve: Curves.elasticOut,
+                            ),
+                          ),
+                        );
+                        return SlideTransition(
+                          position: slideAnimation,
+                          child: _buildStoreCard(store),
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
             ),
         ],
@@ -363,7 +620,10 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildStoreCard(Store store) {
+  Widget _buildStoreCard(StoreModel store) {
+    // Get distance for this store if available
+    double? storeDistance = _storeDistances[store.id];
+
     return ScaleTransition(
       scale: _scaleAnimation,
       child: FadeTransition(
@@ -376,7 +636,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
           elevation: 2,
           child: InkWell(
             onTap: () {
-              Navigator.pushNamed(context, StoreDetail.route);
+              Navigator.pushNamed(context, StoreDetail.route,
+                  arguments: store.id);
             },
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -384,16 +645,11 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 Stack(
                   children: [
                     Hero(
-                      tag: 'store-${store.name}',
+                      tag: 'store-${store.id}',
                       child: ClipRRect(
-                        borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(12.0)),
-                        child: Image.asset(
-                          store.imageUrl,
-                          height: 200,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        ),
+                        borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(12.0)),
+                        child: _buildStoreImage(store.imageUrl),
                       ),
                     ),
                     Positioned(
@@ -429,6 +685,43 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
+                    // Show distance if available
+                    if (storeDistance != null)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8.0,
+                            vertical: 4.0,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(16.0),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                LucideIcons.mapPin,
+                                color: GlobalStyle.primaryColor,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                storeDistance < 1
+                                    ? '${(storeDistance * 1000).toInt()} m'
+                                    : '${storeDistance.toStringAsFixed(1)} km',
+                                style: TextStyle(
+                                  color: GlobalStyle.primaryColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                   ],
                 ),
                 Padding(
@@ -438,20 +731,44 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     children: [
                       Text(
                         store.name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 18.0,
                           fontWeight: FontWeight.bold,
                           color: Colors.black87,
+                          fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        store.description,
-                        style: TextStyle(
-                          fontSize: 14.0,
-                          color: Colors.grey[600],
-                        ),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.store,
+                            size: 14,
+                            color: Colors.grey[600],
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${store.reviewCount} ulasan • ${store.productCount} menu',
+                            style: TextStyle(
+                              fontSize: 14.0,
+                              color: Colors.grey[600],
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ],
                       ),
+                      const SizedBox(height: 6),
+                      if (store.description.isNotEmpty)
+                        Text(
+                          store.description,
+                          style: TextStyle(
+                            fontSize: 14.0,
+                            color: Colors.grey[600],
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       const SizedBox(height: 8),
                       Row(
                         children: [
@@ -467,7 +784,27 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               style: TextStyle(
                                 fontSize: 14.0,
                                 color: Colors.grey[600],
+                                fontFamily: GlobalStyle.fontFamily,
                               ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            size: 16,
+                            color: Colors.grey[600],
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            store.openHours,
+                            style: TextStyle(
+                              fontSize: 14.0,
+                              color: Colors.grey[600],
+                              fontFamily: GlobalStyle.fontFamily,
                             ),
                           ),
                         ],
@@ -479,6 +816,32 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStoreImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return _buildPlaceholderImage();
+    }
+
+    return ImageService.displayImage(
+      imageSource: imageUrl,
+      width: double.infinity,
+      height: 200,
+      fit: BoxFit.cover,
+      placeholder: _buildPlaceholderImage(),
+      errorWidget: _buildPlaceholderImage(),
+    );
+  }
+
+  Widget _buildPlaceholderImage() {
+    return Container(
+      height: 200,
+      width: double.infinity,
+      color: Colors.grey[300],
+      child: Center(
+        child: Icon(LucideIcons.imageOff, size: 40, color: Colors.grey[500]),
       ),
     );
   }

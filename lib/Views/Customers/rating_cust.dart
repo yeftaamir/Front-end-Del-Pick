@@ -3,33 +3,19 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:lottie/lottie.dart';
 import 'package:del_pick/Views/Component/rate_store.dart';
 import 'package:del_pick/Views/Component/rate_driver.dart';
-
-class OrderItem {
-  final String name;
-  final String formattedPrice;
-
-  OrderItem({
-    required this.name,
-    required this.formattedPrice,
-  });
-}
+import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Models/driver.dart';
+import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/driver_service.dart';
 
 class RatingCustomerPage extends StatefulWidget {
   static const String route = "/Customers/RatingCustomerPage";
 
-  final String storeName;
-  final String driverName;
-  final String vehicleNumber;
-  final List<OrderItem> orderItems;
-  final double totalAmount;
+  final Order order;
 
   const RatingCustomerPage({
     Key? key,
-    required this.storeName,
-    required this.driverName,
-    required this.vehicleNumber,
-    required this.orderItems,
-    this.totalAmount = 0.0,
+    required this.order,
   }) : super(key: key);
 
   @override
@@ -45,6 +31,15 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
   // Animation controllers
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
+
+  // State management
+  bool _isLoading = false;
+  bool _isSubmitting = false;
+  String? _errorMessage;
+
+  // Driver data
+  Driver? _driver;
+  bool _isLoadingDriver = false;
 
   @override
   void initState() {
@@ -76,6 +71,9 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
         controller.forward();
       }
     });
+
+    // Fetch the driver data
+    _fetchDriverData();
   }
 
   @override
@@ -86,6 +84,72 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
       controller.dispose();
     }
     super.dispose();
+  }
+
+  // Fetch driver data if available
+  Future<void> _fetchDriverData() async {
+    if (widget.order.driverId == null) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingDriver = true;
+    });
+
+    try {
+      final driverData = await DriverService.getDriverById(widget.order.driverId.toString());
+      setState(() {
+        _driver = Driver.fromJson(driverData);
+        _isLoadingDriver = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load driver data: $e';
+        _isLoadingDriver = false;
+      });
+    }
+  }
+
+  // Submit reviews to backend
+  Future<void> _submitReviews() async {
+    if (_isSubmitting) return;
+
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Convert ratings to integer values (1-5)
+      final int storeRatingInt = _storeRating.round();
+      final int driverRatingInt = _driverRating.round();
+
+      // Only submit ratings that have been set by the user
+      final bool success = await OrderService.reviewOrder(
+        widget.order.id,
+        storeRating: storeRatingInt > 0 ? storeRatingInt : null,
+        storeComment: _storeReviewController.text.isNotEmpty ? _storeReviewController.text : null,
+        driverRating: driverRatingInt > 0 ? driverRatingInt : null,
+        driverComment: _driverReviewController.text.isNotEmpty ? _driverReviewController.text : null,
+      );
+
+      setState(() {
+        _isSubmitting = false;
+      });
+
+      if (success) {
+        await _showSuccessDialog();
+      } else {
+        setState(() {
+          _errorMessage = 'Failed to submit review. Please try again.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isSubmitting = false;
+        _errorMessage = 'Error: $e';
+      });
+    }
   }
 
   Future<void> _showSuccessDialog() async {
@@ -179,6 +243,39 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     );
   }
 
+  // Build error message card
+  Widget _buildErrorCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _errorMessage ?? 'An unknown error occurred',
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.red),
+            onPressed: () {
+              setState(() {
+                _errorMessage = null;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -212,7 +309,9 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
           ),
         ),
       ),
-      body: SingleChildScrollView(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
@@ -243,28 +342,49 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
 
               const SizedBox(height: 24),
 
+              // Show error message if any
+              if (_errorMessage != null)
+                _buildErrorCard(),
+
               // Store Rating Section
               _buildCard(
                 index: 0,
                 child: RateStore(
-                  storeName: widget.storeName,
+                  store: widget.order.store,
                   initialRating: _storeRating,
                   onRatingChanged: (value) => setState(() => _storeRating = value),
                   reviewController: _storeReviewController,
+                  isLoading: _isSubmitting,
                 ),
               ),
 
-              // Driver Rating Section
-              _buildCard(
-                index: 1,
-                child: RateDriver(
-                  driverName: widget.driverName,
-                  vehicleNumber: widget.vehicleNumber,
-                  initialRating: _driverRating,
-                  onRatingChanged: (value) => setState(() => _driverRating = value),
-                  reviewController: _driverReviewController,
+              // Driver Rating Section (only shown if there's driver info)
+              if (_isLoadingDriver)
+                _buildCard(
+                  index: 1,
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    alignment: Alignment.center,
+                    child: const Column(
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Loading driver data...'),
+                      ],
+                    ),
+                  ),
+                )
+              else if (_driver != null)
+                _buildCard(
+                  index: 1,
+                  child: RateDriver(
+                    driver: _driver!,
+                    initialRating: _driverRating,
+                    onRatingChanged: (value) => setState(() => _driverRating = value),
+                    reviewController: _driverReviewController,
+                    isLoading: _isSubmitting,
+                  ),
                 ),
-              ),
 
               // Submit Button
               _buildCard(
@@ -295,39 +415,73 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Ulasan Anda sangat berarti untuk meningkatkan layanan kami',
+                        'Pesanan #${widget.order.code} telah selesai',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 14,
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      ElevatedButton(
-                        onPressed: () async {
-                          await _showSuccessDialog();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: GlobalStyle.primaryColor,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                          elevation: 5,
+                      const SizedBox(height: 4),
+                      Text(
+                        'Total: ${widget.order.formatTotal()}',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.8),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.send_rounded),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Kirim Ulasan',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isSubmitting ? null : _submitReviews,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: GlobalStyle.primaryColor,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
                             ),
-                          ],
+                            elevation: 5,
+                            disabledBackgroundColor: Colors.grey[300],
+                            disabledForegroundColor: Colors.grey[600],
+                          ),
+                          child: _isSubmitting
+                              ? Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(GlobalStyle.primaryColor),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              const Text(
+                                'Mengirim Ulasan...',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          )
+                              : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.send_rounded),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Kirim Ulasan',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],

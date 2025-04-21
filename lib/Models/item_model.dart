@@ -1,3 +1,6 @@
+import 'package:del_pick/Models/menu_item.dart';
+import 'package:del_pick/Services/image_service.dart';
+
 class Item {
   final String id;
   final String name;
@@ -7,7 +10,8 @@ class Item {
   final String imageUrl;
   final bool isAvailable;
   final String status;
-  final String? notes; // Added notes field
+  final String? notes;
+  final int? orderId;  // Added to match backend OrderItem model
 
   Item({
     required this.id,
@@ -19,6 +23,7 @@ class Item {
     required this.isAvailable,
     required this.status,
     this.notes,
+    this.orderId,
   });
 
   Item copyWith({
@@ -31,6 +36,7 @@ class Item {
     bool? isAvailable,
     String? status,
     String? notes,
+    int? orderId,
   }) {
     return Item(
       id: id ?? this.id,
@@ -42,6 +48,7 @@ class Item {
       isAvailable: isAvailable ?? this.isAvailable,
       status: status ?? this.status,
       notes: notes ?? this.notes,
+      orderId: orderId ?? this.orderId,
     );
   }
 
@@ -54,5 +61,74 @@ class Item {
   String formatTotalPrice() {
     double totalPrice = price * quantity;
     return 'Rp ${totalPrice.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}';
+  }
+
+  // From backend OrderItem model
+  factory Item.fromJson(Map<String, dynamic> json) {
+    // Process image URL if present
+    String imageUrl = json['imageUrl'] ?? json['image_url'] ?? '';
+    if (imageUrl.isNotEmpty) {
+      imageUrl = ImageService.getImageUrl(imageUrl);
+    }
+
+    return Item(
+      id: json['id']?.toString() ?? '',
+      name: json['name'] ?? 'Unknown Name',
+      description: json['description'] ?? '',
+      price: (json['price'] ?? 0).toDouble(),
+      quantity: json['quantity'] ?? 0,
+      imageUrl: imageUrl,
+      isAvailable: json['isAvailable'] ?? json['is_available'] ?? true,
+      status: json['status'] ?? 'available',
+      notes: json['notes'],
+      orderId: json['orderId'],
+    );
+  }
+
+  // Convert to match the backend's OrderItem model format
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'description': description,
+      'price': price,
+      'quantity': quantity,
+      'imageUrl': imageUrl,
+      'isAvailable': isAvailable,
+      'status': status,
+      'notes': notes,
+      if (orderId != null) 'orderId': orderId,
+    };
+  }
+
+  factory Item.fromMenuItem(MenuItem menuItem) {
+    // Process menu item's image URL
+    String imageUrl = menuItem.imageUrl ?? '';
+    if (imageUrl.isEmpty) {
+      // No hardcoded fallback - the UI should handle missing images
+      imageUrl = '';
+    } else {
+      imageUrl = ImageService.getImageUrl(imageUrl);
+    }
+
+    return Item(
+      id: menuItem.id.toString(),
+      name: menuItem.name,
+      description: menuItem.description,
+      price: menuItem.price,
+      quantity: menuItem.quantity,
+      imageUrl: imageUrl,
+      isAvailable: menuItem.isAvailable,
+      status: menuItem.status,
+      orderId: null,
+    );
+  }
+
+  // Get processed image URL
+  String getProcessedImageUrl() {
+    if (imageUrl.isEmpty) {
+      return '';
+    }
+    return ImageService.getImageUrl(imageUrl);
   }
 }

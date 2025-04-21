@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'package:del_pick/Models/store.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/cart_screen.dart';
-import 'package:lottie/lottie.dart'; // Import Lottie for animations
-import 'package:audioplayers/audioplayers.dart'; // Import AudioPlayers for audio playback
+import 'package:lottie/lottie.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:del_pick/Services/menu_service.dart';
+import 'package:del_pick/Services/store_service.dart';
+import 'package:del_pick/Services/image_service.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class StoreDetail extends StatefulWidget {
   static const String route = "/Customers/StoreDetail";
@@ -18,25 +24,155 @@ class StoreDetail extends StatefulWidget {
 }
 
 class _StoreDetailState extends State<StoreDetail> {
-  late List<MenuItem> menuItems;
-  late List<MenuItem> filteredItems;
+  late List<MenuItem> menuItems = [];
+  late List<MenuItem> filteredItems = [];
   late PageController _pageController;
   late Timer _timer;
   int _currentPage = 0;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   final AudioPlayer _audioPlayer = AudioPlayer(); // Audio player instance
+  bool _isLoading = true; // Add loading state
+  bool _isLoadingLocation = true; // Loading state for location
+  Position? _currentPosition; // User's current position
+  double? _storeDistance; // Calculated distance to store
+
+  late Store _storeDetail = Store(
+    id: 0,
+    userId: 0,
+    name: '',
+    address: '',
+    description: '',
+    openTime: '',
+    closeTime: '',
+    rating: 0.0,
+    totalProducts: 0,
+    imageUrl: '',
+    phone: '',
+    reviewCount: 0,
+  );
+
+  Future<void> fetchMenuItems(String storeId) async {
+    try {
+      List<MenuItem> fetchedMenuItems =
+      await MenuService.fetchMenuItemsByStoreId(storeId);
+
+      setState(() {
+        menuItems = fetchedMenuItems;
+        filteredItems = fetchedMenuItems;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error fetching menu items: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> getDetailStore(int storeId) async {
+    try {
+      final storeDetail = await StoreService.fetchStoreById(storeId);
+      print(storeDetail);
+      setState(() {
+        _storeDetail = storeDetail;
+        // Calculate distance if we have both store and user location
+        if (_currentPosition != null && storeDetail.latitude != null && storeDetail.longitude != null) {
+          _calculateDistance();
+        }
+      });
+    } catch (e) {
+      print('Error fetching store details: $e');
+    }
+  }
+
+  // Get user's current location
+  Future<void> _getCurrentLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
+    });
+
+    try {
+      // Check if location permission is granted
+      var status = await Permission.location.status;
+      if (!status.isGranted) {
+        status = await Permission.location.request();
+        if (!status.isGranted) {
+          throw Exception('Location permission denied');
+        }
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        _currentPosition = position;
+        _isLoadingLocation = false;
+
+        // Calculate distance if store details are already loaded
+        if (_storeDetail.id != 0 && _storeDetail.latitude != null && _storeDetail.longitude != null) {
+          _calculateDistance();
+        }
+      });
+    } catch (e) {
+      print('Error getting location: $e');
+      setState(() {
+        _isLoadingLocation = false;
+      });
+    }
+  }
+
+  // Calculate distance between user and store
+  void _calculateDistance() {
+    if (_currentPosition == null ||
+        _storeDetail.latitude == null ||
+        _storeDetail.longitude == null) {
+      return;
+    }
+
+    double distanceInMeters = Geolocator.distanceBetween(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+      _storeDetail.latitude,
+      _storeDetail.longitude,
+    );
+
+    // Convert to kilometers
+    setState(() {
+      _storeDistance = distanceInMeters / 1000;
+    });
+  }
+
+  // Format the distance for display
+  String _getFormattedDistance() {
+    if (_storeDistance == null) {
+      return "-- KM"; // Placeholder when distance is not available
+    }
+
+    if (_storeDistance! < 1) {
+      // If less than 1 km, show in meters
+      return "${(_storeDistance! * 1000).toInt()} m";
+    } else {
+      // Otherwise show in km with 1 decimal place
+      return "${_storeDistance!.toStringAsFixed(1)} km";
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final int storeId = ModalRoute.of(context)!.settings.arguments as int;
+    fetchMenuItems(storeId.toString());
+    getDetailStore(storeId);
+    _getCurrentLocation(); // Get location when screen loads
+  }
 
   @override
   void initState() {
     super.initState();
-    menuItems = widget.sharedMenuItems ?? [
-      MenuItem(id: '1', name: 'Ayam Geprek + Nasi', price: 21800),
-      MenuItem(id: '2', name: 'Ayam Geprek + Nasi Jumbo + Es Teh', price: 25800),
-      MenuItem(id: '3', name: 'Mie Goreng + Pangsit', price: 31800),
-      MenuItem(id: '4', name: 'Ayam Saos Hot Bbq + Nasi + Es Teh', price: 23800),
-      MenuItem(id: '5', name: 'Ayam Geprek Tanpa Nasi', price: 19800),
-    ];
     filteredItems = List<MenuItem>.from(menuItems);
     _pageController = PageController(viewportFraction: 0.8, initialPage: 0);
     _startAutoScroll();
@@ -47,8 +183,8 @@ class _StoreDetailState extends State<StoreDetail> {
     final results = query.isEmpty
         ? List<MenuItem>.from(menuItems)
         : menuItems
-        .where((item) =>
-        item.name.toLowerCase().contains(query.toLowerCase()))
+        .where(
+            (item) => item.name.toLowerCase().contains(query.toLowerCase()))
         .toList();
 
     _showSearchResults(results);
@@ -97,61 +233,90 @@ class _StoreDetailState extends State<StoreDetail> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemBuilder: (context, index) {
                       final item = results[index];
-                      return InkWell(
-                        onTap: () {
-                          Navigator.pop(context);
-                          _showItemDetail(item);
-                        },
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 16),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.grey.withOpacity(0.2),
-                                spreadRadius: 1,
-                                blurRadius: 6,
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.asset(
-                                  'assets/images/menu_item.jpg',
-                                  width: 80,
-                                  height: 80,
-                                  fit: BoxFit.cover,
+                      return Opacity(
+                        opacity: item.isAvailable ? 1.0 : 0.5,
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.pop(context);
+                            if (item.isAvailable) {
+                              _showItemDetail(item);
+                            } else {
+                              _showItemUnavailableDialog();
+                            }
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.2),
+                                  spreadRadius: 1,
+                                  blurRadius: 6,
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      item.name,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: ImageService.displayImage(
+                                    imageSource: item.getProcessedImageUrl(),
+                                    width: 80,
+                                    height: 80,
+                                    fit: BoxFit.cover,
+                                    placeholder: Container(
+                                      width: 80,
+                                      height: 80,
+                                      color: Colors.grey[200],
+                                      child: const Icon(Icons.restaurant_menu),
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      GlobalStyle.formatRupiah(item.price),
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: GlobalStyle.primaryColor,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.name,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        GlobalStyle.formatRupiah(item.price),
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: GlobalStyle.primaryColor,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      if (!item.isAvailable)
+                                        Container(
+                                          margin: const EdgeInsets.only(top: 4),
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: const Text(
+                                            'Tidak tersedia',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.red,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -168,17 +333,21 @@ class _StoreDetailState extends State<StoreDetail> {
 
   void _startAutoScroll() {
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (_currentPage < menuItems.length - 1) {
+      if (filteredItems.isEmpty) return; // Guard against empty list
+
+      if (_currentPage < filteredItems.length - 1) {
         _currentPage++;
       } else {
         _currentPage = 0;
       }
 
-      _pageController.animateToPage(
-        _currentPage,
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeInOut,
-      );
+      if (_pageController.hasClients) {
+        _pageController.animateToPage(
+          _currentPage,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+        );
+      }
     });
   }
 
@@ -255,8 +424,87 @@ class _StoreDetailState extends State<StoreDetail> {
     );
   }
 
+  // Show dialog for unavailable item
+  void _showItemUnavailableDialog() {
+    // Play the wrong sound
+    _audioPlayer.play(AssetSource('audio/wrong.mp3'));
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.white,
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/caution.json',
+                  height: 200,
+                  width: 200,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Item ini sedang tidak tersedia',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Mohon pilih item lain yang tersedia',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text(
+                      'Mengerti',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // Add item directly to cart from list
   void _addItemToCart(MenuItem item) {
+    if (!item.isAvailable) {
+      _showItemUnavailableDialog();
+      return;
+    }
+
     setState(() {
       // If quantity is 0, set it to 1
       if (item.quantity == 0) {
@@ -276,12 +524,22 @@ class _StoreDetailState extends State<StoreDetail> {
 
   // Increment item quantity in cart
   void _incrementItem(MenuItem item) {
+    if (!item.isAvailable) {
+      _showItemUnavailableDialog();
+      return;
+    }
+
     setState(() {
       item.quantity++;
     });
   }
 
   void _showItemDetail(MenuItem item) {
+    if (!item.isAvailable) {
+      _showItemUnavailableDialog();
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -306,14 +564,16 @@ class _StoreDetailState extends State<StoreDetail> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Stack(
         children: [
           SingleChildScrollView(
             child: Column(
               children: [
                 _buildHeader(),
                 _buildStoreInfo(),
-                _buildCarouselMenu(),
+                if (filteredItems.isNotEmpty) _buildCarouselMenu(),
                 _buildListMenu(),
                 if (hasItemsInCart) const SizedBox(height: 100),
               ],
@@ -328,11 +588,23 @@ class _StoreDetailState extends State<StoreDetail> {
   Widget _buildHeader() {
     return Stack(
       children: [
-        Image.asset(
-          'assets/images/store_front.jpg',
+        SizedBox(
           width: double.infinity,
           height: 230,
-          fit: BoxFit.cover,
+          child: ImageService.displayImage(
+            imageSource: _storeDetail.imageUrl,
+            width: double.infinity,
+            height: 230,
+            fit: BoxFit.cover,
+            placeholder: Container(
+              width: double.infinity,
+              height: 230,
+              color: Colors.grey[300],
+              child: const Center(
+                child: Icon(Icons.store, size: 80, color: Colors.grey),
+              ),
+            ),
+          ),
         ),
         Positioned(
           top: 40,
@@ -347,7 +619,9 @@ class _StoreDetailState extends State<StoreDetail> {
                   decoration: const BoxDecoration(
                     color: Colors.white,
                     shape: BoxShape.circle,
-                    boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 6)],
+                    boxShadow: [
+                      BoxShadow(color: Colors.black26, blurRadius: 6)
+                    ],
                   ),
                   child: const Icon(Icons.arrow_back_ios_new,
                       color: Colors.blue, size: 16),
@@ -402,8 +676,8 @@ class _StoreDetailState extends State<StoreDetail> {
                                   decoration: const InputDecoration(
                                     hintText: 'Search menu...',
                                     border: InputBorder.none,
-                                    contentPadding:
-                                    EdgeInsets.symmetric(horizontal: 8),
+                                    contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 8),
                                   ),
                                 ),
                               ),
@@ -455,41 +729,54 @@ class _StoreDetailState extends State<StoreDetail> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const Text(
-              'TOKO Indonesia',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            Text(
+              _storeDetail.name,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Jalan Raya Utama No. 123, Jakarta',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+            Text(
+              _storeDetail.address,
+              style: const TextStyle(color: Colors.grey, fontSize: 14),
             ),
-            const Text(
-              'Buka: 08.00 - 22.00 WIB',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+            Text(
+              'Buka: ${_storeDetail.openTime} - ${_storeDetail.closeTime}',
+              style: const TextStyle(color: Colors.grey, fontSize: 14),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Row(
                     children: [
-                      FaIcon(FontAwesomeIcons.locationDot,
+                      const FaIcon(FontAwesomeIcons.locationDot,
                           color: Colors.blue, size: 16),
-                      SizedBox(width: 4),
-                      Text('3 KM',
-                          style: TextStyle(color: Colors.grey, fontSize: 14)),
+                      const SizedBox(width: 4),
+                      _isLoadingLocation
+                          ? SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.grey[400],
+                        ),
+                      )
+                          : Text(
+                          _getFormattedDistance(),
+                          style: const TextStyle(color: Colors.grey, fontSize: 14)
+                      ),
                     ],
                   ),
-                  SizedBox(width: 24),
+                  const SizedBox(width: 24),
                   Row(
                     children: [
-                      FaIcon(FontAwesomeIcons.star,
+                      const FaIcon(FontAwesomeIcons.star,
                           color: Colors.blue, size: 16),
-                      SizedBox(width: 4),
-                      Text('4.8 rating',
-                          style: TextStyle(color: Colors.grey, fontSize: 14)),
+                      const SizedBox(width: 4),
+                      Text(
+                        _storeDetail.rating.toString(),
+                        style: const TextStyle(color: Colors.grey, fontSize: 14),
+                      ),
                     ],
                   ),
                 ],
@@ -515,10 +802,19 @@ class _StoreDetailState extends State<StoreDetail> {
         itemBuilder: (context, index) {
           final item = filteredItems[index];
           return GestureDetector(
-            onTap: () => _showItemDetail(item),
+            onTap: () {
+              if (item.isAvailable) {
+                _showItemDetail(item);
+              } else {
+                _showItemUnavailableDialog();
+              }
+            },
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: _buildCarouselMenuItem(item),
+              child: Opacity(
+                opacity: item.isAvailable ? 1.0 : 0.5,
+                child: _buildCarouselMenuItem(item),
+              ),
             ),
           );
         },
@@ -528,67 +824,101 @@ class _StoreDetailState extends State<StoreDetail> {
 
   Widget _buildCarouselMenuItem(MenuItem item) {
     // Updated carousel card based on the image example
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.2),
-            spreadRadius: 1,
-            blurRadius: 6,
+    return Stack(
+      children: [
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.2),
+                spreadRadius: 1,
+                blurRadius: 6,
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Image wrapper with fixed height to prevent cropping
-          Expanded(
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-              child: Container(
-                width: double.infinity,
-                color: Colors.white,
-                child: Image.asset(
-                  'assets/images/menu_item.jpg',
-                  fit: BoxFit.contain, // Use contain to show full image without cropping
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Image wrapper with fixed height to prevent cropping
+              Expanded(
+                child: ClipRRect(
+                  borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(12)),
+                  child: Container(
+                    width: double.infinity,
+                    color: Colors.white,
+                    child: ImageService.displayImage(
+                      imageSource: item.getProcessedImageUrl(),
+                      fit: BoxFit.contain,
+                      placeholder: Container(
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: Icon(Icons.restaurant_menu, size: 40, color: Colors.grey),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              // Product information
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Price - Using primary color
+                    Text(
+                      GlobalStyle.formatRupiah(item.price),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: GlobalStyle.primaryColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // Name
+                    Text(
+                      item.name,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.black87,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!item.isAvailable)
+          Positioned(
+            top: 10,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.8),
+                borderRadius: const BorderRadius.only(
+                  topRight: Radius.circular(12),
+                  bottomLeft: Radius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'TUTUP',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
                 ),
               ),
             ),
           ),
-          // Product information
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Price - Using primary color
-                Text(
-                  GlobalStyle.formatRupiah(item.price),
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: GlobalStyle.primaryColor,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                // Name
-                Text(
-                  item.name,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.black87,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -603,7 +933,26 @@ class _StoreDetailState extends State<StoreDetail> {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 2),
-          ListView.builder(
+          filteredItems.isEmpty
+              ? Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 30),
+              child: Column(
+                children: [
+                  Icon(Icons.restaurant_menu, size: 60, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No menu items available',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+              : ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: filteredItems.length,
@@ -620,84 +969,130 @@ class _StoreDetailState extends State<StoreDetail> {
   }
 
   Widget _buildListMenuItem(MenuItem item) {
-    return Container(
-      height: 140, // Reduced height
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.2),
-            spreadRadius: 1,
-            blurRadius: 6,
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          // Main content with image and text
-          Row(
-            children: [
-              // Text section on the left (clickable for details)
-              Expanded(
-                flex: 2,
-                child: GestureDetector(
-                  onTap: () => _showItemDetail(item),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          item.name,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+    return Opacity(
+      opacity: item.isAvailable ? 1.0 : 0.5,
+      child: Container(
+        height: 140, // Reduced height
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 1,
+              blurRadius: 6,
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            // Main content with image and text
+            Row(
+              children: [
+                // Text section on the left (clickable for details)
+                Expanded(
+                  flex: 2,
+                  child: GestureDetector(
+                    onTap: () {
+                      if (item.isAvailable) {
+                        _showItemDetail(item);
+                      } else {
+                        _showItemUnavailableDialog();
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            item.name,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          GlobalStyle.formatRupiah(item.price),
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: GlobalStyle.primaryColor,
-                            fontWeight: FontWeight.w600,
+                          const SizedBox(height: 8),
+                          Text(
+                            GlobalStyle.formatRupiah(item.price),
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: GlobalStyle.primaryColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                // Image on the right (clickable for details)
+                Expanded(
+                  flex: 1,
+                  child: GestureDetector(
+                    onTap: () {
+                      if (item.isAvailable) {
+                        _showItemDetail(item);
+                      } else {
+                        _showItemUnavailableDialog();
+                      }
+                    },
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(12)),
+                      child: ImageService.displayImage(
+                        imageSource: item.getProcessedImageUrl(),
+                        height: 140,
+                        fit: BoxFit.cover,
+                        placeholder: Container(
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: Icon(Icons.restaurant_menu, size: 30, color: Colors.grey),
                           ),
                         ),
-                      ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // Button to add item or quantity control
+            Positioned(
+              bottom: 10,
+              right: 20,
+              child: item.quantity > 0
+                  ? _buildQuantityControl(item)
+                  : _buildAddButton(item),
+            ),
+            // Status badge for unavailable items
+            if (!item.isAvailable)
+              Positioned(
+                top: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.8),
+                    borderRadius: const BorderRadius.only(
+                      topRight: Radius.circular(12),
+                      bottomLeft: Radius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'TUTUP',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
                     ),
                   ),
                 ),
               ),
-              // Image on the right (clickable for details)
-              Expanded(
-                flex: 1,
-                child: GestureDetector(
-                  onTap: () => _showItemDetail(item),
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
-                    child: Image.asset(
-                      'assets/images/menu_item.jpg',
-                      height: 140,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          // Button to add item or quantity control
-          Positioned(
-            bottom: 10,
-            right: 20,
-            child: item.quantity > 0
-                ? _buildQuantityControl(item)
-                : _buildAddButton(item),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -708,9 +1103,9 @@ class _StoreDetailState extends State<StoreDetail> {
       height: 30,
       width: 90,
       child: ElevatedButton(
-        onPressed: () => _addItemToCart(item),
+        onPressed: item.isAvailable ? () => _addItemToCart(item) : () => _showItemUnavailableDialog(),
         style: ElevatedButton.styleFrom(
-          backgroundColor: GlobalStyle.primaryColor,
+          backgroundColor: item.isAvailable ? GlobalStyle.primaryColor : Colors.grey,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(6),
@@ -734,7 +1129,7 @@ class _StoreDetailState extends State<StoreDetail> {
     return Container(
       height: 30,
       decoration: BoxDecoration(
-        color: GlobalStyle.primaryColor,
+        color: item.isAvailable ? GlobalStyle.primaryColor : Colors.grey,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
@@ -768,7 +1163,7 @@ class _StoreDetailState extends State<StoreDetail> {
           ),
           // Plus button
           InkWell(
-            onTap: () => _incrementItem(item),
+            onTap: item.isAvailable ? () => _incrementItem(item) : () => _showItemUnavailableDialog(),
             child: Container(
               width: 30,
               height: 30,
@@ -832,10 +1227,11 @@ class _StoreDetailState extends State<StoreDetail> {
                 onPressed: () {
                   final cartItems =
                   menuItems.where((item) => item.quantity > 0).toList();
+                  final int storeId = ModalRoute.of(context)!.settings.arguments as int;
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => CartScreen(cartItems: cartItems),
+                      builder: (context) => CartScreen(cartItems: cartItems, storeId: storeId),
                     ),
                   );
                 },
@@ -939,9 +1335,15 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.asset(
-                            'assets/images/menu_item.jpg',
-                            fit: BoxFit.contain, // Changed to contain to show full image
+                          child: ImageService.displayImage(
+                            imageSource: widget.item.getProcessedImageUrl(),
+                            fit: BoxFit.contain,
+                            placeholder: Container(
+                              color: Colors.grey[200],
+                              child: const Center(
+                                child: Icon(Icons.restaurant_menu, size: 60, color: Colors.grey),
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -971,9 +1373,9 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
-                        style: TextStyle(
+                      Text(
+                        widget.item.description ?? 'Tidak ada deskripsi tersedia untuk produk ini.',
+                        style: const TextStyle(
                           fontSize: 14,
                           color: Colors.grey,
                         ),
@@ -1022,7 +1424,8 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                                   Navigator.pop(context);
                                 } else {
                                   // Show zero quantity dialog instead of text warning
-                                  Navigator.pop(context); // Close the bottom sheet first
+                                  Navigator.pop(
+                                      context); // Close the bottom sheet first
                                   widget.onZeroQuantity(); // Show the dialog
                                 }
                               },

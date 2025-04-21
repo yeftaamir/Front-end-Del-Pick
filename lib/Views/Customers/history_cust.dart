@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../Models/order_enum.dart';
 import '../Component/cust_bottom_navigation.dart';
 import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Views/Customers/history_detail.dart';
+import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'home_cust.dart';
 
@@ -26,157 +29,82 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
 
-  // Sample order data using Order model
-  final List<Order> orders = [
-    Order(
-      id: 'ORD-001',
-      items: [
-        Item(
-          id: 'ITM-001',
-          name: 'Nasi Ayam Bakar Komplit + EsTeh / Teh Hangat',
-          price: 27700,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-        ),
-      ],
-      store: StoreModel(
-        name: 'RM Padang Sabana 01',
-        address: 'Jl. Padang Sabana No. A1',
-        openHours: '07:00 - 21:00',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 27700,
-      serviceCharge: 0,
-      total: 27700,
-      status: OrderStatus.completed,
-      orderDate: DateTime.parse('2024-12-24 09:05:00'),
-    ),
-    Order(
-      id: 'ORD-002',
-      items: [
-        Item(
-          id: 'ITM-002',
-          name: 'Sepasang 3',
-          price: 41100,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-        ),
-      ],
-      store: StoreModel(
-        name: 'Keju Kesu, Letda Sujono',
-        address: 'Jl. Letda Sujono',
-        openHours: '08:00 - 22:00',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 41100,
-      serviceCharge: 0,
-      total: 41100,
-      status: OrderStatus.completed,
-      orderDate: DateTime.parse('2024-11-26 08:05:00'),
-    ),
-    Order(
-      id: 'ORD-003',
-      items: [
-        Item(
-          id: 'ITM-003',
-          name: 'Nasi Telor Dadar',
-          price: 21600,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-        ),
-        Item(
-          id: 'ITM-004',
-          name: 'Nasi Ayam Goreng',
-          price: 21600,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-        ),
-      ],
-      store: StoreModel(
-        name: 'RM Padang Sabana 01',
-        address: 'Jl. Padang Sabana No. A1',
-        openHours: '07:00 - 21:00',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 43200,
-      serviceCharge: 0,
-      total: 43200,
-      status: OrderStatus.completed,
-      orderDate: DateTime.parse('2024-09-16 09:05:00'),
-    ),
-    // Added cancelled order for example
-    Order(
-      id: 'ORD-004',
-      items: [
-        Item(
-          id: 'ITM-005',
-          name: 'Nasi Goreng Spesial',
-          price: 32500,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-        ),
-      ],
-      store: StoreModel(
-        name: 'Warung Makan Barokah',
-        address: 'Jl. Barokah No. 12',
-        openHours: '08:00 - 21:00',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 32500,
-      serviceCharge: 0,
-      total: 32500,
-      status: OrderStatus.cancelled,
-      orderDate: DateTime.parse('2024-10-10 12:30:00'),
-    ),
-    // Added in-progress order for example
-    Order(
-      id: 'ORD-005',
-      items: [
-        Item(
-          id: 'ITM-006',
-          name: 'Bakso Jumbo Spesial',
-          price: 25000,
-          quantity: 1,
-          imageUrl: 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-        ),
-      ],
-      store: StoreModel(
-        name: 'Bakso Pak Joko',
-        address: 'Jl. Melati No. 5',
-        openHours: '10:00 - 22:00',
-      ),
-      deliveryAddress: 'Asrama Mahasiswa Del Institute, Laguboti',
-      subtotal: 25000,
-      serviceCharge: 0,
-      total: 25000,
-      status: OrderStatus.driverHeadingToCustomer,
-      orderDate: DateTime.parse('2024-12-28 14:15:00'),
-    ),
-  ];
-
-  // Tab categories
-  final List<String> _tabs = ['Semua', 'Diproses', 'Selesai', 'Di Batalkan'];
+  // List for storing orders from API
+  List<Order> orders = [];
+  bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
 
-    _tabController = TabController(length: _tabs.length, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
 
-    // Initialize animation controllers for the maximum possible number of cards
-    final totalCards = orders.length;
+    // Initialize with placeholders, will be updated when data is fetched
+    _cardControllers = [];
+    _cardAnimations = [];
+
+    // Fetch orders on init
+    _fetchOrders();
+  }
+
+  // Fetch orders from API
+  Future<void> _fetchOrders() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
+      // Call the API service to get customer orders
+      final orderData = await OrderService.getCustomerOrders();
+
+      // Parse order data into Order objects
+      List<Order> fetchedOrders = [];
+      if (orderData != null && orderData['orders'] is List) {
+        for (var orderJson in orderData['orders']) {
+          try {
+            // Use the Order.fromJson factory constructor directly
+            final order = Order.fromJson(orderJson);
+            fetchedOrders.add(order);
+          } catch (e) {
+            print('Error parsing order: $e');
+            // Continue with next order if one fails to parse
+          }
+        }
+      }
+
+      // Setup animations after data is fetched
+      _setupAnimations(fetchedOrders.length);
+
+      setState(() {
+        orders = fetchedOrders;
+        _isLoading = false;
+      });
+
+      // Start animations
+      Future.delayed(const Duration(milliseconds: 100), () {
+        for (var controller in _cardControllers) {
+          controller.forward();
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to load orders: $e';
+      });
+      print('Error fetching orders: $e');
+    }
+  }
+
+  // Setup animations based on number of items
+  void _setupAnimations(int totalCards) {
+    // Clean up existing controllers if any
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+
+    // Create new controllers
     _cardControllers = List.generate(
       totalCards,
           (index) => AnimationController(
@@ -195,13 +123,6 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         curve: Curves.easeOutCubic,
       ));
     }).toList();
-
-    // Start animations sequentially
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (var controller in _cardControllers) {
-        controller.forward();
-      }
-    });
   }
 
   @override
@@ -220,11 +141,11 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         return orders;
       case 1: // In progress
         return orders.where((order) =>
-        order.status != OrderStatus.completed &&
-            order.status != OrderStatus.cancelled
+        !order.status.isCompleted
         ).toList();
       case 2: // Completed
-        return orders.where((order) => order.status == OrderStatus.completed).toList();
+        return orders.where((order) => order.status == OrderStatus.completed ||
+            order.status == OrderStatus.delivered).toList();
       case 3: // Cancelled
         return orders.where((order) => order.status == OrderStatus.cancelled).toList();
       default:
@@ -232,33 +153,48 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     }
   }
 
+  // Get status color based on order status
   Color getStatusColor(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.completed:
-        return Colors.green;
-      case OrderStatus.cancelled:
-        return Colors.red;
-      default:
-        return Colors.blue;
+    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
+      return Colors.green;
+    } else if (status == OrderStatus.cancelled) {
+      return Colors.red;
+    } else if (status == OrderStatus.on_delivery ||
+        status == OrderStatus.driverHeadingToCustomer) {
+      return Colors.blue;
+    } else if (status == OrderStatus.preparing ||
+        status == OrderStatus.driverAtStore) {
+      return Colors.orange;
+    } else {
+      return Colors.blue.shade300; // Default for other statuses
     }
   }
 
+  // Get human-readable status text
   String getStatusText(OrderStatus status) {
     switch (status) {
       case OrderStatus.completed:
         return 'Selesai';
+      case OrderStatus.delivered:
+        return 'Terkirim';
       case OrderStatus.cancelled:
-        return 'Di Batalkan';
+        return 'Dibatalkan';
       case OrderStatus.pending:
         return 'Menunggu';
+      case OrderStatus.approved:
+        return 'Disetujui';
+      case OrderStatus.preparing:
+        return 'Diproses';
+      case OrderStatus.on_delivery:
+        return 'Diantar';
       case OrderStatus.driverAssigned:
         return 'Driver Ditugaskan';
       case OrderStatus.driverHeadingToStore:
-        return 'Di Ambil';
+        return 'Driver Menuju Toko';
       case OrderStatus.driverAtStore:
-        return 'Di Toko';
+        return 'Driver Di Toko';
       case OrderStatus.driverHeadingToCustomer:
-        return 'Di Antar';
+        return 'Driver Menuju Anda';
       case OrderStatus.driverArrived:
         return 'Driver Tiba';
       default:
@@ -275,7 +211,11 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     });
   }
 
+  // Create a summary of items for display
   String getOrderItemsText(Order order) {
+    if (order.items.isEmpty) {
+      return "Tidak ada item";
+    }
     if (order.items.length == 1) {
       return order.items[0].name;
     } else {
@@ -310,7 +250,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     final itemsText = getOrderItemsText(order);
 
     return SlideTransition(
-      position: _cardAnimations[index % _cardAnimations.length],
+      position: index < _cardAnimations.length ? _cardAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
       child: Card(
         elevation: 3,
         margin: const EdgeInsets.only(bottom: 16),
@@ -328,7 +268,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                   order: order,
                 ),
               ),
-            );
+            ).then((_) => _fetchOrders()); // Refresh when returning from detail page
           },
           child: Container(
             padding: const EdgeInsets.all(16),
@@ -338,15 +278,27 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        image: DecorationImage(
-                          image: AssetImage(order.items.first.imageUrl),
-                          fit: BoxFit.cover,
+                    // Use ImageService to display the image
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: order.items.isNotEmpty && order.items.first.imageUrl.isNotEmpty
+                          ? ImageService.displayImage(
+                        imageSource: order.items.first.imageUrl,
+                        width: 60,
+                        height: 60,
+                        fit: BoxFit.cover,
+                        placeholder: Container(
+                          width: 60,
+                          height: 60,
+                          color: Colors.grey[200],
+                          child: const Icon(Icons.restaurant_menu, color: Colors.grey),
                         ),
+                      )
+                          : Container(
+                        width: 60,
+                        height: 60,
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.restaurant_menu, color: Colors.grey),
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -360,9 +312,11 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                               Expanded(
                                 child: Text(
                                   order.store.name,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
+                                    color: GlobalStyle.fontColor,
+                                    fontFamily: GlobalStyle.fontFamily,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -374,9 +328,20 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                           ),
                           const SizedBox(height: 8),
                           Text(
+                            order.code != null && order.code!.isNotEmpty
+                                ? 'Order #${order.code}'
+                                : 'Order #${order.id}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: GlobalStyle.primaryColor,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
                             formattedDate,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: Colors.grey[700],
                             ),
                           ),
@@ -387,6 +352,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                               fontSize: 14,
                               color: Colors.grey[800],
                               fontWeight: FontWeight.w500,
+                              fontFamily: GlobalStyle.fontFamily,
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -408,19 +374,17 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey[700],
+                            fontFamily: GlobalStyle.fontFamily,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          NumberFormat.currency(
-                            locale: 'id',
-                            symbol: 'Rp ',
-                            decimalDigits: 0,
-                          ).format(order.total),
+                          order.formatTotal(),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
-                            color: Colors.blue,
+                            color: GlobalStyle.primaryColor,
+                            fontFamily: GlobalStyle.fontFamily,
                           ),
                         ),
                       ],
@@ -434,10 +398,10 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                               order: order,
                             ),
                           ),
-                        );
+                        ).then((_) => _fetchOrders()); // Refresh when returning from detail page
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
+                        backgroundColor: GlobalStyle.primaryColor,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                         shape: RoundedRectangleBorder(
@@ -474,6 +438,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                 fontSize: 16,
                 color: Colors.grey[600],
                 fontWeight: FontWeight.w500,
+                fontFamily: GlobalStyle.fontFamily,
               ),
               textAlign: TextAlign.center,
             ),
@@ -483,11 +448,85 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
               ),
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pushReplacementNamed(context, HomePage.route);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GlobalStyle.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+              child: const Text(
+                'Pesan Sekarang',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: GlobalStyle.primaryColor),
+          const SizedBox(height: 16),
+          Text(
+            'Memuat riwayat pesanan...',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[600],
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, size: 70, color: Colors.red[300]),
+          const SizedBox(height: 16),
+          Text(
+            _errorMessage ?? 'Terjadi kesalahan',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.red[600],
+              fontWeight: FontWeight.w500,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _fetchOrders,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('Coba Lagi'),
+          ),
+        ],
       ),
     );
   }
@@ -504,16 +543,17 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         return false;
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xffF5F7FA),
         appBar: AppBar(
           elevation: 0,
           backgroundColor: Colors.white,
-          title: const Text(
+          title: Text(
             'Riwayat Pesanan',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: GlobalStyle.fontColor,
+              fontFamily: GlobalStyle.fontFamily,
             ),
           ),
           leading: IconButton(
@@ -521,9 +561,9 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               padding: const EdgeInsets.all(4.0),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.blue, width: 1.0),
+                border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
               ),
-              child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+              child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
             ),
             onPressed: () {
               Navigator.pushNamedAndRemoveUntil(
@@ -536,31 +576,44 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
           bottom: TabBar(
             controller: _tabController,
             isScrollable: true,
-            labelColor: Colors.blue,
+            labelColor: GlobalStyle.primaryColor,
             unselectedLabelColor: Colors.grey[600],
             labelStyle: const TextStyle(fontWeight: FontWeight.w600),
-            indicatorColor: Colors.blue,
+            indicatorColor: GlobalStyle.primaryColor,
             indicatorWeight: 3,
-            tabs: _tabs.map((String tab) => Tab(text: tab)).toList(),
+            tabs: const [
+              Tab(text: 'Semua'),
+              Tab(text: 'Diproses'),
+              Tab(text: 'Selesai'),
+              Tab(text: 'Dibatalkan'),
+            ],
           ),
         ),
-        body: TabBarView(
-          controller: _tabController,
-          children: List.generate(_tabs.length, (tabIndex) {
-            final filteredOrders = getFilteredOrders(tabIndex);
+        body: _isLoading
+            ? _buildLoadingState()
+            : _errorMessage != null
+            ? _buildErrorState()
+            : RefreshIndicator(
+          onRefresh: _fetchOrders,
+          color: GlobalStyle.primaryColor,
+          child: TabBarView(
+            controller: _tabController,
+            children: List.generate(4, (tabIndex) {
+              final filteredOrders = getFilteredOrders(tabIndex);
 
-            if (filteredOrders.isEmpty) {
-              return _buildEmptyState('Tidak ada pesanan ${_tabs[tabIndex].toLowerCase()}');
-            }
+              if (filteredOrders.isEmpty) {
+                return _buildEmptyState('Tidak ada pesanan ${tabIndex == 0 ? '' : tabIndex == 1 ? 'diproses' : tabIndex == 2 ? 'selesai' : 'dibatalkan'}');
+              }
 
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: filteredOrders.length,
-              itemBuilder: (context, index) {
-                return _buildOrderCard(filteredOrders[index], index);
-              },
-            );
-          }),
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: filteredOrders.length,
+                itemBuilder: (context, index) {
+                  return _buildOrderCard(filteredOrders[index], index);
+                },
+              );
+            }),
+          ),
         ),
         bottomNavigationBar: CustomBottomNavigation(
           selectedIndex: _selectedIndex,

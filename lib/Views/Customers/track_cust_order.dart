@@ -5,11 +5,14 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Views/Component/order_status_card.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:lottie/lottie.dart';
 import '../../Models/order.dart';
-import 'cart_screen.dart';
-import 'history_detail.dart';
 import 'package:geotypes/geotypes.dart' as geotypes;
+import '../../Models/order_enum.dart';
+import '../../Services/order_service.dart';
+import '../../Services/tracking_service.dart';
+import 'history_detail.dart';
 
 class TrackCustOrderScreen extends StatefulWidget {
   static const String route = "/Customers/TrackOrder";
@@ -23,281 +26,719 @@ class TrackCustOrderScreen extends StatefulWidget {
   State<TrackCustOrderScreen> createState() => _TrackCustOrderScreenState();
 }
 
-class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
+class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with TickerProviderStateMixin {
+  // Map configuration
   MapboxMap? mapboxMap;
   PointAnnotationManager? pointAnnotationManager;
   PolylineAnnotationManager? polylineAnnotationManager;
+  String _mapboxAccessToken = 'YOUR_MAPBOX_ACCESS_TOKEN'; // Replace with your actual token
 
   // Draggable scroll controller
   DraggableScrollableController dragController = DraggableScrollableController();
   bool isExpanded = false;
 
-  // Define coordinates
-  final delPosition = Position(99.10279, 2.34379);
-  final driverPosition = Position(99.10179, 2.34279);
-  final storePosition = Position(99.10379, 2.34479);
-  String _driverName = "Budi Santoso";
-  String _vehicleNumber = "B 1234 ABC";
-  // Tracking model instance
-  late Tracking _tracking;
-  late Order _order;
+  // Data variables
+  Order? _order;
+  Tracking? _tracking;
+  bool _isLoading = true;
+  String _errorMessage = '';
 
-  // Timer for simulating location updates
-  Timer? _locationUpdateTimer;
+  // Animation controllers
+  late AnimationController _routeAnimationController;
+  late AnimationController _markerAnimationController;
+  Animation<double>? _markerPositionAnimation;
+
+  // Timer for periodic data refresh
+  Timer? _refreshTimer;
+  Timer? _driverPositionTimer;
+
+  // Previous driver position for smooth animation
+  Position? _previousDriverPosition;
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize tracking data
-    _tracking = widget.order?.tracking ?? Tracking.sample();
-    _order = widget.order ?? Order.sample();
+    // Initialize animation controllers
+    _routeAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
 
-    // Simulate location updates every 3 seconds
-    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 3), _simulateLocationUpdate);
+    _markerAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+
+    // Initialize data
+    _initializeData();
+
+    // Set up periodic data refresh every 15 seconds
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) => _refreshTrackingData());
   }
 
   @override
   void dispose() {
-    _locationUpdateTimer?.cancel();
+    _refreshTimer?.cancel();
+    _driverPositionTimer?.cancel();
+    _routeAnimationController.dispose();
+    _markerAnimationController.dispose();
     dragController.dispose();
     super.dispose();
   }
 
-  // Simulates driver movement for demo purposes
-  void _simulateLocationUpdate(Timer timer) {
-    // Only simulate if order is in progress
-    if (_tracking.status == OrderStatus.driverHeadingToCustomer ||
-        _tracking.status == OrderStatus.driverHeadingToStore) {
-
-      // Calculate new position - moving slightly toward destination
-      final targetPosition = _tracking.status == OrderStatus.driverHeadingToCustomer
-          ? _tracking.customerPosition
-          : _tracking.storePosition;
-
-      final currentLng = _tracking.driverPosition.lng;
-      final currentLat = _tracking.driverPosition.lat;
-
-      final targetLng = targetPosition.lng;
-      final targetLat = targetPosition.lat;
-
-      // Move 5% closer to destination
-      final newLng = currentLng + (targetLng - currentLng) * 0.05;
-      final newLat = currentLat + (targetLat - currentLat) * 0.05;
-
-      // Update tracking with new position
+  // Initialize data from services
+  Future<void> _initializeData() async {
+    try {
       setState(() {
-        _tracking = _tracking.copyWith(
-          driverPosition: Position(newLng, newLat), statusMessage: '',
-        );
+        _isLoading = true;
+        _errorMessage = '';
       });
 
-      // Update map annotations and route
-      _updateMapAnnotations();
+      // Determine which order ID to use
+      final String orderId = widget.orderId ?? widget.order?.id ?? '';
 
-      // Check if driver has arrived (within 0.0005 degrees, roughly 50m)
-      if ((newLng - targetLng).abs() < 0.0005 && (newLat - targetLat).abs() < 0.0005) {
-        if (_tracking.status == OrderStatus.driverHeadingToCustomer) {
-          setState(() {
-            _tracking = _tracking.copyWith(status: OrderStatus.driverArrived, statusMessage: '');
-          });
-        } else if (_tracking.status == OrderStatus.driverHeadingToStore) {
-          setState(() {
-            _tracking = _tracking.copyWith(status: OrderStatus.driverAtStore, statusMessage: '');
-          });
+      if (orderId.isEmpty) {
+        throw Exception('Order ID is required');
+      }
 
-          // After a delay, simulate driver leaving store to customer
-          Future.delayed(const Duration(seconds: 5), () {
-            if (mounted) {
-              setState(() {
-                _tracking = _tracking.copyWith(status: OrderStatus.driverHeadingToCustomer, statusMessage: '');
-              });
-            }
-          });
-        }
+      // Get order details if not provided
+      if (widget.order == null) {
+        final orderData = await OrderService.getOrderById(orderId);
+        _order = Order.fromJson(orderData);
+      } else {
+        _order = widget.order;
+      }
+
+      // Get tracking data
+      final trackingData = await TrackingService.getOrderTracking(orderId);
+      _tracking = Tracking.fromJson(trackingData);
+
+      // Store the initial driver position for animations
+      _previousDriverPosition = _tracking?.driverPosition;
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      // Set up the map if tracking data is available
+      if (_tracking != null && mapboxMap != null) {
+        _setupMapAnnotations();
+        _fetchRouteDirections();
+      }
+
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to load tracking data: ${e.toString()}';
+      });
+    }
+  }
+
+  // Refresh tracking data
+  Future<void> _refreshTrackingData() async {
+    if (_order == null) return;
+
+    try {
+      final trackingData = await TrackingService.getOrderTracking(_order!.id);
+      final newTracking = Tracking.fromJson(trackingData);
+
+      // Store previous position before updating
+      _previousDriverPosition = _tracking?.driverPosition;
+
+      setState(() {
+        _tracking = newTracking;
+      });
+
+      // Only animate marker and update route if position changed
+      if (_previousDriverPosition != null &&
+          _tracking != null &&
+          (_previousDriverPosition!.lat != _tracking!.driverPosition.lat ||
+              _previousDriverPosition!.lng != _tracking!.driverPosition.lng)) {
+        _animateDriverMarker();
+        _fetchRouteDirections();
+      }
+
+    } catch (e) {
+      print('Error refreshing tracking data: $e');
+      // Don't update state to avoid disrupting the UI
+    }
+  }
+
+  // Set up map annotation managers
+  Future<void> _setupMapAnnotations() async {
+    if (mapboxMap == null || _tracking == null) return;
+
+    pointAnnotationManager = await mapboxMap!.annotations.createPointAnnotationManager();
+    polylineAnnotationManager = await mapboxMap!.annotations.createPolylineAnnotationManager();
+
+    // Add initial markers
+    _addMapMarkers();
+
+    // Center camera on driver position
+    _centerMapOnDriver();
+  }
+
+  // Add markers for driver, store, and customer
+  Future<void> _addMapMarkers() async {
+    if (pointAnnotationManager == null || _tracking == null) return;
+
+    // Clear existing markers
+    await pointAnnotationManager!.deleteAll();
+
+    // Driver marker
+    final driverOptions = PointAnnotationOptions(
+      geometry: Point(coordinates: _tracking!.driverPosition),
+      iconImage: "assets/images/marker_driver.png",
+      iconSize: 1.2,
+    );
+
+    // Store marker
+    final storeOptions = PointAnnotationOptions(
+      geometry: Point(coordinates: _tracking!.storePosition),
+      iconImage: "assets/images/marker_store.png",
+      iconSize: 1.0,
+    );
+
+    // Customer marker
+    final customerOptions = PointAnnotationOptions(
+      geometry: Point(coordinates: _tracking!.customerPosition),
+      iconImage: "assets/images/marker_customer.png",
+      iconSize: 1.0,
+    );
+
+    await pointAnnotationManager!.create(driverOptions);
+    await pointAnnotationManager!.create(storeOptions);
+    await pointAnnotationManager!.create(customerOptions);
+  }
+
+  // Animate driver marker when position changes
+  void _animateDriverMarker() {
+    if (_tracking == null || _previousDriverPosition == null) return;
+
+    // Reset animation controller
+    _markerAnimationController.reset();
+
+    // Create animation for driver position
+    _markerPositionAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _markerAnimationController,
+      curve: Curves.easeInOut,
+    ));
+
+    // Listen to animation and update driver marker
+    _markerAnimationController.addListener(() {
+      if (_markerPositionAnimation == null) return;
+
+      // Calculate interpolated position
+      final double t = _markerPositionAnimation!.value;
+      final double newLat = _previousDriverPosition!.lat +
+          (_tracking!.driverPosition.lat - _previousDriverPosition!.lat) * t;
+      final double newLng = _previousDriverPosition!.lng +
+          (_tracking!.driverPosition.lng - _previousDriverPosition!.lng) * t;
+
+      // Update driver marker position
+      _updateDriverMarkerPosition(Position(newLng, newLat));
+    });
+
+    // Start animation
+    _markerAnimationController.forward();
+  }
+
+  // Update driver marker position without animation
+  Future<void> _updateDriverMarkerPosition(Position position) async {
+    if (pointAnnotationManager == null) return;
+
+    // First remove existing annotations
+    await pointAnnotationManager!.deleteAll();
+
+    // Re-create all markers with updated driver position
+    // Driver marker (with updated position)
+    final driverOptions = PointAnnotationOptions(
+      geometry: Point(coordinates: position),
+      iconImage: "assets/images/marker_driver.png",
+      iconSize: 1.2,
+    );
+
+    // Add store and customer markers (unchanged)
+    if (_tracking != null) {
+      // Store marker
+      final storeOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: _tracking!.storePosition),
+        iconImage: "assets/images/marker_store.png",
+        iconSize: 1.0,
+      );
+
+      // Customer marker
+      final customerOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: _tracking!.customerPosition),
+        iconImage: "assets/images/marker_customer.png",
+        iconSize: 1.0,
+      );
+
+      await pointAnnotationManager!.create(storeOptions);
+      await pointAnnotationManager!.create(customerOptions);
+    }
+
+    // Always add driver marker last so it appears on top
+    await pointAnnotationManager!.create(driverOptions);
+
+    // Center map on driver
+    _centerMapOnDriver(position: position);
+  }
+
+  // Center map on driver position
+  void _centerMapOnDriver({Position? position}) {
+    if (mapboxMap == null) return;
+
+    final driverPos = position ?? _tracking?.driverPosition;
+    if (driverPos == null) return;
+
+    mapboxMap!.flyTo(
+      CameraOptions(
+        center: Point(coordinates: driverPos),
+        zoom: 14.5,
+        bearing: 0,
+        pitch: 45,
+      ),
+      MapAnimationOptions(duration: 1000),
+    );
+  }
+
+  // Fetch route directions using Mapbox Directions API
+  Future<void> _fetchRouteDirections() async {
+    if (_tracking == null || mapboxMap == null) return;
+
+    try {
+      // Determine origin and destination based on order status
+      Position origin = _tracking!.driverPosition;
+      Position destination;
+
+      // If driver is heading to store, route should be from driver to store
+      if (_tracking!.status == OrderStatus.driverHeadingToStore ||
+          _tracking!.status == OrderStatus.driverAssigned) {
+        destination = _tracking!.storePosition;
+      }
+      // Otherwise, route should be from driver to customer
+      else {
+        destination = _tracking!.customerPosition;
+      }
+
+      // Request Mapbox directions
+      final directionsResponse = await _getDirections(origin, destination);
+
+      // Process response and draw route
+      _drawRoute(directionsResponse);
+
+    } catch (e) {
+      print('Error fetching directions: $e');
+      // Fallback to direct line if directions API fails
+      _drawDirectLine();
+    }
+  }
+
+  // Get directions from Mapbox Directions API
+  Future<List<Position>> _getDirections(Position origin, Position destination) async {
+    // This would normally be an API call to Mapbox Directions API
+    // For this implementation, we'll simulate a real route with waypoints
+
+    // In a real implementation, you would make an HTTP request like:
+    // final response = await http.get(Uri.parse(
+    //   'https://api.mapbox.com/directions/v5/mapbox/driving/'
+    //   '${origin.lng},${origin.lat};${destination.lng},${destination.lat}'
+    //   '?geometries=geojson&access_token=$_mapboxAccessToken'
+    // ));
+
+    // For now, let's return a simulated route with multiple points
+    // to demonstrate the animation
+
+    // Create a simulated route with extra waypoints
+    List<Position> waypoints = [];
+
+    // Add origin
+    waypoints.add(origin);
+
+    // Add intermediate points (simulating a curved route)
+    final double distance = _calculateDistance(origin, destination);
+    final int numPoints = (distance * 100).round(); // More points for longer distances
+
+    // Generate intermediate waypoints with some randomness for a realistic path
+    if (numPoints > 2) {
+      final double baseLat = origin.lat.toDouble();
+      final double baseLng = origin.lng.toDouble();
+      final double latDiff = destination.lat.toDouble() - origin.lat.toDouble();
+      final double lngDiff = destination.lng.toDouble() - origin.lng.toDouble();
+
+      for (int i = 1; i < numPoints; i++) {
+        final double fraction = i / numPoints;
+
+        // Add some random variation to simulate real roads
+        final double randomFactor = (i % 2 == 0) ? 0.0002 : -0.0002;
+
+        final double waypointLat = baseLat + (latDiff * fraction) + randomFactor;
+        final double waypointLng = baseLng + (lngDiff * fraction) + randomFactor;
+
+        waypoints.add(Position(waypointLng, waypointLat));
       }
     }
+
+    // Add destination
+    waypoints.add(destination);
+
+    return waypoints;
+  }
+
+  // Draw an animated route on the map
+  Future<void> _drawRoute(List<Position> routePoints) async {
+    if (polylineAnnotationManager == null || routePoints.isEmpty) return;
+
+    // Clear existing routes
+    await polylineAnnotationManager!.deleteAll();
+
+    // Reset animation controller
+    _routeAnimationController.reset();
+
+    // Create route animation
+    Animation<double> routeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _routeAnimationController,
+      curve: Curves.easeInOut,
+    ));
+
+    // Listen to animation and update route
+    _routeAnimationController.addListener(() {
+      _updateRouteProgress(routePoints, routeAnimation.value);
+    });
+
+    // Start animation
+    _routeAnimationController.forward();
+  }
+
+  // Update route progress during animation
+  Future<void> _updateRouteProgress(List<Position> routePoints, double progress) async {
+    if (polylineAnnotationManager == null) return;
+
+    // Calculate how many points to show based on progress
+    int pointsToShow = (routePoints.length * progress).round();
+    pointsToShow = pointsToShow.clamp(2, routePoints.length);
+
+    // Get sublist of points to display
+    List<Position> currentRoutePoints = routePoints.sublist(0, pointsToShow);
+
+    // Clear existing routes
+    await polylineAnnotationManager!.deleteAll();
+
+    // Create route line
+    final routeOptions = PolylineAnnotationOptions(
+      geometry: LineString(coordinates: currentRoutePoints),
+      lineWidth: 5.0,
+      lineColor: GlobalStyle.primaryColor.value,
+    );
+
+    // Create route animation effect (secondary line)
+    final routeAnimationOptions = PolylineAnnotationOptions(
+      geometry: LineString(coordinates: currentRoutePoints),
+      lineWidth: 8.0,
+      lineColor: GlobalStyle.primaryColor.withOpacity(0.4).value,
+    );
+
+    await polylineAnnotationManager!.create(routeAnimationOptions);
+    await polylineAnnotationManager!.create(routeOptions);
+  }
+
+  // Fallback: Draw direct line between points if directions API fails
+  Future<void> _drawDirectLine() async {
+    if (polylineAnnotationManager == null || _tracking == null) return;
+
+    // Clear existing routes
+    await polylineAnnotationManager!.deleteAll();
+
+    // Determine route points based on order status
+    List<Position> routePoints = [];
+    if (_tracking!.status == OrderStatus.driverHeadingToStore ||
+        _tracking!.status == OrderStatus.driverAssigned) {
+      routePoints = [
+        _tracking!.driverPosition,
+        _tracking!.storePosition,
+      ];
+    } else {
+      routePoints = [
+        _tracking!.driverPosition,
+        _tracking!.customerPosition,
+      ];
+    }
+
+    // Create route line
+    final routeOptions = PolylineAnnotationOptions(
+      geometry: LineString(coordinates: routePoints),
+      lineWidth: 4.0,
+      lineColor: GlobalStyle.primaryColor.value,
+    );
+
+    await polylineAnnotationManager!.create(routeOptions);
+  }
+
+  // Calculate distance between two positions (Haversine formula)
+  double _calculateDistance(Position pos1, Position pos2) {
+    const double earthRadius = 6371.0; // Earth radius in kilometers
+    final double lat1 = pos1.lat * (math.pi / 180.0); // Convert to radians
+    final double lat2 = pos2.lat * (math.pi / 180.0);
+    final double lng1 = pos1.lng * (math.pi / 180.0);
+    final double lng2 = pos2.lng * (math.pi / 180.0);
+
+    final double dLat = lat2 - lat1;
+    final double dLng = lng2 - lng1;
+
+    final double a = math.sin(dLat / 2.0) * math.sin(dLat / 2.0) +
+        math.cos(lat1) * math.cos(lat2) *
+            math.sin(dLng / 2.0) * math.sin(dLng / 2.0);
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadius * c;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
+      body: _isLoading
+          ? _buildLoadingView()
+          : _errorMessage.isNotEmpty
+          ? _buildErrorView()
+          : _buildTrackingView(),
+    );
+  }
+
+  // Loading view
+  Widget _buildLoadingView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Mapbox View
-          SizedBox(
-            height: MediaQuery.of(context).size.height,
-            child: MapWidget(
-              key: const ValueKey("mapWidget"),
-              onMapCreated: _onMapCreated,
-              styleUri: "mapbox://styles/ifs21002/cm71crfz300sw01s10wsh3zia",
-              cameraOptions: CameraOptions(
-                center: Point(coordinates: _tracking.driverPosition),
-                zoom: 13.0,
-              ),
-            ),
-          ),
-
-          // Back Button
-          Positioned(
-            top: 40,
-            left: 16,
-            child: CircleAvatar(
-              backgroundColor: Colors.white,
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-          ),
-
-          // Status Bar at Top
-          Positioned(
-            top: 40,
-            left: 70,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _tracking.statusMessage,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  if (_tracking.status != OrderStatus.completed && _tracking.status != OrderStatus.cancelled)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Estimasi tiba: ${_tracking.formattedETA}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-
-          // Expandable Bottom Sheet
-          DraggableScrollableSheet(
-            initialChildSize: 0.35,
-            minChildSize: 0.15,
-            maxChildSize: 0.8,
-            controller: dragController,
-            builder: (context, scrollController) {
-              return Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Handle for dragging
-                      Center(
-                        child: Container(
-                          margin: const EdgeInsets.only(top: 12, bottom: 8),
-                          width: 40,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-
-                      // Order Status using OrderStatusCard
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: OrderStatusCard(
-                          order: _order.copyWith(tracking: _tracking),
-                        ),
-                      ),
-
-                      // Driver Info
-                      _buildDriverInfo(),
-
-                      // Delivery Information
-                      _buildDeliveryInfo(),
-
-                      // Confirmation Button
-                      if (_tracking.status == OrderStatus.driverArrived)
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: GlobalStyle.primaryColor,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _tracking = _tracking.copyWith(status: OrderStatus.completed, statusMessage: '');
-                                });
-
-                                // Navigate to CartScreen with order details
-                                Navigator.pushNamed(
-                                  context,
-                                  HistoryDetailPage.route,
-                                  arguments: {'orderId': _tracking.orderId},
-                                );
-                              },
-                              child: const Text(
-                                'Konfirmasi Pesanan Diterima',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                      const SizedBox(height: 20),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
+          CircularProgressIndicator(color: GlobalStyle.primaryColor),
+          const SizedBox(height: 16),
+          const Text('Loading tracking information...'),
         ],
       ),
     );
   }
 
+  // Error view
+  Widget _buildErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 64),
+            const SizedBox(height: 16),
+            Text(
+              'Error',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () => _initializeData(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GlobalStyle.primaryColor,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              child: const Text('Try Again'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Main tracking view
+  Widget _buildTrackingView() {
+    if (_order == null || _tracking == null) {
+      return Center(child: Text('No tracking data available'));
+    }
+
+    return Stack(
+      children: [
+        // Mapbox View
+        SizedBox(
+          height: MediaQuery.of(context).size.height,
+          child: MapWidget(
+            key: const ValueKey("mapWidget"),
+            onMapCreated: _onMapCreated,
+            styleUri: "mapbox://styles/mapbox/navigation-night-v1", // Use a better, more visible style
+            cameraOptions: CameraOptions(
+              center: Point(coordinates: _tracking!.driverPosition),
+              zoom: 14.5,
+              bearing: 0,
+              pitch: 45, // Add slight 3D perspective
+            ),
+          ),
+        ),
+
+        // Back Button
+        Positioned(
+          top: 40,
+          left: 16,
+          child: CircleAvatar(
+            backgroundColor: Colors.white,
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+        ),
+
+        // Status Bar at Top
+        Positioned(
+          top: 40,
+          left: 70,
+          right: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _tracking!.statusMessage,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (_tracking!.status != OrderStatus.completed && _tracking!.status != OrderStatus.cancelled)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Estimasi tiba: ${_tracking!.formattedETA}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+
+        // Expandable Bottom Sheet
+        DraggableScrollableSheet(
+          initialChildSize: 0.35,
+          minChildSize: 0.15,
+          maxChildSize: 0.8,
+          controller: dragController,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                controller: scrollController,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Handle for dragging
+                    Center(
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 12, bottom: 8),
+                        width: 40,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+
+                    // Order Status using OrderStatusCard
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: OrderStatusCard(
+                        order: _order!.copyWith(tracking: _tracking),
+                      ),
+                    ),
+
+                    // Driver Info
+                    _buildDriverInfo(),
+
+                    // Delivery Information
+                    _buildDeliveryInfo(),
+
+                    // Confirmation Button
+                    if (_tracking!.status == OrderStatus.driverArrived)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: GlobalStyle.primaryColor,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            onPressed: () {
+                              _showOrderCompletedDialog();
+                            },
+                            child: const Text(
+                              'Konfirmasi Pesanan Diterima',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
   // Build driver info section
   Widget _buildDriverInfo() {
+    final driver = _tracking?.driver;
+
+    if (driver == null) {
+      return const SizedBox.shrink();
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -341,12 +782,22 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                   border: Border.all(color: Colors.grey[300]!),
                 ),
                 child: ClipOval(
-                  child: Center(
-                    child: Icon(
-                      Icons.person,
-                      size: 30,
-                      color: Colors.grey[400],
-                    ),
+                  child: driver.profileImageUrl != null && driver.profileImageUrl!.isNotEmpty
+                      ? Image.network(
+                    driver.getProcessedImageUrl() ?? '',
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Icon(
+                        Icons.person,
+                        size: 30,
+                        color: Colors.grey[400],
+                      );
+                    },
+                  )
+                      : Icon(
+                    Icons.person,
+                    size: 30,
+                    color: Colors.grey[400],
                   ),
                 ),
               ),
@@ -356,7 +807,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _driverName,
+                      driver.name,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -370,7 +821,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                         Icon(Icons.motorcycle, color: Colors.grey[600], size: 16),
                         const SizedBox(width: 4),
                         Text(
-                          _vehicleNumber,
+                          driver.vehicleNumber,
                           style: TextStyle(
                             color: Colors.grey[600],
                             fontSize: 14,
@@ -384,7 +835,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                         Icon(Icons.star, color: Colors.amber, size: 16),
                         const SizedBox(width: 4),
                         Text(
-                          '4.8',
+                          driver.rating.toString(),
                           style: TextStyle(
                             color: Colors.grey[800],
                             fontWeight: FontWeight.w500,
@@ -417,6 +868,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                   ),
                   onPressed: () {
                     // Implementasi fungsi panggilan
+                    _showFeatureNotImplemented('Panggilan driver');
                   },
                 ),
               ),
@@ -437,6 +889,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                   ),
                   onPressed: () {
                     // Implementasi fungsi pesan
+                    _showFeatureNotImplemented('Pesan ke driver');
                   },
                 ),
               ),
@@ -449,6 +902,20 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
 
   // Build delivery info card
   Widget _buildDeliveryInfo() {
+    if (_order == null) {
+      return const SizedBox.shrink();
+    }
+
+    // Calculate distance between store and delivery address
+    double distance = 0.0;
+    if (_tracking != null) {
+      distance = _calculateDistance(_tracking!.storePosition, _tracking!.customerPosition);
+    }
+
+    final formattedDistance = distance < 10
+        ? '${distance.toStringAsFixed(1)} km'
+        : '${distance.toStringAsFixed(0)} km';
+
     return Container(
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -483,15 +950,15 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
           const SizedBox(height: 16),
           _buildLocationItem(
             'Alamat Penjemputan',
-            _order.store.name,
-            _order.store.address,
+            _order!.store.name,
+            _order!.store.address,
             Icons.store,
           ),
           const Divider(height: 24),
           _buildLocationItem(
             'Alamat Pengantaran',
             'Alamat Pengiriman',
-            _order.deliveryAddress,
+            _order!.deliveryAddress,
             Icons.location_on,
           ),
           const SizedBox(height: 16),
@@ -500,7 +967,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
               Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
               const SizedBox(width: 8),
               Text(
-                'Estimasi Waktu: ${_tracking.formattedETA}',
+                'Estimasi Waktu: ${_tracking?.formattedETA ?? "Menunggu update"}',
                 style: TextStyle(
                   color: Colors.grey[600],
                   fontSize: 14,
@@ -514,7 +981,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
               Icon(Icons.route, size: 16, color: Colors.grey[600]),
               const SizedBox(width: 8),
               Text(
-                'Jarak: 2.5 km',
+                'Jarak: $formattedDistance',
                 style: TextStyle(
                   color: Colors.grey[600],
                   fontSize: 14,
@@ -538,7 +1005,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                 ),
               ),
               Text(
-                GlobalStyle.formatRupiah(_calculateTotal()),
+                GlobalStyle.formatRupiah(_order!.total),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -548,10 +1015,10 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          const Row(
+          Row(
             children: [
               Icon(Icons.payment, size: 16, color: Colors.grey),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 'Metode Pembayaran: Tunai',
                 style: TextStyle(
@@ -617,109 +1084,13 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
     );
   }
 
-  double _calculateTotal() {
-    double itemsTotal = 0;
-    for (final item in _order.items) {
-      itemsTotal += item.price * item.quantity;
-    }
-    return itemsTotal + _order.serviceCharge;
-  }
-
   void _onMapCreated(MapboxMap mapboxMap) {
     this.mapboxMap = mapboxMap;
-    _setupAnnotationManagers().then((_) {
-      _addMarkers();
-      _drawRoute();
-    });
-  }
 
-  Future<void> _setupAnnotationManagers() async {
-    pointAnnotationManager = await mapboxMap?.annotations.createPointAnnotationManager();
-    polylineAnnotationManager = await mapboxMap?.annotations.createPolylineAnnotationManager();
-  }
-
-  Future<void> _addMarkers() async {
-    if (pointAnnotationManager == null) return;
-
-    // Clear existing annotations
-    await pointAnnotationManager?.deleteAll();
-
-    // Customer marker
-    final customerOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: _tracking.customerPosition),
-      iconImage: "assets/images/marker_red.png",
-    );
-
-    // Store marker
-    final storeOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: _tracking.storePosition),
-      iconImage: "assets/images/marker_blue.png",
-    );
-
-    // Driver marker
-    final driverOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: _tracking.driverPosition),
-      iconImage: "assets/images/marker_green.png",
-    );
-
-    await pointAnnotationManager?.create(customerOptions);
-    await pointAnnotationManager?.create(storeOptions);
-    await pointAnnotationManager?.create(driverOptions);
-
-    // Center map on driver
-    await mapboxMap?.flyTo(
-      CameraOptions(
-        center: Point(coordinates: _tracking.driverPosition),
-        zoom: 14.0,
-      ),
-      MapAnimationOptions(duration: 1000),
-    );
-  }
-
-  Future<void> _drawRoute() async {
-    if (polylineAnnotationManager == null) return;
-
-    // Clear existing route
-    await polylineAnnotationManager?.deleteAll();
-
-    // Create a simple route line between points
-    List<Position> routePoints = [];
-
-    if (_tracking.status == OrderStatus.driverHeadingToStore ||
-        _tracking.status == OrderStatus.driverAssigned) {
-      // Route from driver to store
-      routePoints = [
-        _tracking.driverPosition,
-        _tracking.storePosition,
-      ];
-    } else if (_tracking.status == OrderStatus.driverAtStore ||
-        _tracking.status == OrderStatus.driverHeadingToCustomer ||
-        _tracking.status == OrderStatus.driverArrived) {
-      // Route from store/driver to customer
-      routePoints = [
-        _tracking.driverPosition,
-        _tracking.customerPosition,
-      ];
+    if (_tracking != null) {
+      _setupMapAnnotations();
+      _fetchRouteDirections();
     }
-
-    // Create route line
-    if (routePoints.isNotEmpty) {
-      final routeOptions = PolylineAnnotationOptions(
-        geometry: LineString(coordinates: routePoints),
-        lineWidth: 4.0,
-        lineColor: GlobalStyle.primaryColor.value,
-      );
-
-      await polylineAnnotationManager?.create(routeOptions);
-    }
-  }
-
-  // Update map annotations with new driver position
-  void _updateMapAnnotations() {
-    if (mapboxMap == null) return;
-
-    _addMarkers();
-    _drawRoute();
   }
 
   // Show not implemented feature dialog
@@ -733,7 +1104,6 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
     );
   }
 
-  // Add this method to the appropriate class (likely in TrackOrderScreen)
   void _showOrderCompletedDialog() async {
     // Play success sound
     await _playSound('audio/kring.mp3');
@@ -785,7 +1155,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
                   ),
                   onPressed: () {
-                    // Update order status and return to previous screen
+                    // Update order status and go to history detail
                     _completeOrder();
                     Navigator.pop(context); // Close dialog
                   },
@@ -802,35 +1172,37 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> {
     );
   }
 
-// Add this method to handle the order completion
-  void _completeOrder() {
-    if (widget.order != null) {
-      // Update the order status to completed
-      final Order completedOrder = widget.order!.copyWith(
-        status: OrderStatus.completed,
-        tracking: widget.order?.tracking?.copyWith(
-          status: OrderStatus.completed,
-          statusMessage: "Pesanan telah selesai",
-        ),
-      );
-
-      // Navigate back to CartScreen with the completed order
+  // Order completion handler
+  void _completeOrder() async {
+    try {
+      // Navigate to history detail
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => CartScreen(
-            cartItems: const [], // Empty cart since order is completed
-            completedOrder: completedOrder, // Pass the completed order
+          builder: (context) => HistoryDetailPage(
+            order: _order!,
           ),
+        ),
+      );
+    } catch (e) {
+      print('Error completing order: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal menyelesaikan pesanan: ${e.toString()}'),
+          backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-// Make sure you have a playSound method like this one
+  // Play sound
   Future<void> _playSound(String assetPath) async {
-    final AudioPlayer audioPlayer = AudioPlayer();
-    await audioPlayer.stop();
-    await audioPlayer.play(AssetSource(assetPath));
+    try {
+      final AudioPlayer audioPlayer = AudioPlayer();
+      await audioPlayer.stop();
+      await audioPlayer.play(AssetSource(assetPath));
+    } catch (e) {
+      print('Error playing sound: $e');
+    }
   }
 }

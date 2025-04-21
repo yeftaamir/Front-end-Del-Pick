@@ -1,6 +1,8 @@
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:geotypes/src/geojson.dart';
 import 'driver.dart';
+import 'order.dart';
+import 'order_enum.dart';
 
 class Tracking {
   final String orderId;
@@ -10,8 +12,9 @@ class Tracking {
   final Position storePosition;
   final List<Position> routeCoordinates;
   final OrderStatus status;
+  final DeliveryStatus? deliveryStatus; // Added to match backend
   final DateTime estimatedArrival;
-  final String? customStatusMessage; // Added optional custom status message parameter
+  final String? customStatusMessage;
 
   // Add these getters to access driver properties directly from Tracking
   String get driverImageUrl => driver.profileImageUrl ?? '';
@@ -26,28 +29,12 @@ class Tracking {
     required this.storePosition,
     required this.routeCoordinates,
     required this.status,
+    this.deliveryStatus,
     required this.estimatedArrival,
-    this.customStatusMessage, // Added to constructor
+    this.customStatusMessage,
   });
 
-  factory Tracking.sample() {
-    return Tracking(
-      orderId: 'ORD-12345',
-      driver: Driver.sample(),
-      driverPosition: Position(99.10279, 2.34379),
-      customerPosition: Position(99.10179, 2.34279),
-      storePosition: Position(99.10379, 2.34479),
-      routeCoordinates: [
-        Position(99.10279, 2.34379), // Driver
-        Position(99.10379, 2.34479), // Store
-        Position(99.10179, 2.34279), // Customer
-      ],
-      status: OrderStatus.driverHeadingToCustomer,
-      estimatedArrival: DateTime.now().add(const Duration(minutes: 15)),
-    );
-  }
-
-// Corrected copyWith method for Tracking class
+  // Corrected copyWith method for Tracking class
   Tracking copyWith({
     String? orderId,
     Driver? driver,
@@ -56,8 +43,10 @@ class Tracking {
     Position? storePosition,
     List<Position>? routeCoordinates,
     OrderStatus? status,
+    DeliveryStatus? deliveryStatus,
     DateTime? estimatedArrival,
-    String? customStatusMessage, required String statusMessage,
+    String? customStatusMessage,
+    String? statusMessage,
   }) {
     return Tracking(
       orderId: orderId ?? this.orderId,
@@ -67,6 +56,7 @@ class Tracking {
       storePosition: storePosition ?? this.storePosition,
       routeCoordinates: routeCoordinates ?? this.routeCoordinates,
       status: status ?? this.status,
+      deliveryStatus: deliveryStatus ?? this.deliveryStatus,
       estimatedArrival: estimatedArrival ?? this.estimatedArrival,
       customStatusMessage: customStatusMessage ?? this.customStatusMessage,
     );
@@ -74,29 +64,47 @@ class Tracking {
 
   // Convert from JSON
   factory Tracking.fromJson(Map<String, dynamic> json) {
+    // Parse order status
+    OrderStatus orderStatus;
+    if (json['order_status'] != null) {
+      orderStatus = OrderStatus.fromString(json['order_status']);
+    } else if (json['status'] != null) {
+      orderStatus = OrderStatus.fromString(json['status']);
+    } else {
+      orderStatus = OrderStatus.pending;
+    }
+
+    // Parse delivery status if available
+    DeliveryStatus? deliveryStatus;
+    if (json['delivery_status'] != null) {
+      deliveryStatus = DeliveryStatus.fromString(json['delivery_status']);
+    }
+
     return Tracking(
-      orderId: json['orderId'] as String,
+      orderId: json['orderId'] as String? ?? '',
       driver: Driver.fromJson(json['driver'] as Map<String, dynamic>),
       driverPosition: Position(
-        json['driverPosition']['longitude'] as double,
-        json['driverPosition']['latitude'] as double,
+        json['driverPosition']['longitude'] as double? ?? 0.0,
+        json['driverPosition']['latitude'] as double? ?? 0.0,
       ),
       customerPosition: Position(
-        json['customerPosition']['longitude'] as double,
-        json['customerPosition']['latitude'] as double,
+        json['customerPosition']['longitude'] as double? ?? 0.0,
+        json['customerPosition']['latitude'] as double? ?? 0.0,
       ),
       storePosition: Position(
-        json['storePosition']['longitude'] as double,
-        json['storePosition']['latitude'] as double,
+        json['storePosition']['longitude'] as double? ?? 0.0,
+        json['storePosition']['latitude'] as double? ?? 0.0,
       ),
-      routeCoordinates: (json['routeCoordinates'] as List).map((pos) =>
-          Position(pos['longitude'] as double, pos['latitude'] as double)
+      routeCoordinates: (json['routeCoordinates'] as List? ?? []).map((pos) =>
+          Position(
+              pos['longitude'] as double? ?? 0.0,
+              pos['latitude'] as double? ?? 0.0)
       ).toList(),
-      status: OrderStatus.values.firstWhere(
-            (e) => e.toString() == 'OrderStatus.${json['status']}',
-        orElse: () => OrderStatus.pending,
-      ),
-      estimatedArrival: DateTime.parse(json['estimatedArrival'] as String),
+      status: orderStatus,
+      deliveryStatus: deliveryStatus,
+      estimatedArrival: json['estimatedArrival'] != null
+          ? DateTime.parse(json['estimatedArrival'] as String)
+          : DateTime.now().add(const Duration(minutes: 15)),
       customStatusMessage: json['customStatusMessage'] as String?,
     );
   }
@@ -123,6 +131,7 @@ class Tracking {
         'latitude': pos.lat,
       }).toList(),
       'status': status.toString().split('.').last,
+      if (deliveryStatus != null) 'delivery_status': deliveryStatus!.toString().split('.').last,
       'estimatedArrival': estimatedArrival.toIso8601String(),
       if (customStatusMessage != null) 'customStatusMessage': customStatusMessage,
     };
@@ -139,6 +148,14 @@ class Tracking {
     switch (status) {
       case OrderStatus.pending:
         return 'Menunggu konfirmasi pesanan';
+      case OrderStatus.approved:
+        return 'Pesanan telah dikonfirmasi';
+      case OrderStatus.preparing:
+        return 'Pesanan sedang dipersiapkan';
+      case OrderStatus.on_delivery:
+        return 'Pesanan sedang dalam pengiriman';
+      case OrderStatus.delivered:
+        return 'Pesanan telah diterima';
       case OrderStatus.driverAssigned:
         return 'Driver telah ditugaskan';
       case OrderStatus.driverHeadingToStore:
@@ -171,18 +188,4 @@ class Tracking {
       return '$hours jam ${minutes > 0 ? '$minutes menit' : ''}';
     }
   }
-}
-
-// Enum for different order statuses
-enum OrderStatus {
-  pending,
-  driverAssigned,
-  driverHeadingToStore,
-  driverAtStore,
-  driverHeadingToCustomer,
-  driverArrived,
-  completed,
-  cancelled;
-
-  bool get isCompleted => this == OrderStatus.completed || this == OrderStatus.cancelled;
 }

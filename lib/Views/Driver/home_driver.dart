@@ -1,6 +1,11 @@
+import 'dart:convert';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart'; // Import for Indonesian locale
+import 'package:geolocator/geolocator.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/driver_bottom_navigation.dart';
 import 'package:del_pick/Views/Driver/history_driver_detail.dart';
@@ -9,6 +14,12 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:del_pick/Services/Core/token_service.dart';
+import 'package:del_pick/Services/driver_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
+import 'package:del_pick/Models/driver.dart';
+import 'package:del_pick/Models/order_enum.dart';
+import 'package:del_pick/Services/Core/api_constants.dart';
 
 class HomeDriverPage extends StatefulWidget {
   static const String route = '/Driver/HomePage';
@@ -18,84 +29,98 @@ class HomeDriverPage extends StatefulWidget {
   State<HomeDriverPage> createState() => _HomeDriverPageState();
 }
 
-class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStateMixin {
+class _HomeDriverPageState extends State<HomeDriverPage>
+    with TickerProviderStateMixin {
   int _currentIndex = 0;
-  late List<AnimationController> _cardControllers;
-  late List<Animation<Offset>> _cardAnimations;
+  late List<AnimationController> _cardControllers = [];
+  late List<Animation<Offset>> _cardAnimations = [];
   bool _isDriverActive = false;
-  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isLoading = true;
+  bool _isChangingStatus = false;
+  bool _hasError = false;
+  String _errorMessage = '';
+  List<Map<String, dynamic>> _activeOrders = [];
+  Driver? _driverData;
+  String? _driverId;
+  Timer? _locationUpdateTimer;
+  Position? _currentPosition;
+  bool _isLocationPermissionGranted = false;
 
-  final List<Map<String, dynamic>> _deliveries = [
-    {
-      'customerName': 'John Doe',
-      'orderTime': DateTime.now(),
-      'totalPrice': 150000,
-      'status': 'assigned',
-      'items': [
-        {
-          'name': 'Product 1',
-          'quantity': 2,
-          'price': 75000,
-          'image': 'https://example.com/image1.jpg'
-        }
-      ],
-      'deliveryFee': 10000,
-      'amount': 160000,
-      'storeAddress': 'Store Address 1',
-      'customerAddress': 'Customer Address 1',
-      'storePhone': '6281234567890',
-      'customerPhone': '6281234567891'
-    },
-    {
-      'customerName': 'Jane Smith',
-      'orderTime': DateTime.now().subtract(const Duration(hours: 2)),
-      'totalPrice': 75000,
-      'status': 'picking_up',
-      'items': [
-        {
-          'name': 'Product 2',
-          'quantity': 1,
-          'price': 75000,
-          'image': 'https://example.com/image2.jpg'
-        }
-      ],
-      'deliveryFee': 10000,
-      'amount': 85000,
-      'storeAddress': 'Store Address 2',
-      'customerAddress': 'Customer Address 2',
-      'storePhone': '6281234567892',
-      'customerPhone': '6281234567893'
-    },
-    {
-      'customerName': 'Bob Wilson',
-      'orderTime': DateTime.now().subtract(const Duration(hours: 4)),
-      'totalPrice': 200000,
-      'status': 'delivering',
-      'items': [
-        {
-          'name': 'Product 3',
-          'quantity': 2,
-          'price': 100000,
-          'image': 'https://example.com/image3.jpg'
-        }
-      ],
-      'deliveryFee': 10000,
-      'amount': 210000,
-      'storeAddress': 'Store Address 3',
-      'customerAddress': 'Customer Address 3',
-      'storePhone': '6281234567894',
-      'customerPhone': '6281234567895'
-    }
-  ];
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
+  FlutterLocalNotificationsPlugin();
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   @override
   void initState() {
     super.initState();
 
+    // Initialize date formatting for Indonesian locale
+    initializeDateFormatting('id_ID', null);
+
+    // Initialize notifications and permissions
+    _initializeNotifications();
+    _requestPermissions();
+
+    // Initialize driver data and active orders
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _hasError = false;
+        _errorMessage = '';
+      });
+
+      // Get driver data and status from local storage (saved during login)
+      await Future.wait([
+        _getDriverData(),
+        _getDriverStatus(),
+      ]);
+
+      // Get active orders if driver is active
+      if (_isDriverActive) {
+        await _fetchDriverOrders();
+        // Initialize location tracking if driver is active
+        _initializeLocationTracking();
+      }
+
+      // Initialize animations after fetching data
+      _initializeAnimations();
+    } catch (e) {
+      print('Error initializing data: $e');
+      setState(() {
+        _hasError = true;
+        _errorMessage = 'Gagal memuat data: $e';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memuat data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _initializeAnimations() {
+    // Clear previous controllers if any
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+
     // Initialize animation controllers for each delivery card
     _cardControllers = List.generate(
-      _deliveries.length,
+      _activeOrders.length,
           (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
@@ -113,30 +138,328 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       ));
     }).toList();
 
-    // Start animations sequentially
+    // Start animations
     Future.delayed(const Duration(milliseconds: 100), () {
       for (var controller in _cardControllers) {
         controller.forward();
       }
     });
+  }
 
-    // Initialize notifications
-    _initializeNotifications();
+  Future<void> _getDriverStatus() async {
+    try {
+      // Get user data from local storage (saved during login)
+      final userData = await AuthService.getUserData();
 
-    // Request notification permissions
-    _requestPermissions();
+      if (userData != null) {
+        // Check if the user is a driver
+        if (userData['role'] == 'driver') {
+          // Get the driver ID
+          final driverId = userData['id'];
+          if (driverId != null) {
+            // Save driver ID for later use
+            _driverId = driverId.toString();
 
-    // Simulate new order after 3 seconds (for demo purposes)
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        _simulateNewOrder();
+            // Update status based on stored user data
+            setState(() {
+              _isDriverActive = (userData['status'] ?? 'inactive').toLowerCase() == 'active';
+            });
+
+            print('Driver status: ${_isDriverActive ? 'Active' : 'Inactive'}');
+            print('Driver ID: $_driverId');
+          } else {
+            print('Error: Driver ID is null in user data');
+          }
+        } else {
+          print('Error: User role is not driver. Role: ${userData['role']}');
+        }
+      } else {
+        print('Error: User data is null');
+
+        // Try to get the user data from the server as fallback
+        try {
+          final profileData = await AuthService.getProfile();
+          if (profileData != null && profileData['role'] == 'driver') {
+            _driverId = profileData['id']?.toString();
+            setState(() {
+              _isDriverActive = (profileData['status'] ?? 'inactive').toLowerCase() == 'active';
+            });
+            print('Driver status (from profile): ${_isDriverActive ? 'Active' : 'Inactive'}');
+          }
+        } catch (e) {
+          print('Error fetching profile data: $e');
+        }
       }
+    } catch (e) {
+      print('Error getting driver status: $e');
+      // Default to inactive if there's an error
+      setState(() {
+        _isDriverActive = false;
+        _hasError = true;
+        _errorMessage = 'Gagal mendapatkan status driver: $e';
+      });
+    }
+  }
+
+  Future<void> _getDriverData() async {
+    try {
+      // Get user data directly from AuthService (stored during login)
+      final userData = await AuthService.getUserData();
+
+      if (userData != null) {
+        // Check if the user is a driver
+        if (userData['role'] == 'driver') {
+          final driverId = userData['id'];
+          if (driverId != null) {
+            // Save driver ID for later use
+            _driverId = driverId.toString();
+
+            // Create Driver object directly from user data
+            setState(() {
+              _driverData = Driver.fromStoredData(userData);
+            });
+
+            print('Driver data loaded successfully');
+          } else {
+            print('Error: Driver ID is null in user data');
+          }
+        } else {
+          print('Error: User role is not driver. Role: ${userData['role']}');
+        }
+      } else {
+        print('Error: User data is null');
+
+        // Try to get the profile from server as fallback
+        try {
+          final profileData = await AuthService.getProfile();
+          if (profileData != null) {
+            setState(() {
+              _driverData = Driver.fromStoredData(profileData);
+              _driverId = profileData['id']?.toString();
+            });
+            print('Driver data loaded from profile');
+          }
+        } catch (e) {
+          print('Error fetching profile data: $e');
+        }
+      }
+    } catch (e) {
+      print('Error getting driver data: $e');
+      setState(() {
+        _hasError = true;
+        _errorMessage = 'Gagal memuat data driver: $e';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memuat data driver: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _fetchDriverOrders() async {
+    try {
+      print('Fetching driver orders...');
+
+      // Check if token exists
+      final token = await TokenService.getToken();
+      if (token == null) {
+        throw Exception('Token not found. Please login again.');
+      }
+
+      print('Using token: ${token.substring(0, min(10, token.length))}...');
+
+      // First get all driver requests
+      final driverRequests = await DriverService.getDriverRequests();
+      print('Driver requests response received');
+
+      List<Map<String, dynamic>> activeOrdersList = [];
+
+      if (driverRequests != null && driverRequests.containsKey('requests')) {
+        // For each request, get the details
+        for (var request in driverRequests['requests']) {
+          String requestId = request['id'].toString();
+          try {
+            // Get details for each driver request
+            final requestDetail = await DriverService.getDriverRequestDetail(requestId);
+
+            if (requestDetail != null && requestDetail.containsKey('order')) {
+              var order = requestDetail['order'];
+
+              // Check if order status is active (assigned, picking_up, delivering)
+              String deliveryStatus = order['delivery_status'] ?? '';
+              if (['assigned', 'picking_up', 'on_delivery'].contains(deliveryStatus.toLowerCase())) {
+                // Format the order data for UI
+                Map<String, dynamic> formattedOrder = {
+                  'orderId': order['id'].toString(),
+                  'customerName': order['user']?['name'] ?? 'Customer',
+                  'orderTime': order['created_at'] != null
+                      ? DateTime.parse(order['created_at'])
+                      : DateTime.now(),
+                  'totalPrice': double.tryParse(order['total'].toString()) ?? 0.0,
+                  'status': deliveryStatus.toLowerCase(),
+                  'items': order['items'] ?? [],
+                  'deliveryFee': double.tryParse(order['service_charge'].toString()) ?? 0.0,
+                  'amount': double.tryParse(order['total'].toString()) ?? 0.0,
+                  'storeAddress': order['store']?['address'] ?? 'Address not available',
+                  'customerAddress': order['delivery_address'] ?? 'Address not available',
+                  'storePhone': order['store']?['phone'] ?? '',
+                  'customerPhone': order['user']?['phone'] ?? '',
+                  'code': order['code'] ?? '',
+                  // Include the full order for the detail page
+                  'orderDetail': order,
+                  // Include the request for reference
+                  'requestId': requestId,
+                };
+
+                activeOrdersList.add(formattedOrder);
+              }
+            }
+          } catch (e) {
+            print('Error fetching details for request $requestId: $e');
+            // Continue with other requests even if one fails
+          }
+        }
+      }
+
+      print('Found ${activeOrdersList.length} active orders');
+
+      setState(() {
+        _activeOrders = activeOrdersList;
+        _hasError = false;
+        _errorMessage = '';
+      });
+
+      // Show notification for new orders if there are any
+      if (activeOrdersList.isNotEmpty && _isDriverActive) {
+        // Only show notification for the newest order
+        _showNotification(activeOrdersList[0]);
+      }
+    } catch (e) {
+      print('Error fetching driver orders: $e');
+      setState(() {
+        _hasError = true;
+        _errorMessage = 'Gagal memuat pesanan: $e';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memuat pesanan: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Location handling methods
+  Future<void> _requestLocationPermission() async {
+    final status = await Permission.location.request();
+
+    setState(() {
+      _isLocationPermissionGranted = status.isGranted;
     });
+
+    if (!status.isGranted) {
+      // Show a message that location permission is required
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Izin lokasi diperlukan untuk menjadi driver aktif'),
+            backgroundColor: Colors.orange,
+            action: SnackBarAction(
+              label: 'Pengaturan',
+              onPressed: () async {
+                await openAppSettings();
+              },
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _getCurrentLocation() async {
+    if (!_isLocationPermissionGranted) {
+      await _requestLocationPermission();
+      if (!_isLocationPermissionGranted) return;
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        _currentPosition = position;
+      });
+
+      // Update the location to the server
+      await _updateDriverLocation();
+    } catch (e) {
+      print('Error getting current location: $e');
+    }
+  }
+
+  Future<void> _updateDriverLocation() async {
+    if (_currentPosition != null && _isDriverActive) {
+      try {
+        await DriverService.updateDriverLocation({
+          'latitude': _currentPosition!.latitude,
+          'longitude': _currentPosition!.longitude,
+        });
+
+        // Update local driver data if it exists
+        if (_driverData != null) {
+          setState(() {
+            _driverData = _driverData!.copyWith(
+              latitude: _currentPosition!.latitude,
+              longitude: _currentPosition!.longitude,
+            );
+          });
+        }
+
+        print('Driver location updated successfully');
+      } catch (e) {
+        print('Error updating driver location: $e');
+      }
+    }
+  }
+
+  void _initializeLocationTracking() async {
+    // Check and request location permission
+    await _requestLocationPermission();
+
+    if (_isLocationPermissionGranted) {
+      // Get initial location
+      await _getCurrentLocation();
+
+      // Set up periodic location updates if not already set up
+      _locationUpdateTimer?.cancel();
+      _locationUpdateTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
+        if (_isDriverActive) {
+          await _getCurrentLocation();
+        } else {
+          timer.cancel();
+          _locationUpdateTimer = null;
+        }
+      });
+    }
+  }
+
+  void _stopLocationTracking() {
+    _locationUpdateTimer?.cancel();
+    _locationUpdateTimer = null;
   }
 
   Future<void> _initializeNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-    AndroidInitializationSettings('@mipmap/ic_launcher');
+    AndroidInitializationSettings('@drawable/launch_background');
 
     const DarwinInitializationSettings initializationSettingsIOS =
     DarwinInitializationSettings(
@@ -145,7 +468,8 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       requestAlertPermission: true,
     );
 
-    const InitializationSettings initializationSettings = InitializationSettings(
+    const InitializationSettings initializationSettings =
+    InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsIOS,
     );
@@ -154,13 +478,19 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse details) {
         // Handle notification tap
-        _showNewOrderDialog();
+        if (_activeOrders.isNotEmpty) {
+          _showNewOrderDialog(_activeOrders[0]);
+        }
       },
     );
   }
 
   Future<void> _requestPermissions() async {
     await Permission.notification.request();
+    // Request location permission if the driver is active
+    if (_isDriverActive) {
+      await _requestLocationPermission();
+    }
   }
 
   Future<void> _showNotification(Map<String, dynamic> orderDetails) async {
@@ -181,26 +511,16 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     await _flutterLocalNotificationsPlugin.show(
       0,
       'Pesanan Baru!',
-      'Pelanggan: ${orderDetails['customerName']} - ${GlobalStyle.formatRupiah(orderDetails['totalPrice'].toDouble())}',
+      'Pelanggan: ${orderDetails['customerName']} - ${GlobalStyle.formatRupiah(orderDetails['totalPrice'] ?? 0)}',
       platformChannelSpecifics,
     );
-  }
-
-  void _simulateNewOrder() {
-    if (_isDriverActive) {
-      // Show notification
-      _showNotification(_deliveries[0]);
-
-      // Play sound and show dialog
-      _showNewOrderDialog();
-    }
   }
 
   Future<void> _playSound(String assetPath) async {
     await _audioPlayer.play(AssetSource(assetPath));
   }
 
-  Future<void> _showNewOrderDialog() async {
+  Future<void> _showNewOrderDialog(Map<String, dynamic> order) async {
     await _playSound('audio/kring.mp3');
 
     if (mounted) {
@@ -230,14 +550,14 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Pelanggan: ${_deliveries[0]['customerName']}',
+                  'Pelanggan: ${order['customerName']}',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),
                 Text(
-                  'Total: ${GlobalStyle.formatRupiah(_deliveries[0]['totalPrice'].toDouble())}',
+                  'Total: ${GlobalStyle.formatRupiah(order['totalPrice'] ?? 0)}',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
@@ -256,7 +576,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                       context,
                       MaterialPageRoute(
                         builder: (context) => HistoryDriverDetailPage(
-                          orderDetail: _deliveries[0],
+                          orderDetail: order,
                         ),
                       ),
                     );
@@ -327,6 +647,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.of(context).pop();
+                    _fetchDriverOrders(); // Refresh orders when becoming active
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
@@ -389,9 +710,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
             ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                setState(() {
-                  _isDriverActive = false;
-                });
+                _toggleDriverStatus();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
@@ -410,14 +729,80 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     );
   }
 
-  void _toggleDriverStatus() {
-    if (_isDriverActive) {
-      _showDeactivateConfirmationDialog();
-    } else {
+  Future<void> _toggleDriverStatus() async {
+    try {
       setState(() {
-        _isDriverActive = true;
+        _isChangingStatus = true;
       });
-      _showDriverActiveDialog();
+
+      String newStatus = _isDriverActive ? 'inactive' : 'active';
+
+      // Call the DriverService to update the status in the database
+      final response = await DriverService.changeDriverStatus(newStatus);
+
+      if (response != null) {
+        // Update local state with new status
+        setState(() {
+          _isDriverActive = newStatus == 'active';
+        });
+
+        // Update driver data
+        if (_driverData != null) {
+          setState(() {
+            _driverData = _driverData!.copyWith(status: newStatus);
+          });
+        }
+
+        // Start or stop location tracking based on status
+        if (_isDriverActive) {
+          // Initialize location tracking when activated
+          _initializeLocationTracking();
+
+          // Update orders
+          await _fetchDriverOrders();
+          _showDriverActiveDialog();
+        } else {
+          // Stop location tracking when deactivated
+          _stopLocationTracking();
+
+          setState(() {
+            _activeOrders = [];
+          });
+          // Reinitialize animations after clearing orders
+          _initializeAnimations();
+
+          // Show success message for deactivation
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Status driver dinonaktifkan'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+
+        // Also update status in user data stored locally
+        final userData = await AuthService.getUserData();
+        if (userData != null) {
+          userData['status'] = newStatus;
+          // Store updated user data
+          await ApiConstants.storage.write(
+            key: 'user_profile',
+            value: jsonEncode(userData),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error toggling driver status: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal mengubah status: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isChangingStatus = false;
+      });
     }
   }
 
@@ -426,14 +811,9 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     for (var controller in _cardControllers) {
       controller.dispose();
     }
+    _locationUpdateTimer?.cancel();
     _audioPlayer.dispose();
     super.dispose();
-  }
-
-  List<Map<String, dynamic>> get activeDeliveries {
-    return _deliveries.where((delivery) =>
-        ['assigned', 'picking_up', 'delivering'].contains(delivery['status'])
-    ).toList();
   }
 
   Color _getStatusColor(String status) {
@@ -442,7 +822,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
         return Colors.blue;
       case 'picking_up':
         return Colors.orange;
-      case 'delivering':
+      case 'on_delivery':
         return Colors.purple;
       default:
         return Colors.grey;
@@ -455,10 +835,10 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
         return 'Pesanan Masuk';
       case 'picking_up':
         return 'Dijemput';
-      case 'delivering':
+      case 'on_delivery':
         return 'Diantar';
       default:
-        return 'Unknown';
+        return status.toUpperCase(); // Return capitalized status if not known
     }
   }
 
@@ -466,7 +846,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     String status = delivery['status'] as String;
 
     return SlideTransition(
-      position: _cardAnimations[index],
+      position: _cardAnimations.length > index ? _cardAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
@@ -495,12 +875,15 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                           children: [
                             Icon(Icons.person, color: GlobalStyle.primaryColor),
                             const SizedBox(width: 8),
-                            Text(
-                              delivery['customerName'],
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                fontFamily: GlobalStyle.fontFamily,
+                            Expanded(
+                              child: Text(
+                                delivery['customerName'] ?? 'Customer',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
@@ -508,10 +891,13 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            Icon(Icons.access_time, color: GlobalStyle.fontColor, size: 16),
+                            Icon(Icons.access_time,
+                                color: GlobalStyle.fontColor, size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              DateFormat('dd MMM yyyy HH:mm').format(delivery['orderTime']),
+                              // Indonesian date format
+                              DateFormat('dd MMMM yyyy HH:mm', 'id_ID')
+                                  .format(delivery['orderTime'] ?? DateTime.now()),
                               style: TextStyle(
                                 color: GlobalStyle.fontColor,
                                 fontFamily: GlobalStyle.fontFamily,
@@ -522,10 +908,11 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            Icon(Icons.payments, color: GlobalStyle.primaryColor, size: 16),
+                            Icon(Icons.payments,
+                                color: GlobalStyle.primaryColor, size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              GlobalStyle.formatRupiah(delivery['totalPrice'].toDouble()),
+                              GlobalStyle.formatRupiah(delivery['totalPrice'] ?? 0),
                               style: TextStyle(
                                 color: GlobalStyle.primaryColor,
                                 fontWeight: FontWeight.bold,
@@ -534,11 +921,31 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                             ),
                           ],
                         ),
+                        if (delivery['code'] != null && delivery['code'].toString().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Row(
+                              children: [
+                                Icon(Icons.qr_code,
+                                    color: GlobalStyle.fontColor, size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Kode: ${delivery['code']}',
+                                  style: TextStyle(
+                                    color: GlobalStyle.fontColor,
+                                    fontFamily: GlobalStyle.fontFamily,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: _getStatusColor(status),
                       borderRadius: BorderRadius.circular(20),
@@ -570,19 +977,23 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Jemput: ${delivery['storeAddress']}',
+                            'Jemput: ${delivery['storeAddress'] ?? 'Alamat toko tidak tersedia'}',
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 12,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Antar: ${delivery['customerAddress']}',
+                            'Antar: ${delivery['customerAddress'] ?? 'Alamat pelanggan tidak tersedia'}',
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 12,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -600,7 +1011,10 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                         orderDetail: delivery,
                       ),
                     ),
-                  );
+                  ).then((_) {
+                    // Refresh data when returning from detail page
+                    _fetchDriverOrders();
+                  });
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
@@ -649,23 +1063,75 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
           ),
           const SizedBox(height: 8),
           Text(
-            'Anda akan melihat pengiriman aktif di sini',
+            _isDriverActive
+                ? 'Silakan tunggu pesanan baru'
+                : 'Aktifkan status untuk menerima pesanan',
             style: TextStyle(
               color: GlobalStyle.fontColor.withOpacity(0.7),
               fontSize: 14,
               fontFamily: GlobalStyle.fontFamily,
             ),
           ),
-          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingIndicator() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('Memuat data...'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, color: Colors.red, size: 64),
+          const SizedBox(height: 16),
           Text(
-            _isDriverActive
-                ? 'Status: Aktif - Siap Menerima Pesanan'
-                : 'Status: Tidak Aktif - Aktifkan untuk menerima pesanan',
+            'Gagal memuat pesanan',
             style: TextStyle(
-              color: _isDriverActive ? Colors.green : Colors.red,
-              fontSize: 14,
+              color: GlobalStyle.fontColor,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
               fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage,
+            style: TextStyle(
+              color: GlobalStyle.fontColor.withOpacity(0.7),
+              fontSize: 14,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _initializeData,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            child: Text(
+              'Coba Lagi',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
             ),
           ),
         ],
@@ -675,8 +1141,6 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    final deliveries = activeDeliveries;
-
     return Scaffold(
       backgroundColor: const Color(0xffD6E6F2),
       body: SafeArea(
@@ -717,7 +1181,9 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              DateFormat('EEEE, dd MMMM yyyy').format(DateTime.now()),
+                              // Indonesian date format
+                              DateFormat('EEEE, dd MMMM yyyy', 'id_ID')
+                                  .format(DateTime.now()),
                               style: TextStyle(
                                 color: GlobalStyle.fontColor,
                                 fontSize: 12,
@@ -728,7 +1194,15 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                         ),
                         GestureDetector(
                           onTap: () {
-                            Navigator.pushNamed(context, ProfileDriverPage.route);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const ProfileDriverPage(),
+                              ),
+                            ).then((_) {
+                              // Refresh data when returning from profile page
+                              _initializeData();
+                            });
                           },
                           child: Container(
                             padding: const EdgeInsets.all(8),
@@ -748,25 +1222,46 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                     const SizedBox(height: 16),
                     // Status toggle button
                     ElevatedButton.icon(
-                      onPressed: _toggleDriverStatus,
-                      icon: Icon(
+                      onPressed: (_isLoading || _isChangingStatus) ? null : () {
+                        if (_isDriverActive) {
+                          _showDeactivateConfirmationDialog();
+                        } else {
+                          _toggleDriverStatus();
+                        }
+                      },
+                      icon: _isChangingStatus
+                          ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                          : Icon(
                         _isDriverActive ? Icons.toggle_on : Icons.toggle_off,
                         color: Colors.white,
                         size: 24,
                       ),
                       label: Text(
-                        _isDriverActive ? 'Status: Aktif' : 'Status: Tidak Aktif',
+                        _isChangingStatus
+                            ? 'Mengubah status...'
+                            : (_isDriverActive
+                            ? 'Status: Aktif'
+                            : 'Status: Tidak Aktif'),
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _isDriverActive ? Colors.green : Colors.red,
+                        backgroundColor:
+                        _isDriverActive ? Colors.green : Colors.red,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
                         minimumSize: const Size(double.infinity, 45),
+                        disabledBackgroundColor: Colors.grey,
                       ),
                     ),
                   ],
@@ -775,11 +1270,19 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
               const SizedBox(height: 16),
               // Delivery List
               Expanded(
-                child: deliveries.isEmpty
+                child: _isLoading
+                    ? _buildLoadingIndicator()
+                    : _hasError
+                    ? _buildErrorState()
+                    : _activeOrders.isEmpty
                     ? _buildEmptyState()
-                    : ListView.builder(
-                  itemCount: deliveries.length,
-                  itemBuilder: (context, index) => _buildDeliveryCard(deliveries[index], index),
+                    : RefreshIndicator(
+                  onRefresh: _fetchDriverOrders,
+                  child: ListView.builder(
+                    itemCount: _activeOrders.length,
+                    itemBuilder: (context, index) =>
+                        _buildDeliveryCard(_activeOrders[index], index),
+                  ),
                 ),
               ),
             ],
@@ -796,4 +1299,9 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       ),
     );
   }
+}
+
+// Helper function to find minimum of two values
+int min(int a, int b) {
+  return a < b ? a : b;
 }

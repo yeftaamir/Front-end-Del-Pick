@@ -3,8 +3,14 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/customer.dart';
 import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Models/tracking.dart';
+import 'package:del_pick/Services/image_service.dart';
+import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/tracking_service.dart';
 import 'dart:async';
 import 'package:lottie/lottie.dart';
+
+import '../../Models/order_enum.dart';
 
 class TrackOrderScreen extends StatefulWidget {
   static const String route = "/Driver/TrackOrder";
@@ -27,41 +33,31 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
   DraggableScrollableController dragController = DraggableScrollableController();
   bool isExpanded = false;
 
-  // Define coordinates
-  final delPosition = Position(99.10279, 2.34379);
-  final customerPosition = Position(99.10179, 2.34279);
-  final storePosition = Position(99.10379, 2.34479);
+  // State variables
+  Order? _order;
+  Customer? _customer;
+  Tracking? _tracking;
 
-  // Order reference
-  late Order? _order;
-
-  // Customer reference
-  late Customer _customer;
+  // Loading states
+  bool _isLoading = true;
+  bool _isError = false;
+  String _errorMessage = '';
 
   // Card animation controllers
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
 
-  // Timer for simulating location updates
-  Timer? _locationUpdateTimer;
+  // Timer for updating tracking data
+  Timer? _trackingUpdateTimer;
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize order data using sample() instead of empty()
-    _order = widget.order ?? Order.sample();
+    // Initialize with order from widget if provided
+    _order = widget.order;
 
-    // Rest of your initialization code...
-    _customer = Customer(
-      id: "1",
-      name: "Rifqi Haikal",
-      phoneNumber: "+62 812 3456 7890",
-      email: "rifqi.haikal@example.com",
-      profileImageUrl: "https://randomuser.me/api/portraits/men/32.jpg",
-    );
-
-    // Initialize card animation controllers
+    // Initialize animation controllers
     _cardControllers = List.generate(
       3, // Number of card sections
           (index) => AnimationController(
@@ -81,18 +77,13 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       ));
     }).toList();
 
-    // Start initial animations
-    for (var controller in _cardControllers) {
-      controller.forward();
-    }
-
-    // Simulate location updates every 3 seconds
-    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 3), _simulateLocationUpdate);
+    // Load data
+    _loadOrderData();
   }
 
   @override
   void dispose() {
-    _locationUpdateTimer?.cancel();
+    _trackingUpdateTimer?.cancel();
     for (var controller in _cardControllers) {
       controller.dispose();
     }
@@ -100,15 +91,114 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     super.dispose();
   }
 
-  // Simulates location updates for demo purposes
-  void _simulateLocationUpdate(Timer timer) {
-    // In a real app, this would update the driver's location
-    // For demo, we'll just refresh the map occasionally
-    _updateMapAnnotations();
+  // Load order and tracking data
+  Future<void> _loadOrderData() async {
+    setState(() {
+      _isLoading = true;
+      _isError = false;
+    });
+
+    try {
+      // If we have an orderId but no order, fetch it
+      if (widget.orderId != null && _order == null) {
+        final orderData = await OrderService.getOrderById(widget.orderId!);
+        _order = Order.fromJson(orderData);
+      }
+
+      // Ensure we have an order at this point
+      if (_order == null) {
+        throw Exception('Order information not available');
+      }
+
+      // Get tracking information for this order
+      final trackingData = await TrackingService.getOrderTracking(_order!.id);
+      _tracking = Tracking.fromJson(trackingData);
+
+      // Extract customer information from order data
+      // In a real scenario, the customer info would be part of the order data
+      if (_order!.customerId != null) {
+        // This would ideally come from a customer service API
+        // For now we'll use available data to create a customer object
+        Map<String, dynamic> userData = trackingData['user'] ?? {};
+        if (userData.isNotEmpty) {
+          _customer = Customer.fromJson(userData);
+        } else {
+          // Fallback to create a minimal customer object
+          _customer = Customer(
+            id: _order!.customerId.toString(),
+            name: "Customer",
+            email: "",
+            phoneNumber: "",
+            role: 'customer',
+          );
+        }
+      }
+
+      // Start periodic tracking updates
+      _startTrackingUpdates();
+
+      // Start animations
+      for (var controller in _cardControllers) {
+        controller.forward();
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _isError = true;
+        _errorMessage = 'Failed to load order: ${e.toString()}';
+      });
+
+      print('Error loading order data: $e');
+    }
+  }
+
+  // Start periodic tracking updates
+  void _startTrackingUpdates() {
+    // Cancel existing timer if any
+    _trackingUpdateTimer?.cancel();
+
+    // Set up timer to fetch updates every 10 seconds
+    _trackingUpdateTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      if (_order == null) return;
+
+      try {
+        final trackingData = await TrackingService.getOrderTracking(_order!.id);
+
+        if (mounted) {
+          setState(() {
+            _tracking = Tracking.fromJson(trackingData);
+          });
+
+          // Update map with new tracking data
+          if (mapboxMap != null) {
+            _updateMapAnnotations();
+          }
+        }
+      } catch (e) {
+        print('Error updating tracking data: $e');
+        // Don't show error to user for background updates
+      }
+    });
+  }
+
+  // Update map markers and route based on current tracking data
+  void _updateMapAnnotations() {
+    if (_tracking != null) {
+      _addMarkers();
+      _drawRoute();
+    }
   }
 
   // Build customer info card
   Widget _buildCustomerInfo() {
+    if (_customer == null) {
+      return const SizedBox.shrink();
+    }
+
     return SlideTransition(
       position: _cardAnimations[0],
       child: Container(
@@ -144,23 +234,21 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
             const SizedBox(height: 16),
             Row(
               children: [
-                Container(
+                _customer?.profileImageUrl != null && _customer!.profileImageUrl!.isNotEmpty
+                    ? ImageService.displayImage(
+                  imageSource: _customer!.profileImageUrl!,
+                  width: 60,
+                  height: 60,
+                  borderRadius: BorderRadius.circular(30),
+                )
+                    : Container(
                   width: 60,
                   height: 60,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.grey[300]!),
                   ),
-                  child: ClipOval(
-                    child: _customer.profileImageUrl != null
-                        ? Image.network(
-                      _customer.profileImageUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                      const Icon(Icons.person),
-                    )
-                        : const Icon(Icons.person),
-                  ),
+                  child: const Icon(Icons.person),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -168,7 +256,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _customer.name,
+                        _customer?.name ?? "Customer",
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -176,7 +264,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _customer.phoneNumber,
+                        _customer?.phoneNumber ?? "",
                         style: TextStyle(
                           color: Colors.grey[600],
                           fontSize: 14,
@@ -184,7 +272,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _customer.email,
+                        _customer?.email ?? "",
                         style: TextStyle(
                           color: Colors.grey[600],
                           fontSize: 14,
@@ -247,6 +335,16 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
 
   // Build delivery info card
   Widget _buildDeliveryInfo() {
+    if (_order == null) {
+      return const SizedBox.shrink();
+    }
+
+    // Calculate estimated time and distance
+    String estimatedTime = _tracking != null ? _tracking!.formattedETA : "15 menit";
+    String distance = _tracking != null
+        ? "${(_order!.store.distance).toStringAsFixed(1)} km"
+        : "2.5 km";
+
     return SlideTransition(
       position: _cardAnimations[1],
       child: Container(
@@ -282,15 +380,15 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
             const SizedBox(height: 16),
             _buildLocationItem(
               'Alamat Penjemputan',
-              'Rumah Makan Padang Sederhana',
-              'Jl. Sisingamangaraja, Laguboti',
+              _order!.store.name,
+              _order!.store.address,
               Icons.store,
             ),
             const Divider(height: 24),
             _buildLocationItem(
               'Alamat Pengantaran',
-              'Institut Teknologi Del',
-              'Jl. P.I. Del, Sitoluama, Laguboti',
+              'Lokasi Pemesan',
+              _order!.deliveryAddress,
               Icons.location_on,
             ),
             const SizedBox(height: 16),
@@ -299,7 +397,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                 Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 8),
                 Text(
-                  'Estimasi Waktu: 15 menit',
+                  'Estimasi Waktu: $estimatedTime',
                   style: TextStyle(
                     color: Colors.grey[600],
                     fontSize: 14,
@@ -313,7 +411,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                 Icon(Icons.route, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 8),
                 Text(
-                  'Jarak: 2.5 km',
+                  'Jarak: $distance',
                   style: TextStyle(
                     color: Colors.grey[600],
                     fontSize: 14,
@@ -434,14 +532,11 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                   ),
                   child: Row(
                     children: [
-                      ClipRRect(
+                      ImageService.displayImage(
+                        imageSource: item.imageUrl,
+                        width: 60,
+                        height: 60,
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.asset(
-                          item.imageUrl,
-                          width: 60,
-                          height: 60,
-                          fit: BoxFit.cover,
-                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -456,7 +551,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              GlobalStyle.formatRupiah(item.price),
+                              item.formatPrice(),
                               style: TextStyle(
                                 color: GlobalStyle.primaryColor,
                                 fontWeight: FontWeight.w500,
@@ -496,7 +591,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                   ),
                 ),
                 Text(
-                  GlobalStyle.formatRupiah(_calculateTotal()),
+                  _order!.formatTotal(),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -506,13 +601,13 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
               ],
             ),
             const SizedBox(height: 8),
-            const Row(
+            Row(
               children: [
-                Icon(Icons.payment, size: 16, color: Colors.grey),
-                SizedBox(width: 8),
+                const Icon(Icons.payment, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
                 Text(
-                  'Metode Pembayaran: Tunai',
-                  style: TextStyle(
+                  'Metode Pembayaran: ${_order!.paymentMethod == PaymentMethod.cash ? 'Tunai' : 'Digital'}',
+                  style: const TextStyle(
                     color: Colors.grey,
                     fontSize: 14,
                   ),
@@ -525,182 +620,218 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     );
   }
 
-  // Calculate total payment
-  double _calculateTotal() {
-    if (_order == null) return 0.0;
-
-    final double subtotal = _order!.items
-        .fold(0, (sum, item) => sum + (item.price * item.quantity));
-    final double serviceCharge = _order!.serviceCharge;
-
-    return subtotal + serviceCharge;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
+      body: _isLoading
+          ? _buildLoadingView()
+          : _isError
+          ? _buildErrorView()
+          : _buildMainView(),
+    );
+  }
+
+  // Loading view
+  Widget _buildLoadingView() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Mapbox View
-          SizedBox(
-            height: MediaQuery.of(context).size.height,
-            child: MapWidget(
-              key: const ValueKey("mapWidget"),
-              onMapCreated: _onMapCreated,
-              styleUri: "mapbox://styles/ifs21002/cm71crfz300sw01s10wsh3zia",
-              cameraOptions: CameraOptions(
-                center: Point(coordinates: delPosition),
-                zoom: 13.0,
-              ),
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('Memuat informasi pesanan...'),
+        ],
+      ),
+    );
+  }
+
+  // Error view
+  Widget _buildErrorView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 48, color: Colors.red),
+          const SizedBox(height: 16),
+          Text(_errorMessage),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _loadOrderData,
+            child: const Text('Coba Lagi'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Main view
+  Widget _buildMainView() {
+    return Stack(
+      children: [
+        // Mapbox View
+        SizedBox(
+          height: MediaQuery.of(context).size.height,
+          child: MapWidget(
+            key: const ValueKey("mapWidget"),
+            onMapCreated: _onMapCreated,
+            styleUri: "mapbox://styles/ifs21002/cm71crfz300sw01s10wsh3zia",
+            cameraOptions: CameraOptions(
+              center: _tracking != null
+                  ? Point(coordinates: _tracking!.driverPosition)
+                  : Point(coordinates: _getCenterPosition()), // Use calculated position
+              zoom: 13.0,
             ),
           ),
+        ),
 
-          // Back Button
-          Positioned(
-            top: 40,
-            left: 16,
-            child: CircleAvatar(
-              backgroundColor: Colors.white,
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
-                onPressed: () => Navigator.pop(context),
-              ),
+        // Back Button
+        Positioned(
+          top: 40,
+          left: 16,
+          child: CircleAvatar(
+            backgroundColor: Colors.white,
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+              onPressed: () => Navigator.pop(context),
             ),
           ),
+        ),
 
-          // Status Bar at Top
-          Positioned(
-            top: 40,
-            left: 70,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
+        // Status Bar at Top
+        Positioned(
+          top: 40,
+          left: 70,
+          right: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _tracking?.statusMessage ?? 'Pengantaran dalam proses',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _tracking != null
+                      ? 'Estimasi tiba: ${_tracking!.formattedETA}'
+                      : 'Estimasi tiba: 15 menit',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Bottom Sheet
+        DraggableScrollableSheet(
+          initialChildSize: 0.25,
+          minChildSize: 0.15,
+          maxChildSize: 0.8,
+          controller: dragController,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
+                    color: Colors.black12,
+                    blurRadius: 10,
+                    spreadRadius: 2,
                   ),
                 ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Pengantaran dalam proses',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Estimasi tiba: 15 menit',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Bottom Sheet
-          DraggableScrollableSheet(
-            initialChildSize: 0.25,
-            minChildSize: 0.15,
-            maxChildSize: 0.8,
-            controller: dragController,
-            builder: (context, scrollController) {
-              return Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: NotificationListener<DraggableScrollableNotification>(
-                  onNotification: (notification) {
-                    setState(() {
-                      isExpanded = notification.extent > 0.25;
-                    });
-                    return true;
-                  },
-                  child: ListView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    children: [
-                      // Handle Bar
-                      Center(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(vertical: 12),
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(2),
-                          ),
+              child: NotificationListener<DraggableScrollableNotification>(
+                onNotification: (notification) {
+                  setState(() {
+                    isExpanded = notification.extent > 0.25;
+                  });
+                  return true;
+                },
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: [
+                    // Handle Bar
+                    Center(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 12),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
                         ),
                       ),
+                    ),
 
-                      // Customer Info (Compact)
-                      if (!isExpanded)
-                        SlideTransition(
-                          position: _cardAnimations[0],
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 50,
-                                  height: 50,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.grey[300]!),
-                                  ),
-                                  child: ClipOval(
-                                    child: _customer.profileImageUrl != null
-                                        ? Image.network(
-                                      _customer.profileImageUrl!,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) =>
-                                      const Icon(Icons.person),
-                                    )
-                                        : const Icon(Icons.person),
-                                  ),
+                    // Customer Info (Compact)
+                    if (!isExpanded && _customer != null)
+                      SlideTransition(
+                        position: _cardAnimations[0],
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Row(
+                            children: [
+                              _customer?.profileImageUrl != null && _customer!.profileImageUrl!.isNotEmpty
+                                  ? ImageService.displayImage(
+                                imageSource: _customer!.profileImageUrl!,
+                                width: 50,
+                                height: 50,
+                                borderRadius: BorderRadius.circular(25),
+                              )
+                                  : Container(
+                                width: 50,
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.grey[300]!),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _customer.name,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                child: const Icon(Icons.person),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _customer?.name ?? "Customer",
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Institut Teknologi Del',
-                                        style: TextStyle(
-                                          color: Colors.grey[600],
-                                          fontSize: 14,
-                                        ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _order?.deliveryAddress ?? '',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontSize: 14,
                                       ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
+                              ),
+                              if (_order != null)
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
@@ -712,7 +843,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                                       ),
                                     ),
                                     Text(
-                                      GlobalStyle.formatRupiah(_calculateTotal()),
+                                      _order!.formatTotal(),
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
@@ -721,59 +852,123 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                                     ),
                                   ],
                                 ),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                      // Expanded Content
-                      if (isExpanded) ...[
-                        _buildCustomerInfo(),
-                        const SizedBox(height: 16),
-                        _buildDeliveryInfo(),
-                        const SizedBox(height: 16),
-                        _buildItemsList(),
-                      ],
-
-                      // Complete Order Button
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: GlobalStyle.primaryColor,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            onPressed: () {
-                              _showOrderCompletedDialog();
-                            },
-                            child: const Text(
-                              'Selesai Antar',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            ],
                           ),
                         ),
                       ),
 
-                      // Extra space for bottom padding when expanded
-                      if (isExpanded) const SizedBox(height: 40),
+                    // Expanded Content
+                    if (isExpanded) ...[
+                      _buildCustomerInfo(),
+                      const SizedBox(height: 16),
+                      _buildDeliveryInfo(),
+                      const SizedBox(height: 16),
+                      _buildItemsList(),
                     ],
-                  ),
+
+                    // Complete Order Button
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: GlobalStyle.primaryColor,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          onPressed: () {
+                            _completeOrder();
+                          },
+                          child: const Text(
+                            'Selesai Antar',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // Extra space for bottom padding when expanded
+                    if (isExpanded) const SizedBox(height: 40),
+                  ],
                 ),
-              );
-            },
-          ),
-        ],
-      ),
+              ),
+            );
+          },
+        ),
+      ],
     );
+  }
+
+  // Get center position for map (prioritize actual coordinates if available)
+  Position _getCenterPosition() {
+    // If we have tracking data, use driver position
+    if (_tracking != null) {
+      return _tracking!.driverPosition;
+    }
+
+    // If we have store coordinates, use those
+    if (_order != null && _order!.store.latitude != null && _order!.store.longitude != null) {
+      return Position(_order!.store.longitude!, _order!.store.latitude!);
+    }
+
+    // Fallback to default position (can be set to a central location in your service area)
+    return Position(99.10279, 2.34379);
+  }
+
+  // Handle completion of the order
+  Future<void> _completeOrder() async {
+    try {
+      // Show loading dialog first
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const Dialog(
+            child: Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Memproses pesanan...'),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+      // Call API to update order status (using OrderService)
+      // This would be the actual code to update the order status
+      // For now let's simulate it with a delay
+      await Future.delayed(const Duration(seconds: 1));
+      // await OrderService.updateOrderStatus(_order!.id, 'delivered');
+
+      // Close loading dialog
+      Navigator.pop(context);
+
+      // Show completion dialog
+      _showOrderCompletedDialog();
+    } catch (e) {
+      // Close loading dialog if open
+      Navigator.pop(context);
+
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal menyelesaikan pesanan: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   // Show order completed dialog with animation
@@ -835,8 +1030,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
   void _onMapCreated(MapboxMap mapboxMap) {
     this.mapboxMap = mapboxMap;
     _setupAnnotationManagers().then((_) {
-      _addMarkers();
-      _drawRoute();
+      _updateMapAnnotations();
     });
   }
 
@@ -851,27 +1045,40 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     // Clear existing annotations
     await pointAnnotationManager?.deleteAll();
 
-    // Customer marker
-    final customerOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: customerPosition),
-      iconImage: "assets/images/marker_red.png",
-    );
+    // If we have tracking data, use it
+    if (_tracking != null) {
+      // Customer marker
+      final customerOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: _tracking!.customerPosition),
+        iconImage: "assets/images/marker_red.png",
+      );
 
-    // Store marker
-    final storeOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: storePosition),
-      iconImage: "assets/images/marker_blue.png",
-    );
+      // Store marker
+      final storeOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: _tracking!.storePosition),
+        iconImage: "assets/images/marker_blue.png",
+      );
 
-    // Driver marker
-    final driverOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: delPosition),
-      iconImage: "assets/images/marker_green.png",
-    );
+      // Driver marker
+      final driverOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: _tracking!.driverPosition),
+        iconImage: "assets/images/marker_green.png",
+      );
 
-    await pointAnnotationManager?.create(customerOptions);
-    await pointAnnotationManager?.create(storeOptions);
-    await pointAnnotationManager?.create(driverOptions);
+      await pointAnnotationManager?.create(customerOptions);
+      await pointAnnotationManager?.create(storeOptions);
+      await pointAnnotationManager?.create(driverOptions);
+    }
+    // If we only have order data, try to use store coordinates
+    else if (_order != null && _order!.store.latitude != null && _order!.store.longitude != null) {
+      // Store marker
+      final storeOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: Position(_order!.store.longitude!, _order!.store.latitude!)),
+        iconImage: "assets/images/marker_blue.png",
+      );
+
+      await pointAnnotationManager?.create(storeOptions);
+    }
   }
 
   Future<void> _drawRoute() async {
@@ -880,25 +1087,20 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     // Clear existing annotations
     await polylineAnnotationManager?.deleteAll();
 
-    // Create route from driver location to customer location
-    final routeCoordinates = [
-      delPosition,
-      customerPosition,
-    ];
+    // If we have tracking data with route coordinates, use them
+    if (_tracking != null) {
+      final List<Position> routeCoordinates = _tracking!.routeCoordinates.isNotEmpty
+          ? _tracking!.routeCoordinates
+          : [_tracking!.driverPosition, _tracking!.storePosition, _tracking!.customerPosition];
 
-    final polylineOptions = PolylineAnnotationOptions(
-      geometry: LineString(coordinates: routeCoordinates),
-      lineColor: Colors.blue.value,
-      lineWidth: 3.0,
-    );
+      final polylineOptions = PolylineAnnotationOptions(
+        geometry: LineString(coordinates: routeCoordinates),
+        lineColor: Colors.blue.value,
+        lineWidth: 3.0,
+      );
 
-    await polylineAnnotationManager?.create(polylineOptions);
-  }
-
-  // Call this when driver position changes
-  void _updateMapAnnotations() {
-    _addMarkers();
-    _drawRoute();
+      await polylineAnnotationManager?.create(polylineOptions);
+    }
   }
 
   // Show a toast message for unimplemented features
