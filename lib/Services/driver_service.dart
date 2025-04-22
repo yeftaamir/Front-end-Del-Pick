@@ -103,6 +103,11 @@ class DriverService {
 
     if (response.statusCode == 200) {
       final Map<String, dynamic> jsonData = json.decode(response.body);
+
+      // Debug the response structure
+      print('API Response for driver requests: ${jsonData['data']}');
+
+      // Return the data object directly, which contains 'requests'
       return jsonData['data'];
     } else {
       throw Exception('Failed to load driver requests');

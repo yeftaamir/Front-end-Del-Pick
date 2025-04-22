@@ -17,6 +17,7 @@ import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'dart:async';
+import 'dart:math';
 import 'package:intl/intl.dart';
 
 import '../../Models/order_enum.dart';
@@ -56,6 +57,16 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   // For tracking changes that should be reflected in UI
   bool _hasStatusChanged = false;
+
+  // Coordinates for distance calculation
+  double? _customerLatitude;
+  double? _customerLongitude;
+  double? _storeLatitude;
+  double? _storeLongitude;
+
+  // Distance and delivery fee
+  double _distance = 0.0;
+  double _calculatedDeliveryFee = 0.0;
 
   // Animation controllers
   late List<AnimationController> _cardControllers;
@@ -98,6 +109,39 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         _errorMessage = 'No order ID or details provided';
       });
     }
+  }
+
+  // Calculate Haversine distance between two coordinates
+  double calculateHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // Radius of the Earth in kilometers
+
+    // Convert degrees to radians
+    double toRadians(double degrees) {
+      return degrees * (pi / 180);
+    }
+
+    // Calculate differences in coordinates
+    double dLat = toRadians(lat2 - lat1);
+    double dLon = toRadians(lon2 - lon1);
+
+    // Haversine formula
+    double a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(toRadians(lat1)) * cos(toRadians(lat2)) *
+            sin(dLon / 2) * sin(dLon / 2);
+
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    double distance = earthRadius * c; // Distance in kilometers
+
+    return distance;
+  }
+
+  // Calculate delivery fee based on distance
+  double calculateDeliveryFee(double distance) {
+    // Calculate fee by multiplying distance by 2500
+    double fee = distance * 2500;
+
+    // Round up to the nearest 1000 for easier cash payment
+    return (fee / 1000).ceil() * 1000;
   }
 
   // Load order data from API using orderId
@@ -173,6 +217,12 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       // Debug logging
       print('Processing order data: ${_orderData.keys.join(', ')}');
 
+      // Extract coordinate data if available
+      _extractCoordinates();
+
+      // Calculate distance if coordinates are available
+      _calculateDistanceAndFee();
+
       // Create Order object from raw data
       if (_orderData['id'] != null) {
         try {
@@ -205,6 +255,55 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         _errorMessage = 'Error processing order data: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  // Extract coordinates from order data
+  void _extractCoordinates() {
+    // Store coordinates
+    _storeLatitude = _orderData['store']?['latitude'] ??
+        _orderData['storeLatitude'] ??
+        _orderObject?.store.latitude;
+
+    _storeLongitude = _orderData['store']?['longitude'] ??
+        _orderData['storeLongitude'] ??
+        _orderObject?.store.longitude;
+
+    // Customer coordinates
+    _customerLatitude = _orderData['latitude'] ??
+        _orderData['customerLatitude'] ??
+        (_orderData['tracking']?['customerPosition']?['latitude']);
+
+    _customerLongitude = _orderData['longitude'] ??
+        _orderData['customerLongitude'] ??
+        (_orderData['tracking']?['customerPosition']?['longitude']);
+
+    // Debug coordinates
+    print('Store coordinates: $_storeLatitude, $_storeLongitude');
+    print('Customer coordinates: $_customerLatitude, $_customerLongitude');
+  }
+
+  // Calculate distance and delivery fee
+  void _calculateDistanceAndFee() {
+    if (_storeLatitude != null && _storeLongitude != null &&
+        _customerLatitude != null && _customerLongitude != null) {
+      // Calculate distance using Haversine formula
+      _distance = calculateHaversineDistance(
+          _storeLatitude!, _storeLongitude!,
+          _customerLatitude!, _customerLongitude!
+      );
+
+      // Calculate delivery fee based on distance
+      _calculatedDeliveryFee = calculateDeliveryFee(_distance);
+
+      print('Calculated distance: $_distance km');
+      print('Calculated delivery fee: $_calculatedDeliveryFee');
+    } else {
+      print('Cannot calculate distance: Coordinates missing');
+      // Use the existing service charge from order data if available
+      _calculatedDeliveryFee = _orderObject?.serviceCharge ??
+          double.tryParse(_orderData['serviceCharge']?.toString() ?? '0') ??
+          double.tryParse(_orderData['deliveryFee']?.toString() ?? '0') ?? 0;
     }
   }
 
@@ -590,11 +689,15 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
     // Create positions based on available data
     final storePosition = geotypes.Position(
-        _orderObject?.store.longitude ?? 99.10379,
-        _orderObject?.store.latitude ?? 2.34479
+        _storeLongitude ?? 99.10379,
+        _storeLatitude ?? 2.34479
     );
 
-    final customerPosition = geotypes.Position(99.10179, 2.34279);
+    final customerPosition = geotypes.Position(
+        _customerLongitude ?? 99.10179,
+        _customerLatitude ?? 2.34279
+    );
+
     final driverPosition = geotypes.Position(99.10279, 2.34329);
 
     return Tracking(
@@ -724,7 +827,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       store: store,
       deliveryAddress: _orderData['deliveryAddress'] ?? _orderData['customerAddress'] ?? '',
       subtotal: double.tryParse(_orderData['subtotal']?.toString() ?? '0') ?? 0,
-      serviceCharge: double.tryParse(_orderData['serviceCharge']?.toString() ?? '0') ?? 0,
+      serviceCharge: _calculatedDeliveryFee, // Use calculated fee
       total: double.tryParse(_orderData['total']?.toString() ?? '0') ?? 0,
       orderDate: orderDate,
       status: _getOrderStatus(),
@@ -1370,25 +1473,41 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   // Update the _buildPaymentRow method to use the Rupiah format
-  Widget _buildPaymentRow(String label, double amount, {bool isTotal = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildPaymentRow(String label, double amount, {bool isTotal = false, String? additionalInfo}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            fontSize: isTotal ? 16 : 14,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+                fontSize: isTotal ? 16 : 14,
+              ),
+            ),
+            Text(
+              GlobalStyle.formatRupiah(amount),
+              style: TextStyle(
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+                fontSize: isTotal ? 16 : 14,
+                color: isTotal ? GlobalStyle.primaryColor : Colors.black,
+              ),
+            ),
+          ],
         ),
-        Text(
-          GlobalStyle.formatRupiah(amount),
-          style: TextStyle(
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            fontSize: isTotal ? 16 : 14,
-            color: isTotal ? GlobalStyle.primaryColor : Colors.black,
+        if (additionalInfo != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4.0),
+            child: Text(
+              additionalInfo,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -1414,12 +1533,19 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     // Calculate totals
     final double subtotal = _orderObject?.subtotal ??
         double.tryParse(_orderData['subtotal']?.toString() ?? '0') ?? 0;
-    final double deliveryFee = _orderObject?.serviceCharge ??
-        double.tryParse(_orderData['serviceCharge']?.toString() ?? '0') ??
-        double.tryParse(_orderData['deliveryFee']?.toString() ?? '0') ?? 0;
+
+    // Use calculated delivery fee
+    final double deliveryFee = _calculatedDeliveryFee;
+
     final double totalAmount = _orderObject?.total ??
         double.tryParse(_orderData['total']?.toString() ?? '0') ??
         double.tryParse(_orderData['amount']?.toString() ?? '0') ?? 0;
+
+    // Create additional info string for delivery fee if we have distance data
+    String? deliveryFeeInfo;
+    if (_distance > 0) {
+      deliveryFeeInfo = 'Jarak: ${_distance.toStringAsFixed(2)} km × Rp 2.500/km = ${(_distance * 2500).toStringAsFixed(0)}';
+    }
 
     return _buildCard(
       index: 4,
@@ -1538,7 +1664,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             ),
             _buildPaymentRow('Subtotal', subtotal),
             const SizedBox(height: 8),
-            _buildPaymentRow('Biaya Layanan', deliveryFee),
+            _buildPaymentRow(
+                'Biaya Layanan',
+                deliveryFee,
+                additionalInfo: deliveryFeeInfo
+            ),
             const SizedBox(height: 8),
             _buildPaymentRow('Total Pembayaran', totalAmount, isTotal: true),
           ],

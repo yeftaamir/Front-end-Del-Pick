@@ -105,76 +105,71 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       // Get driver requests from API
       final response = await DriverService.getDriverRequests();
 
-      // Only process if we have valid data
-      if (response != null) {
-        List<Map<String, dynamic>> newDeliveries = [];
+      // Debug: print response structure
+      print('Driver requests response: $response');
 
-        // The API response might have orders in different formats
-        // Check for both formats
-        final List<dynamic> ordersList = response['orders'] ??
-            response['driver_requests'] ??
-            response['requests'] ??
-            [];
+      // Process the response structure correctly
+      List<Map<String, dynamic>> newDeliveries = [];
 
-        // Convert orders to the format expected by the UI
-        for (var order in ordersList) {
-          // Extract order details, handling potential nested structure
-          final orderData = order['order'] ?? order;
-          final customerData = orderData['customer'] ?? orderData['user'] ?? {};
-          final storeData = orderData['store'] ?? {};
+      // The API response returns data with this structure, based on the backend code
+      final requestsList = response['requests'] ?? [];
 
-          Map<String, dynamic> delivery = {
-            'id': orderData['id']?.toString() ?? '',
-            'code': orderData['code']?.toString() ?? '',
-            'customerName': customerData['name'] ?? 'Unknown Customer',
-            'orderTime': orderData['created_at'] != null
-                ? DateTime.parse(orderData['created_at'])
-                : (orderData['createdAt'] != null
-                ? DateTime.parse(orderData['createdAt'])
-                : DateTime.now()),
-            'totalPrice': (orderData['total'] as num?)?.toDouble() ?? 0.0,
-            'status': _mapOrderStatusToDeliveryStatus(
-                orderData['order_status'] ?? orderData['status'],
-                orderData['delivery_status']
-            ),
-            'items': orderData['items'] ?? orderData['orderItems'] ?? [],
-            'deliveryFee': (orderData['service_charge'] ?? orderData['serviceCharge'] ?? 0.0) as num,
-            'amount': (orderData['total'] as num?)?.toDouble() ?? 0.0,
-            'storeAddress': storeData['address'] ?? 'No Address',
-            'customerAddress': orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? 'No Address',
-            'storePhone': storeData['phone'] ?? storeData['phoneNumber'] ?? '',
-            'customerPhone': customerData['phone'] ?? customerData['phoneNumber'] ?? '',
-            'orderDetail': orderData, // Store full order details for later use
-          };
+      // Convert orders to the format expected by the UI
+      for (var request in requestsList) {
+        // Extract order details from the request structure
+        final orderData = request['order'] ?? {};
+        final customerData = orderData['user'] ?? {};
+        final storeData = orderData['store'] ?? {};
 
-          newDeliveries.add(delivery);
+        Map<String, dynamic> delivery = {
+          'id': orderData['id']?.toString() ?? '',
+          'code': orderData['code']?.toString() ?? '',
+          'customerName': customerData['name'] ?? 'Unknown Customer',
+          'orderTime': orderData['created_at'] != null
+              ? DateTime.parse(orderData['created_at'])
+              : (orderData['createdAt'] != null
+              ? DateTime.parse(orderData['createdAt'])
+              : DateTime.now()),
+          'totalPrice': (orderData['total'] as num?)?.toDouble() ?? 0.0,
+          'status': _mapOrderStatusToDeliveryStatus(
+              orderData['order_status'] ?? orderData['status'],
+              orderData['delivery_status']
+          ),
+          'items': orderData['orderItems'] ?? [],
+          'deliveryFee': (orderData['service_charge'] ?? orderData['serviceCharge'] ?? 0.0) as num,
+          'amount': (orderData['total'] as num?)?.toDouble() ?? 0.0,
+          'storeAddress': storeData['address'] ?? 'No Address',
+          'customerAddress': orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? 'No Address',
+          'storePhone': storeData['phone'] ?? storeData['phoneNumber'] ?? '',
+          'customerPhone': customerData['phone'] ?? customerData['phoneNumber'] ?? '',
+          'orderDetail': orderData, // Store full order details for later use
+        };
+
+        newDeliveries.add(delivery);
+      }
+
+      setState(() {
+        _deliveries = newDeliveries;
+        _isLoading = false;
+
+        // Initialize animations for each card
+        _initializeAnimations();
+      });
+
+      // Add debug logging
+      print('Processed deliveries count: ${newDeliveries.length}');
+
+      // If we have new orders and driver is active, show notification
+      if (_isDriverActive && newDeliveries.isNotEmpty) {
+        // Find orders that are newly assigned
+        final newOrder = newDeliveries.firstWhere(
+              (delivery) => delivery['status'] == 'assigned',
+          orElse: () => <String, dynamic>{},
+        );
+
+        if (newOrder.isNotEmpty) {
+          _showNotification(newOrder);
         }
-
-        setState(() {
-          _deliveries = newDeliveries;
-          _isLoading = false;
-
-          // Initialize animations for each card
-          _initializeAnimations();
-        });
-
-        // If we have new orders and driver is active, show notification
-        if (_isDriverActive && newDeliveries.isNotEmpty) {
-          // Find orders that are newly assigned
-          final newOrder = newDeliveries.firstWhere(
-                (delivery) => delivery['status'] == 'assigned',
-            orElse: () => <String, dynamic>{},
-          );
-
-          if (newOrder.isNotEmpty) {
-            _showNotification(newOrder);
-          }
-        }
-      } else {
-        setState(() {
-          _deliveries = [];
-          _isLoading = false;
-        });
       }
     } catch (e) {
       print('Error loading deliveries: $e');
