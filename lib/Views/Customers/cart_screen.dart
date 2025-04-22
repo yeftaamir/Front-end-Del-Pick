@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:intl/intl.dart';
+import 'dart:math';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/location_access.dart';
@@ -42,16 +43,19 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
-  // Service charge will be fetched from the store info
+  // Service charge will be calculated using Haversine algorithm
   double _serviceCharge = 0;
   String? _deliveryAddress;
   double? _latitude; // Added to store latitude
   double? _longitude; // Added to store longitude
+  double? _storeLatitude; // Store latitude
+  double? _storeLongitude; // Store longitude
   String? _errorMessage;
   bool _isLoading = false;
   bool _orderCreated = false;
   bool _searchingDriver = false;
   bool _driverFound = false;
+  bool _driverAvailable = false;
   String _driverName = "";
   String _vehicleNumber = "";
   Order? _createdOrder;
@@ -187,6 +191,39 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     });
   }
 
+  // Calculate Haversine distance between two coordinates
+  double calculateHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // Radius of the Earth in kilometers
+
+    // Convert degrees to radians
+    double toRadians(double degrees) {
+      return degrees * (pi / 180);
+    }
+
+    // Calculate differences in coordinates
+    double dLat = toRadians(lat2 - lat1);
+    double dLon = toRadians(lon2 - lon1);
+
+    // Haversine formula
+    double a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(toRadians(lat1)) * cos(toRadians(lat2)) *
+            sin(dLon / 2) * sin(dLon / 2);
+
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    double distance = earthRadius * c; // Distance in kilometers
+
+    return distance;
+  }
+
+  // Calculate delivery fee based on distance
+  double calculateDeliveryFee(double distance) {
+    // Calculate fee by multiplying distance by 2500
+    double fee = distance * 2500;
+
+    // Round up to the nearest 1000 for easier cash payment
+    return (fee / 1000).ceil() * 1000;
+  }
+
   // Fetch store information to get details like service charge
   Future<void> _fetchStoreInfo() async {
     try {
@@ -198,8 +235,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
       setState(() {
         _storeInfo = store;
-        // Use a default service charge or from store if available
-        _serviceCharge = 30000; // You could fetch this from store data if available
+        _storeLatitude = store.latitude;
+        _storeLongitude = store.longitude;
+
+        // Default service charge
+        _serviceCharge = 30000;
+
+        // Update service charge if we have coordinates
+        if (_latitude != null && _longitude != null &&
+            _storeLatitude != null && _storeLongitude != null) {
+          double distance = calculateHaversineDistance(
+              _latitude!, _longitude!, _storeLatitude!, _storeLongitude!);
+          _serviceCharge = calculateDeliveryFee(distance);
+        }
+
         _isLoading = false;
       });
     } catch (e) {
@@ -208,6 +257,18 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _isLoading = false;
       });
       print('Error fetching store info: $e');
+    }
+  }
+
+  // Update delivery fee when location changes
+  void _updateDeliveryFee() {
+    if (_latitude != null && _longitude != null &&
+        _storeLatitude != null && _storeLongitude != null) {
+      double distance = calculateHaversineDistance(
+          _latitude!, _longitude!, _storeLatitude!, _storeLongitude!);
+      setState(() {
+        _serviceCharge = calculateDeliveryFee(distance);
+      });
     }
   }
 
@@ -340,6 +401,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _latitude = result['latitude'];  // Store latitude
         _longitude = result['longitude'];  // Store longitude
         _errorMessage = null;
+
+        // Update delivery fee based on new location
+        _updateDeliveryFee();
       });
     }
   }
@@ -424,6 +488,72 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
+  // Show dialog for no available drivers
+  Future<void> _showNoDriverDialog() async {
+    await _playSound('audio/wrong.mp3');
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          backgroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/error.json',
+                  height: 200,
+                  width: 200,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  "Maaf, tidak ada driver yang tersedia saat ini",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  "Silakan coba lagi nanti",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 40, vertical: 12),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    "OK",
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // Place order and start driver search
   Future<void> _searchDriver() async {
     if (_deliveryAddress == null || _deliveryAddress!.isEmpty) {
@@ -480,6 +610,50 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
 
     try {
+      // Re-show the searching dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            backgroundColor: Colors.white,
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Lottie.asset(
+                    'assets/animations/loading_animation.json',
+                    width: 150,
+                    height: 150,
+                    repeat: true,
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    "Membuat pesanan...",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "Mohon tunggu sebentar",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
       // Create the order through the API
       final orderResponse = await OrderService.placeOrder(_prepareOrderData());
 
@@ -491,7 +665,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _createdOrder = Order.fromJson(orderDetails);
 
         // Close the driver search dialog
-        Navigator.of(context).pop();
+        Navigator.of(context, rootNavigator: true).pop();
 
         setState(() {
           _searchingDriver = false;
@@ -671,13 +845,11 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         MaterialPageRoute(
           builder: (context) => RatingCustomerPage(
             order: _createdOrder!, // Add the required order parameter
-            // Remove parameters that aren't defined in RatingCustomerPage:
-            // storeName, driverName, vehicleNumber, orderItems
           ),
         ),
       );
 
-// If rating was submitted successfully
+      // If rating was submitted successfully
       if (result != null) {
         if (result is Map<String, dynamic>) {
           // Submit rating via API
@@ -711,32 +883,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   void _handleBuyAgain() {
     // Navigate back to the home screen or menu screen
     Navigator.pop(context);
-  }
-
-  // View order history
-  Future<void> _viewOrderHistory() async {
-    try {
-      final orderHistory = await OrderService.getCustomerOrders();
-
-      // Here you would navigate to an order history screen with the data
-      // For now, just show a dialog
-      await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Riwayat Pesanan'),
-          content: const Text('Sedang memuat riwayat pesanan Anda...'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('OK', style: TextStyle(color: GlobalStyle.primaryColor)),
-            )
-          ],
-        ),
-      );
-    } catch (e) {
-      print('Error fetching order history: $e');
-      _showErrorDialog('Error', 'Gagal memuat riwayat pesanan');
-    }
   }
 
   // Navigate to order tracking screen
@@ -798,14 +944,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ),
           onPressed: () => Navigator.pop(context),
         ),
-        // Add history button if we're looking at a cart
-        actions: [
-          if (!isCompletedOrder)
-            IconButton(
-              icon: Icon(Icons.history, color: GlobalStyle.primaryColor),
-              onPressed: _viewOrderHistory,
-            ),
-        ],
+        // Removed history button as requested
       ),
       // Show loading indicator while fetching initial data
       body: _isLoading ?
@@ -1188,7 +1327,19 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       const SizedBox(height: 12),
                       _buildPaymentRow('Subtotal', subtotal),
                       const SizedBox(height: 8),
-                      _buildPaymentRow('Biaya Layanan', _serviceCharge),
+                      _buildPaymentRow('Biaya Pengiriman', _serviceCharge),
+                      if (!isCompletedOrder && !_orderCreated && _latitude != null && _longitude != null &&
+                          _storeLatitude != null && _storeLongitude != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Text(
+                            'Jarak pengiriman: ${calculateHaversineDistance(_latitude!, _longitude!, _storeLatitude!, _storeLongitude!).toStringAsFixed(2)} km',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ),
                       const Divider(thickness: 1, height: 24),
                       _buildPaymentRow('Total', total, isTotal: true),
                     ],

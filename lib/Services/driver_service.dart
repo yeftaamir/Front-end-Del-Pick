@@ -71,6 +71,26 @@ class DriverService {
     }
   }
 
+  static Future<Map<String, dynamic>> getDriverLocation(String driverId) async {
+    final String? token = await TokenService.getToken();
+    final response = await http.get(
+      Uri.parse('${ApiConstants.baseUrl}/drivers/$driverId/location'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> jsonData = json.decode(response.body);
+      return jsonData['data'];
+    } else if (response.statusCode == 404) {
+      throw Exception('Driver location not available');
+    } else {
+      throw Exception('Failed to retrieve driver location: ${response.body}');
+    }
+  }
+
   static Future<Map<String, dynamic>> getDriverRequests() async {
     final String? token = await TokenService.getToken();
     final response = await http.get(
@@ -147,19 +167,6 @@ class DriverService {
     } else {
       throw Exception('Failed to respond to driver request: ${response.body}');
     }
-  }
-  static Future<bool> updateDriverProfile(Map<String, dynamic> profileData) async {
-    final String? token = await TokenService.getToken();
-    final response = await http.put(
-      Uri.parse('${ApiConstants.baseUrl}/drivers/update'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode(profileData),
-    );
-
-    return response.statusCode == 200;
   }
 
   static Future<bool> updateDriverProfileImage(String driverId, String base64Image) async {

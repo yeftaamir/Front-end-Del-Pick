@@ -115,24 +115,6 @@ class Driver {
     );
   }
 
-  // Sample driver for testing purposes
-  static Driver sample() {
-    return Driver(
-      id: '1',
-      name: 'M. Hermawan',
-      rating: 4.8,
-      phoneNumber: '+62 8132635487',
-      vehicleNumber: 'BB 1234 ABC',
-      email: 'hermawan@gmail.com',
-      role: 'driver',
-      profileImageUrl: null, // No hardcoded asset paths
-      reviewsCount: 42,
-      latitude: 2.34379,
-      longitude: 99.10279,
-      status: 'active',
-    );
-  }
-
   // Create a copy of this Driver with the given field values changed
   Driver copyWith({
     String? id,

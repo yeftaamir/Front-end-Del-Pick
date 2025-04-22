@@ -1,4 +1,3 @@
-// lib/services/store_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:del_pick/Models/store.dart';
@@ -96,5 +95,45 @@ class StoreService {
 
   static Future<bool> uploadStoreImage(int storeId, String base64Image) async {
     return ImageService.uploadStoreImage(storeId, base64Image);
+  }
+
+  // New method to update store status (active/inactive)
+  static Future<Map<String, dynamic>> updateStoreStatus(int storeId, String status) async {
+    try {
+      // Validate status input
+      if (status != 'active' && status != 'inactive') {
+        throw Exception('Status tidak valid. Harus active atau inactive');
+      }
+
+      final String? token = await TokenService.getToken();
+      if (token == null) {
+        throw Exception('Authentication token not found');
+      }
+
+      final response = await http.put(
+        Uri.parse('${ApiConstants.baseUrl}/stores/$storeId/status'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'status': status,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = json.decode(response.body);
+        return jsonData['data'];
+      } else if (response.statusCode == 403) {
+        throw Exception('Tidak memiliki akses untuk mengubah status store');
+      } else if (response.statusCode == 404) {
+        throw Exception('Store tidak ditemukan');
+      } else {
+        throw Exception('Gagal mengupdate status store: ${response.body}');
+      }
+    } catch (e) {
+      print('Error updating store status: $e');
+      throw Exception('Gagal mengupdate status store: $e');
+    }
   }
 }

@@ -33,6 +33,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   bool _hasError = false;
   String _errorMessage = '';
 
+  // Add loading state for store status toggle
+  bool _isTogglingStatus = false;
+  // Store ID
+  int? _storeId;
+
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
   FlutterLocalNotificationsPlugin();
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -54,8 +59,30 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     // Request notification permissions
     _requestPermissions();
 
+    // Fetch store information and status
+    _fetchStoreInfo();
+
     // Fetch orders data
     fetchOrders();
+  }
+
+  // New method to fetch store information including ID and status
+  Future<void> _fetchStoreInfo() async {
+    try {
+      // Get user data to extract store information
+      final userData = await AuthService.getUserData();
+
+      if (userData != null && userData['store'] != null) {
+        setState(() {
+          _storeId = userData['store']['id'];
+          // Set store status based on the 'status' field
+          _isStoreActive = userData['store']['status'] == 'active';
+        });
+      }
+    } catch (e) {
+      print('Error fetching store information: $e');
+      // Don't show error - we'll still load orders
+    }
   }
 
   // In _HomeStoreState class, replace this:
@@ -143,70 +170,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         _hasError = true;
         _errorMessage = 'Failed to load orders: $e';
       });
-    }
-  }
-
-// Remove the static getStoreOrders method completely
-  // Get store orders from the API
-  static Future<List<Map<String, dynamic>>> getStoreOrders() async {
-    try {
-      final orderData = await OrderService.getStoreOrders();
-      final List<dynamic> orders = orderData['orders'];
-
-      return await Future.wait(orders.map((order) async {
-        // Try to get customer data for each order if customerId is available
-        String customerName = 'Customer';
-        String phoneNumber = '';
-
-        if (order['customerId'] != null) {
-          try {
-            // This is a placeholder - you would need to implement a service method
-            // to fetch customer data by ID if your API supports it
-            // For now, we'll use the ID directly
-            customerName = 'Customer #${order['customerId']}';
-          } catch (e) {
-            print('Error fetching customer data: $e');
-          }
-        }
-
-        // Process order items
-        List<Map<String, dynamic>> items = [];
-        if (order['items'] != null && order['items'] is List) {
-          items = (order['items'] as List).map((item) => {
-            'name': item['name'] ?? 'Product',
-            'quantity': item['quantity'] ?? 1,
-            'price': item['price'] ?? 0,
-            'image': item['imageUrl'] ?? 'https://example.com/image.jpg'
-          }).toList();
-        } else {
-          // Fallback if no items available
-          items = [
-            {
-              'name': 'Product',
-              'quantity': 1,
-              'price': order['subtotal'] ?? 0,
-              'image': 'https://example.com/image.jpg'
-            }
-          ];
-        }
-
-        return {
-          'id': order['id']?.toString() ?? '',
-          'customerName': customerName,
-          'orderTime': DateTime.parse(order['orderDate'] ?? DateTime.now().toIso8601String()),
-          'totalPrice': order['subtotal'] ?? 0,
-          'status': order['order_status'] ?? 'pending',
-          'items': items,
-          'deliveryFee': order['serviceCharge'] ?? 0,
-          'amount': order['total'] ?? 0,
-          'storeAddress': order['store']?['address'] ?? 'Store address',
-          'customerAddress': order['deliveryAddress'] ?? '',
-          'phoneNumber': phoneNumber,
-        };
-      }).toList());
-    } catch (e) {
-      print('Error in getStoreOrders: $e');
-      throw Exception('Failed to fetch store orders: $e');
     }
   }
 
@@ -481,25 +444,63 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-  void _toggleStoreStatus() {
-    // Here you would call the API to update the store status
-    // For now, we just update the local state
-    setState(() {
-      _isStoreActive = !_isStoreActive;
-    });
-
-    if (_isStoreActive) {
-      _showStoreActiveDialog();
+  // Updated method to toggle store status using StoreService
+  void _toggleStoreStatus() async {
+    // Check if we have a valid store ID
+    if (_storeId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Store ID tidak ditemukan'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
     }
 
-    // In a real implementation, you would call an API like:
-    // StoreService.updateStoreStatus(_isStoreActive ? 'active' : 'inactive')
-    //   .then((_) {
-    //     // Handle success
-    //   })
-    //   .catchError((error) {
-    //     // Handle error
-    //   });
+    // Set toggling status to show loading
+    setState(() {
+      _isTogglingStatus = true;
+    });
+
+    try {
+      // Determine new status based on current status
+      final newStatus = _isStoreActive ? 'inactive' : 'active';
+
+      // Call the StoreService to update status
+      final result = await StoreService.updateStoreStatus(_storeId!, newStatus);
+
+      // Update the local state based on the response
+      if (result != null && result.containsKey('status')) {
+        setState(() {
+          _isStoreActive = result['status'] == 'active';
+        });
+
+        // Show activation dialog if the store is now active
+        if (_isStoreActive) {
+          _showStoreActiveDialog();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Toko berhasil dinonaktifkan'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal mengubah status toko: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      // Regardless of success or failure, set toggling status to false
+      setState(() {
+        _isTogglingStatus = false;
+      });
+    }
   }
 
   @override
@@ -930,8 +931,19 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    // Status toggle button
-                    ElevatedButton.icon(
+                    // Status toggle button with loading indicator
+                    _isTogglingStatus
+                        ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            _isStoreActive ? Colors.green : Colors.red,
+                          ),
+                        ),
+                      ),
+                    )
+                        : ElevatedButton.icon(
                       onPressed: () {
                         if (_isStoreActive) {
                           _showDeactivateConfirmationDialog();

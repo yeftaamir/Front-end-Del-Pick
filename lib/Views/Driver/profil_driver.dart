@@ -5,14 +5,18 @@ import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/image_service.dart';
-import 'package:del_pick/Services/core/token_service.dart';
 
 class ProfileDriverPage extends StatefulWidget {
   static const String route = "/Driver/Profile";
 
-  const ProfileDriverPage({super.key});
+  final Driver? driver;
 
-  // Alternative constructor that uses the sample driver (for testing)
+  const ProfileDriverPage({
+    super.key,
+    this.driver,
+  });
+
+  // Alternative constructor that uses the sample driver
   factory ProfileDriverPage.sample() {
     return const ProfileDriverPage();
   }
@@ -24,81 +28,74 @@ class ProfileDriverPage extends StatefulWidget {
 class _ProfileDriverPageState extends State<ProfileDriverPage> {
   Driver? _driver;
   bool _isLoading = true;
-  String? _errorMessage;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _loadDriverData();
   }
 
-  Future<void> _loadUserData() async {
+  // Load driver data from cache or API
+  Future<void> _loadDriverData() async {
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
+      _error = null;
     });
 
     try {
-      // Get the user data from storage
-      final userData = await AuthService.getUserData();
-
-      if (userData == null) {
-        // No user data found, redirect to login
-        if (!mounted) return;
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const SplashScreen()),
-              (route) => false,
-        );
+      // First check if we already have driver data passed in
+      if (widget.driver != null) {
+        setState(() {
+          _driver = widget.driver;
+          _isLoading = false;
+        });
         return;
       }
 
-      // Check if the user is a driver
-      final userRole = userData['role'];
-      if (userRole != 'driver') {
-        throw Exception('User is not a driver');
-      }
+      // Try to get driver data from cached user data
+      final userData = await AuthService.getUserData();
+      if (userData != null) {
+        // Check if user has driver data
+        if (userData['driver'] != null) {
+          // Merge user data with driver data for proper structure
+          final driverData = {
+            ...userData,
+            'driver': userData['driver'],
+          };
 
-      // Get the driver ID from the user data
-      final userId = userData['id']?.toString();
-      if (userId == null || userId.isEmpty) {
-        throw Exception('Driver ID not found');
-      }
-
-      // Create a combined data structure that includes driver data
-      Map<String, dynamic> combinedData = {...userData};
-
-      // If driver data exists in the user data, merge it
-      if (userData['driver'] != null) {
-        // Add driver data to the root level for Driver.fromStoredData to process
-        combinedData['vehicle_number'] = userData['driver']['vehicle_number'];
-        combinedData['rating'] = userData['driver']['rating'] ?? 0.0;
-        combinedData['reviews_count'] = userData['driver']['reviews_count'] ?? 0;
-        combinedData['latitude'] = userData['driver']['latitude'];
-        combinedData['longitude'] = userData['driver']['longitude'];
-        combinedData['status'] = userData['driver']['status'] ?? 'inactive';
-
-        // Add the driver ID if available
-        if (userData['driver']['id'] != null) {
-          combinedData['driver_id'] = userData['driver']['id'];
+          setState(() {
+            _driver = Driver.fromJson(driverData);
+            _isLoading = false;
+          });
+          return;
         }
       }
 
-      // Create driver object from the combined data
-      setState(() {
-        _driver = Driver.fromStoredData(combinedData);
-        _isLoading = false;
-      });
+      // If no cached data, try to fetch fresh profile data
+      final profileData = await AuthService.getProfile();
+      if (profileData['driver'] != null) {
+        setState(() {
+          _driver = Driver.fromJson(profileData);
+          _isLoading = false;
+        });
+      } else {
+        // If no driver data found in profile
+        setState(() {
+          _error = "Data driver tidak ditemukan";
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Gagal memuat data driver: ${e.toString()}';
+        _error = "Gagal memuat data: $e";
         _isLoading = false;
       });
-      print('Error loading driver profile: $e');
+      print('Error loading driver data: $e');
     }
   }
 
-  void _handleLogout(BuildContext context) async {
+  void _handleLogout(BuildContext context) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -136,44 +133,37 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> {
                   context: context,
                   barrierDismissible: false,
                   builder: (BuildContext context) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const Center(
+                      child: CircularProgressIndicator(),
+                    );
                   },
                 );
 
+                // Perform logout
                 try {
-                  // Logout from AuthService - this will clear all tokens and data
                   final result = await AuthService.logout();
 
-                  // Close loading dialog
-                  if (!mounted) return;
+                  // Close loading indicator
                   Navigator.pop(context);
 
                   if (result) {
-                    // Navigate to SplashScreen after successful logout
+                    // Navigate to splash screen and clear all routes
                     Navigator.pushAndRemoveUntil(
                       context,
                       MaterialPageRoute(builder: (context) => const SplashScreen()),
-                          (route) => false, // Remove all previous routes
+                          (route) => false,
                     );
                   } else {
-                    throw Exception('Logout failed');
+                    // Show error if logout failed
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Gagal logout. Silakan coba lagi.')),
+                    );
                   }
                 } catch (e) {
-                  // Close loading dialog
-                  if (!mounted) return;
+                  // Close loading indicator and show error
                   Navigator.pop(context);
-
-                  // Show error message
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Gagal logout: ${e.toString()}')),
-                  );
-
-                  // As a last resort, just clear tokens and navigate away
-                  await TokenService.clearAll();
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (context) => const SplashScreen()),
-                        (route) => false,
+                    SnackBar(content: Text('Error: $e')),
                   );
                 }
               },
@@ -192,355 +182,266 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> {
     );
   }
 
-  // View profile image full screen
-  void _viewProfileImage() {
-    if (_driver == null ||
-        _driver!.profileImageUrl == null ||
-        _driver!.profileImageUrl!.isEmpty) {
-      // If no image, don't show dialog
-      return;
-    }
-
-    // Get processed image URL
-    String processedImageUrl = _driver!.getProcessedImageUrl() ?? '';
-    if (processedImageUrl.isEmpty) {
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.topRight,
-                child: GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.close, color: Colors.black, size: 20),
-                  ),
-                ),
-              ),
-              Container(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.7,
-                  maxWidth: MediaQuery.of(context).size.width,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: ImageService.displayImage(
-                    imageSource: processedImageUrl,
-                    width: double.infinity,
-                    height: double.infinity,
-                    fit: BoxFit.contain,
-                    placeholder: const Center(child: CircularProgressIndicator()),
-                    errorWidget: Container(
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.broken_image, size: 80, color: Colors.grey),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Calculate 25% of screen height for the image
-    final double imageHeight = MediaQuery.of(context).size.height * 0.25;
-
     return Scaffold(
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : _driver == null
-            ? Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(_errorMessage ?? 'Data driver tidak ditemukan'),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _loadUserData,
-                child: const Text('Coba Lagi'),
-              ),
-            ],
-          ),
-        )
-            : Column(
-          children: [
-            // Fixed header with back button and title
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Stack(
-                alignment: Alignment.centerLeft,
-                children: [
-                  Center(
-                    child: Text(
-                      'Profil Driver',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: GlobalStyle.fontColor,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(7.0),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.blue, width: 1.0),
-                      ),
-                      child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-
-            // Profile Image (25% of screen height)
-            GestureDetector(
-              onTap: _viewProfileImage,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(0),
-                  bottom: Radius.circular(16),
-                ),
-                child: _driver!.getProcessedImageUrl() != null && _driver!.getProcessedImageUrl()!.isNotEmpty
-                    ? ImageService.displayImage(
-                  imageSource: _driver!.getProcessedImageUrl()!,
-                  width: double.infinity,
-                  height: imageHeight,
-                  fit: BoxFit.cover,
-                  placeholder: const Center(child: CircularProgressIndicator()),
-                  errorWidget: _buildDefaultProfileImage(imageHeight),
-                )
-                    : _buildDefaultProfileImage(imageHeight),
-              ),
-            ),
-
-            // User name and badges
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Column(
-                children: [
-                  // Display driver name
-                  Text(
-                    _driver!.name,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-
-                  // Display driver role and rating badge
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Role badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: GlobalStyle.primaryColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: GlobalStyle.primaryColor.withOpacity(0.5),
-                            ),
-                          ),
-                          child: Text(
-                            _driver!.role.toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: GlobalStyle.primaryColor,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Rating badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.amber[100],
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.amber,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.star, color: Colors.amber[700], size: 16),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${_driver!.rating}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.amber[800],
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Reviews count
-                  if (_driver!.reviewsCount > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        '${_driver!.reviewsCount} reviews',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-
-            // Scrollable content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                child: Column(
-                  children: [
-                    // Container informasi profil
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            spreadRadius: 3,
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.idCard,
-                            title: 'Driver ID',
-                            value: _driver!.id,
-                          ),
-                          const Divider(height: 1, indent: 60),
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.user,
-                            title: 'Nama Driver',
-                            value: _driver!.name,
-                          ),
-                          const Divider(height: 1, indent: 60),
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.star,
-                            title: 'Penilaian',
-                            value: '${_driver!.rating} dari 5',
-                          ),
-                          const Divider(height: 1, indent: 60),
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.phone,
-                            title: 'Nomor Telepon',
-                            value: _driver!.phoneNumber,
-                          ),
-                          const Divider(height: 1, indent: 60),
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.car,
-                            title: 'Nomor Kendaraan',
-                            value: _driver!.vehicleNumber,
-                          ),
-                          const Divider(height: 1, indent: 60),
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.envelope,
-                            title: 'Email',
-                            value: _driver!.email,
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // Tombol Logout
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: ElevatedButton(
-                        onPressed: () => _handleLogout(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.logout, size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Keluar',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: GlobalStyle.fontFamily,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+            : _error != null
+            ? _buildErrorView()
+            : _buildProfileContent(),
       ),
     );
   }
 
-  // Helper method to build default profile image container
-  Widget _buildDefaultProfileImage(double height) {
-    return Container(
-      color: Colors.grey[300],
-      width: double.infinity,
-      height: height,
-      child: const Center(
-        child: Icon(Icons.person, size: 80, color: Colors.grey),
+  Widget _buildErrorView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 60, color: Colors.red),
+          const SizedBox(height: 16),
+          Text(
+            _error ?? "Terjadi kesalahan",
+            style: TextStyle(
+              fontFamily: GlobalStyle.fontFamily,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _loadDriverData,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            child: Text(
+              'Coba Lagi',
+              style: TextStyle(
+                fontFamily: GlobalStyle.fontFamily,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Widget _buildProfileContent() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          Stack(
+            alignment: Alignment.centerLeft,
+            children: [
+              Center(
+                child: Text(
+                  'Profil',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(7.0),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue, width: 1.0),
+                  ),
+                  child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
+                ),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 32),
+
+          // Profile image
+          Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: GlobalStyle.primaryColor,
+                    width: 2,
+                  ),
+                ),
+                child: _driver?.profileImageUrl != null
+                    ? CircleAvatar(
+                  radius: 60,
+                  backgroundImage: NetworkImage(
+                    ImageService.getImageUrl(_driver?.profileImageUrl),
+                  ),
+                )
+                    : CircleAvatar(
+                  radius: 60,
+                  backgroundColor: GlobalStyle.lightColor,
+                  child: Icon(
+                    Icons.person,
+                    size: 60,
+                    color: GlobalStyle.primaryColor,
+                  ),
+                ),
+              ),
+
+              // Role badge
+              Transform.translate(
+                offset: const Offset(0, 20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: GlobalStyle.primaryColor,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    _driver?.role?.toUpperCase() ?? 'DRIVER',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 40),
+
+          // Container informasi profil
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  spreadRadius: 3,
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                _buildInfoTile(
+                  icon: FontAwesomeIcons.user,
+                  title: 'Nama Driver',
+                  value: _driver?.name ?? '-',
+                ),
+                const Divider(height: 1, indent: 20),
+                _buildInfoTile(
+                  icon: FontAwesomeIcons.star,
+                  title: 'Penilaian',
+                  value: '${_driver?.rating ?? 0} dari 5',
+                ),
+                const Divider(height: 1, indent: 20),
+                _buildInfoTile(
+                  icon: FontAwesomeIcons.phone,
+                  title: 'Nomor Telepon',
+                  value: _driver?.phoneNumber ?? '-',
+                ),
+                const Divider(height: 1, indent: 20),
+                _buildInfoTile(
+                  icon: FontAwesomeIcons.car,
+                  title: 'Nomor Kendaraan',
+                  value: _driver?.vehicleNumber ?? '-',
+                ),
+                const Divider(height: 1, indent: 20),
+                _buildInfoTile(
+                  icon: FontAwesomeIcons.envelope,
+                  title: 'Email',
+                  value: _driver?.email ?? '-',
+                ),
+                const Divider(height: 1, indent: 20),
+                _buildInfoTile(
+                  icon: FontAwesomeIcons.circleCheck,
+                  title: 'Status',
+                  value: _getStatusText(_driver?.status),
+                  valueColor: _getStatusColor(_driver?.status),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // Tombol Logout
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: ElevatedButton(
+              onPressed: () => _handleLogout(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.logout, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Keluar',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getStatusText(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'active':
+        return 'Aktif';
+      case 'inactive':
+        return 'Tidak Aktif';
+      default:
+        return 'Tidak Diketahui';
+    }
+  }
+
+  Color _getStatusColor(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'active':
+        return Colors.green;
+      case 'inactive':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 
   Widget _buildInfoTile({

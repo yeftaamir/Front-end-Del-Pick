@@ -12,6 +12,12 @@ import 'package:geotypes/geotypes.dart' as geotypes;
 import '../../Models/order_enum.dart';
 import '../../Services/order_service.dart';
 import '../../Services/tracking_service.dart';
+import '../../Services/auth_service.dart';
+import '../../Services/core/token_service.dart';
+import '../../Services/driver_service.dart';
+import '../../Models/driver.dart';
+import '../../Models/store.dart';
+import '../../Models/customer.dart';
 import 'history_detail.dart';
 
 class TrackCustOrderScreen extends StatefulWidget {
@@ -42,6 +48,14 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   Tracking? _tracking;
   bool _isLoading = true;
   String _errorMessage = '';
+  bool _isTokenValid = false;
+  Customer? _customer;
+  Driver? _driver;
+  Store? _store;
+
+  // Track estimated delivery time
+  String _estimatedArrival = 'Calculating...';
+  int _estimatedMinutes = 0;
 
   // Animation controllers
   late AnimationController _routeAnimationController;
@@ -70,8 +84,8 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       vsync: this,
     );
 
-    // Initialize data
-    _initializeData();
+    // Check token validity first
+    _checkTokenAndInitialize();
 
     // Set up periodic data refresh every 15 seconds
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) => _refreshTrackingData());
@@ -85,6 +99,47 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
     _markerAnimationController.dispose();
     dragController.dispose();
     super.dispose();
+  }
+
+  // Check token validity before initializing data
+  Future<void> _checkTokenAndInitialize() async {
+    try {
+      final token = await TokenService.getToken();
+      if (token == null) {
+        setState(() {
+          _isTokenValid = false;
+          _isLoading = false;
+          _errorMessage = 'Authentication token not found. Please login again.';
+        });
+        return;
+      }
+
+      // Get user profile to verify token is valid
+      final userData = await AuthService.getUserData();
+      if (userData == null) {
+        setState(() {
+          _isTokenValid = false;
+          _isLoading = false;
+          _errorMessage = 'User data not found. Please login again.';
+        });
+        return;
+      }
+
+      setState(() {
+        _isTokenValid = true;
+        // Create customer data from user data
+        _customer = Customer.fromStoredData(userData);
+      });
+
+      // Initialize data if token is valid
+      await _initializeData();
+    } catch (e) {
+      setState(() {
+        _isTokenValid = false;
+        _isLoading = false;
+        _errorMessage = 'Authentication error: ${e.toString()}';
+      });
+    }
   }
 
   // Initialize data from services
@@ -114,8 +169,24 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       final trackingData = await TrackingService.getOrderTracking(orderId);
       _tracking = Tracking.fromJson(trackingData);
 
+      // Get driver details if driverId exists
+      if (_tracking?.driver?.id != null) {
+        final driverData = await DriverService.getDriverById(_tracking!.driver.id);
+        _driver = Driver.fromJson(driverData);
+      }
+
       // Store the initial driver position for animations
       _previousDriverPosition = _tracking?.driverPosition;
+
+      // Calculate estimated delivery time based on distance
+      if (_tracking != null) {
+        double distance = _calculateDistance(
+            _tracking!.driverPosition,
+            _tracking!.customerPosition
+        );
+        _estimatedMinutes = OrderService.calculateEstimatedDeliveryTime(distance);
+        _updateEstimatedArrival();
+      }
 
       setState(() {
         _isLoading = false;
@@ -135,9 +206,25 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
     }
   }
 
+  // Update the estimated arrival time string
+  void _updateEstimatedArrival() {
+    if (_estimatedMinutes <= 0) {
+      _estimatedArrival = 'Arriving soon';
+      return;
+    }
+
+    if (_estimatedMinutes < 60) {
+      _estimatedArrival = '$_estimatedMinutes minutes';
+    } else {
+      int hours = _estimatedMinutes ~/ 60;
+      int minutes = _estimatedMinutes % 60;
+      _estimatedArrival = '$hours hour${hours > 1 ? 's' : ''} $minutes minute${minutes > 1 ? 's' : ''}';
+    }
+  }
+
   // Refresh tracking data
   Future<void> _refreshTrackingData() async {
-    if (_order == null) return;
+    if (_order == null || !_isTokenValid) return;
 
     try {
       final trackingData = await TrackingService.getOrderTracking(_order!.id);
@@ -149,6 +236,16 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       setState(() {
         _tracking = newTracking;
       });
+
+      // Recalculate estimated time
+      if (_tracking != null) {
+        double distance = _calculateDistance(
+            _tracking!.driverPosition,
+            _tracking!.customerPosition
+        );
+        _estimatedMinutes = OrderService.calculateEstimatedDeliveryTime(distance);
+        _updateEstimatedArrival();
+      }
 
       // Only animate marker and update route if position changed
       if (_previousDriverPosition != null &&
@@ -546,13 +643,28 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: () => _initializeData(),
+              onPressed: () => _isTokenValid ? _initializeData() : _checkTokenAndInitialize(),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
               child: const Text('Try Again'),
             ),
+            if (!_isTokenValid)
+              Padding(
+                padding: const EdgeInsets.only(top: 16.0),
+                child: ElevatedButton(
+                  onPressed: () {
+                    // Navigate to login screen
+                    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[800],
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  child: const Text('Go to Login'),
+                ),
+              ),
           ],
         ),
       ),
@@ -628,7 +740,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      'Estimasi tiba: ${_tracking!.formattedETA}',
+                      'Estimasi tiba: $_estimatedArrival',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey[600],
@@ -967,7 +1079,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
               Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
               const SizedBox(width: 8),
               Text(
-                'Estimasi Waktu: ${_tracking?.formattedETA ?? "Menunggu update"}',
+                'Estimasi Waktu: $_estimatedArrival',
                 style: TextStyle(
                   color: Colors.grey[600],
                   fontSize: 14,
@@ -993,6 +1105,78 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
           // Order Items Summary
           const SizedBox(height: 16),
           const Divider(),
+          const SizedBox(height: 8),
+          Text(
+            'Rincian Pesanan (${_order!.items.length} item)',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: GlobalStyle.fontColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ..._order!.items.map((item) => Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${item.quantity}x ${item.name}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: GlobalStyle.fontColor,
+                  ),
+                ),
+                Text(
+                  GlobalStyle.formatRupiah(item.price * item.quantity),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: GlobalStyle.fontColor,
+                  ),
+                ),
+              ],
+            ),
+          )).toList(),
+          const Divider(),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Subtotal',
+                style: TextStyle(
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                GlobalStyle.formatRupiah(_order!.subtotal),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Biaya Pengiriman',
+                style: TextStyle(
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                GlobalStyle.formatRupiah(_order!.serviceCharge),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1175,6 +1359,9 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   // Order completion handler
   void _completeOrder() async {
     try {
+      // Update order status to completed
+      await OrderService.updateOrderStatus(_order!.id, 'completed');
+
       // Navigate to history detail
       Navigator.pushReplacement(
         context,

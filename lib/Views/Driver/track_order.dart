@@ -7,8 +7,13 @@ import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
+import 'package:del_pick/Services/driver_service.dart';
+import 'package:del_pick/Services/location_service.dart';
+import 'package:del_pick/Services/core/token_service.dart';
 import 'dart:async';
 import 'package:lottie/lottie.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 import '../../Models/order_enum.dart';
 
@@ -25,9 +30,13 @@ class TrackOrderScreen extends StatefulWidget {
 }
 
 class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProviderStateMixin {
+  // Map-related variables
   MapboxMap? mapboxMap;
   PointAnnotationManager? pointAnnotationManager;
   PolylineAnnotationManager? polylineAnnotationManager;
+
+  // Mapbox access token - this should ideally come from a secure source
+  final String mapboxAccessToken = 'pk.eyJ1IjoiaWZzMjEwMDIiLCJhIjoiY2w3MWNyZnozMDBzdzAxczEwemV4b2hkYSJ9.kYLFvXUL90J8kPU9GjrYGA';
 
   // Expanded bottom sheet controller
   DraggableScrollableController dragController = DraggableScrollableController();
@@ -49,6 +58,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
 
   // Timer for updating tracking data
   Timer? _trackingUpdateTimer;
+
+  // Location service for managing real-time location
+  final LocationService _locationService = LocationService();
 
   @override
   void initState() {
@@ -77,8 +89,23 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       ));
     }).toList();
 
+    // Initialize location service
+    _initializeLocationService();
+
     // Load data
     _loadOrderData();
+  }
+
+  // Initialize location service
+  Future<void> _initializeLocationService() async {
+    try {
+      bool initialized = await _locationService.initialize();
+      if (!initialized) {
+        print('Failed to initialize location service');
+      }
+    } catch (e) {
+      print('Error initializing location service: $e');
+    }
   }
 
   @override
@@ -88,6 +115,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       controller.dispose();
     }
     dragController.dispose();
+    _locationService.dispose();
     super.dispose();
   }
 
@@ -101,8 +129,19 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     try {
       // If we have an orderId but no order, fetch it
       if (widget.orderId != null && _order == null) {
-        final orderData = await OrderService.getOrderById(widget.orderId!);
-        _order = Order.fromJson(orderData);
+        // First try to get the order detail using driver service
+        // as this gives more driver-specific information
+        try {
+          final requestDetail = await DriverService.getDriverRequestDetail(widget.orderId!);
+          if (requestDetail.containsKey('order')) {
+            _order = Order.fromJson(requestDetail['order']);
+          }
+        } catch (e) {
+          // Fallback to regular order service if driver-specific API fails
+          print('Error loading driver request detail: $e');
+          final orderData = await OrderService.getOrderById(widget.orderId!);
+          _order = Order.fromJson(orderData);
+        }
       }
 
       // Ensure we have an order at this point
@@ -115,10 +154,8 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       _tracking = Tracking.fromJson(trackingData);
 
       // Extract customer information from order data
-      // In a real scenario, the customer info would be part of the order data
       if (_order!.customerId != null) {
-        // This would ideally come from a customer service API
-        // For now we'll use available data to create a customer object
+        // Extract customer data from tracking data if available
         Map<String, dynamic> userData = trackingData['user'] ?? {};
         if (userData.isNotEmpty) {
           _customer = Customer.fromJson(userData);
@@ -133,6 +170,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
           );
         }
       }
+
+      // Start location tracking if we're the driver of this order
+      await _checkAndStartDriverTracking();
 
       // Start periodic tracking updates
       _startTrackingUpdates();
@@ -153,6 +193,24 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       });
 
       print('Error loading order data: $e');
+    }
+  }
+
+  // Check if we're the driver and start location tracking if so
+  Future<void> _checkAndStartDriverTracking() async {
+    try {
+      // Get the current user's ID
+      final String? userId = await TokenService.getUserId();
+
+      if (userId != null && _order != null && _order!.driverId != null) {
+        // Check if the current user is the driver for this order
+        if (userId == _order!.driverId.toString()) {
+          // We are the driver, start location tracking
+          await _locationService.startTracking();
+        }
+      }
+    } catch (e) {
+      print('Error checking driver status: $e');
     }
   }
 
@@ -189,7 +247,118 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
   void _updateMapAnnotations() {
     if (_tracking != null) {
       _addMarkers();
-      _drawRoute();
+      _fetchAndDrawRoute();
+    }
+  }
+
+  // Fetch route from Mapbox Directions API and draw it
+  Future<void> _fetchAndDrawRoute() async {
+    if (_tracking == null || polylineAnnotationManager == null) return;
+
+    try {
+      // First, clear existing route
+      await polylineAnnotationManager?.deleteAll();
+
+      // We need at least driver position and either store or customer position to draw a route
+      if (_tracking!.driverPosition.lat == 0 || _tracking!.driverPosition.lng == 0) {
+        return; // Invalid driver position
+      }
+
+      List<Position> routeCoordinates = [];
+
+      // Determine route waypoints based on order status
+      switch (_tracking!.status) {
+        case OrderStatus.driverHeadingToStore:
+        case OrderStatus.pending:
+        case OrderStatus.approved:
+        // Driver to store route
+          routeCoordinates = await _fetchRouteCoordinates(
+              _tracking!.driverPosition,
+              _tracking!.storePosition
+          );
+          break;
+
+        case OrderStatus.driverAtStore:
+        case OrderStatus.preparing:
+        case OrderStatus.driverHeadingToCustomer:
+        case OrderStatus.on_delivery:
+        // Store to customer route
+          routeCoordinates = await _fetchRouteCoordinates(
+              _tracking!.driverPosition,
+              _tracking!.customerPosition
+          );
+          break;
+
+        default:
+        // For other statuses, just draw a direct route from driver to customer
+          routeCoordinates = await _fetchRouteCoordinates(
+              _tracking!.driverPosition,
+              _tracking!.customerPosition
+          );
+          break;
+      }
+
+      // If we have route coordinates, draw them
+      if (routeCoordinates.isNotEmpty) {
+        final polylineOptions = PolylineAnnotationOptions(
+          geometry: LineString(coordinates: routeCoordinates),
+          lineColor: Colors.blue.value,
+          lineWidth: 4.0,
+        );
+
+        await polylineAnnotationManager?.create(polylineOptions);
+      }
+    } catch (e) {
+      print('Error fetching or drawing route: $e');
+    }
+  }
+
+  // Fetch route coordinates from Mapbox Directions API
+  Future<List<Position>> _fetchRouteCoordinates(Position origin, Position destination) async {
+    try {
+      // Skip if either position is invalid
+      if (origin.lat == 0 || origin.lng == 0 || destination.lat == 0 || destination.lng == 0) {
+        return [];
+      }
+
+      final token = await TokenService.getToken();
+
+      // Use the Mapbox Directions API to get the route
+      final response = await http.get(
+        Uri.parse(
+            'https://api.mapbox.com/directions/v5/mapbox/driving/'
+                '${origin.lng},${origin.lat};${destination.lng},${destination.lat}'
+                '?geometries=geojson&access_token=$mapboxAccessToken'
+        ),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['routes'] != null && data['routes'].isNotEmpty) {
+          // Extract the route geometry
+          final geometry = data['routes'][0]['geometry'];
+
+          if (geometry != null && geometry['coordinates'] != null) {
+            // Convert coordinates to List<Position>
+            final List coordinates = geometry['coordinates'];
+            return coordinates.map((point) =>
+                Position(point[0].toDouble(), point[1].toDouble())
+            ).toList();
+          }
+        }
+      }
+
+      // If API call fails or no routes found, return a direct line
+      return [origin, destination];
+    } catch (e) {
+      print('Error fetching route: $e');
+      // Return a direct line as fallback
+      return [origin, destination];
     }
   }
 
@@ -339,7 +508,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       return const SizedBox.shrink();
     }
 
-    // Calculate estimated time and distance
+    // Calculate estimated time and distance from tracking data
     String estimatedTime = _tracking != null ? _tracking!.formattedETA : "15 menit";
     String distance = _tracking != null
         ? "${(_order!.store.distance).toStringAsFixed(1)} km"
@@ -918,6 +1087,12 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       return Position(_order!.store.longitude!, _order!.store.latitude!);
     }
 
+    // Try to get current location from location service
+    final position = _locationService.currentPosition;
+    if (position != null) {
+      return Position(position.longitude, position.latitude);
+    }
+
     // Fallback to default position (can be set to a central location in your service area)
     return Position(99.10279, 2.34379);
   }
@@ -946,11 +1121,14 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
         },
       );
 
-      // Call API to update order status (using OrderService)
-      // This would be the actual code to update the order status
-      // For now let's simulate it with a delay
-      await Future.delayed(const Duration(seconds: 1));
-      // await OrderService.updateOrderStatus(_order!.id, 'delivered');
+      // Call API to update order status through DriverService
+      // Updated to respond to driver request with 'complete' action
+      if (_order != null) {
+        await DriverService.respondToDriverRequest(_order!.id, 'complete');
+      }
+
+      // Stop location tracking when order is complete
+      _locationService.stopTracking();
 
       // Close loading dialog
       Navigator.pop(context);
@@ -1078,28 +1256,6 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       );
 
       await pointAnnotationManager?.create(storeOptions);
-    }
-  }
-
-  Future<void> _drawRoute() async {
-    if (polylineAnnotationManager == null) return;
-
-    // Clear existing annotations
-    await polylineAnnotationManager?.deleteAll();
-
-    // If we have tracking data with route coordinates, use them
-    if (_tracking != null) {
-      final List<Position> routeCoordinates = _tracking!.routeCoordinates.isNotEmpty
-          ? _tracking!.routeCoordinates
-          : [_tracking!.driverPosition, _tracking!.storePosition, _tracking!.customerPosition];
-
-      final polylineOptions = PolylineAnnotationOptions(
-        geometry: LineString(coordinates: routeCoordinates),
-        lineColor: Colors.blue.value,
-        lineWidth: 3.0,
-      );
-
-      await polylineAnnotationManager?.create(polylineOptions);
     }
   }
 

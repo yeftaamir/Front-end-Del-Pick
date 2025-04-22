@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/tracking.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:del_pick/Services/tracking_service.dart';
 import '../../Models/order_enum.dart';
 
@@ -24,32 +24,54 @@ class OrderStatusCard extends StatefulWidget {
 }
 
 class _OrderStatusCardState extends State<OrderStatusCard> {
-  // Audio player
   final AudioPlayer _audioPlayer = AudioPlayer();
   OrderStatus? _previousStatus;
 
-  // Tracking data
   Tracking? _tracking;
-  bool _isLoadingTracking = false;
-  String? _trackingError;
+  bool _isLoading = true;
+  String? _errorMessage;
 
-  // Status timeline definition
-  final List<Map<String, dynamic>> _statusTimeline = [
-    {'status': OrderStatus.driverHeadingToStore, 'label': 'Di Proses', 'icon': Icons.store_outlined, 'color': Colors.blue, 'animation': 'assets/animations/diproses.json'},
-    {'status': OrderStatus.driverAtStore, 'label': 'Di Ambil', 'icon': Icons.delivery_dining_outlined, 'color': Colors.orange, 'animation': 'assets/animations/diambil.json'},
-    {'status': OrderStatus.driverHeadingToCustomer, 'label': 'Di Antar', 'icon': Icons.directions_bike_outlined, 'color': Colors.purple, 'animation': 'assets/animations/diantar.json'},
-    {'status': OrderStatus.completed, 'label': 'Selesai', 'icon': Icons.check_circle_outline, 'color': Colors.green, 'animation': 'assets/animations/pesanan_selesai.json'},
+  // Status definitions
+  final List<Map<String, dynamic>> _statusSteps = [
+    {
+      'status': OrderStatus.driverHeadingToStore,
+      'label': 'Di Proses',
+      'icon': Icons.store_outlined,
+      'color': Colors.blue,
+      'animation': 'assets/animations/diproses.json',
+    },
+    {
+      'status': OrderStatus.driverAtStore,
+      'label': 'Di Ambil',
+      'icon': Icons.delivery_dining_outlined,
+      'color': Colors.orange,
+      'animation': 'assets/animations/diambil.json',
+    },
+    {
+      'status': OrderStatus.driverHeadingToCustomer,
+      'label': 'Di Antar',
+      'icon': Icons.directions_bike_outlined,
+      'color': Colors.purple,
+      'animation': 'assets/animations/diantar.json',
+    },
+    {
+      'status': OrderStatus.completed,
+      'label': 'Selesai',
+      'icon': Icons.check_circle_outline,
+      'color': Colors.green,
+      'animation': 'assets/animations/pesanan_selesai.json',
+    },
   ];
 
   @override
   void initState() {
     super.initState();
     _previousStatus = widget.order.status;
-    _fetchTrackingData();
+    _fetchTracking();
 
-    // Check if the status is already set to canceled
+    // Play cancel sound if order is already cancelled
     if (widget.order.status == OrderStatus.cancelled) {
-      _playCancelSound();
+      _audioPlayer.play(AssetSource('audio/found.wav'));
     }
   }
 
@@ -57,21 +79,18 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
   void didUpdateWidget(OrderStatusCard oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Refresh tracking data if order ID changes
+    // Fetch new tracking if order ID changes
     if (oldWidget.order.id != widget.order.id) {
-      _fetchTrackingData();
+      _fetchTracking();
     }
 
-    // Check if status has changed
+    // Handle status changes
     if (_previousStatus != widget.order.status) {
-      // Play sound for status change
       if (widget.order.status == OrderStatus.cancelled) {
-        _playCancelSound();
+        _audioPlayer.play(AssetSource('audio/found.wav'));
       } else {
-        _playStatusChangeSound();
+        _audioPlayer.play(AssetSource('audio/kring.mp3'));
       }
-
-      // Update previous status
       _previousStatus = widget.order.status;
     }
   }
@@ -82,72 +101,53 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
     super.dispose();
   }
 
-  // Fetch tracking data from TrackingService
-  Future<void> _fetchTrackingData() async {
-    if (widget.order.id.isEmpty) return;
+  // Fetch tracking data
+  Future<void> _fetchTracking() async {
+    if (widget.order.id.isEmpty) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
 
     setState(() {
-      _isLoadingTracking = true;
-      _trackingError = null;
+      _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
-      // Use the tracking service to get real-time tracking data
       final trackingData = await TrackingService.getOrderTracking(widget.order.id);
 
-      // If we have valid tracking data, update the state
-      if (trackingData != null) {
-        setState(() {
-          _tracking = Tracking.fromJson(trackingData);
-          _isLoadingTracking = false;
-        });
+      setState(() {
+        _tracking = Tracking.fromJson(trackingData);
+        _isLoading = false;
+      });
 
-        // Call the onStatusUpdate callback if provided
-        if (widget.onStatusUpdate != null) {
-          widget.onStatusUpdate!();
-        }
-      } else {
-        setState(() {
-          _tracking = widget.order.tracking; // Fall back to order's tracking if any
-          _isLoadingTracking = false;
-        });
+      if (widget.onStatusUpdate != null) {
+        widget.onStatusUpdate!();
       }
     } catch (e) {
       setState(() {
-        _trackingError = 'Gagal memuat data tracking: $e';
-        _isLoadingTracking = false;
-        _tracking = widget.order.tracking; // Fall back to order's tracking if any
+        _errorMessage = 'Gagal memuat data tracking: $e';
+        _isLoading = false;
       });
     }
   }
 
-  // Play normal status change sound
-  void _playStatusChangeSound() async {
-    await _audioPlayer.play(AssetSource('audio/kring.mp3'));
-  }
-
-  // Play cancel sound
-  void _playCancelSound() async {
-    await _audioPlayer.play(AssetSource('audio/found.wav'));
-  }
-
-  // Get status text
+  // Get current status text
   String _getStatusText(OrderStatus status) {
     switch (status) {
-      case OrderStatus.completed:
-        return 'Pesanan Selesai';
       case OrderStatus.cancelled:
         return 'Pesanan Dibatalkan';
+      case OrderStatus.completed:
+      case OrderStatus.delivered:
+        return 'Pesanan Selesai';
       case OrderStatus.pending:
         return 'Menunggu Konfirmasi';
       case OrderStatus.approved:
         return 'Pesanan Disetujui';
       case OrderStatus.preparing:
-        return 'Pesanan Sedang Dipersiapkan';
-      case OrderStatus.on_delivery:
-        return 'Pesanan Dalam Pengiriman';
-      case OrderStatus.delivered:
-        return 'Pesanan Telah Diterima';
+        return 'Sedang Dipersiapkan';
       case OrderStatus.driverAssigned:
         return 'Driver Ditugaskan';
       case OrderStatus.driverHeadingToStore:
@@ -155,9 +155,10 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
       case OrderStatus.driverAtStore:
         return 'Driver di Toko';
       case OrderStatus.driverHeadingToCustomer:
-        return 'Driver Menuju Lokasi Anda';
+      case OrderStatus.on_delivery:
+        return 'Driver Menuju Anda';
       case OrderStatus.driverArrived:
-        return 'Driver Tiba di Lokasi';
+        return 'Driver Tiba';
       default:
         return 'Pesanan Diproses';
     }
@@ -166,20 +167,17 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
   // Get status description
   String _getStatusDescription(OrderStatus status) {
     switch (status) {
-      case OrderStatus.completed:
-        return 'Pesanan Anda telah diterima dan selesai';
       case OrderStatus.cancelled:
         return 'Pesanan Anda telah dibatalkan';
+      case OrderStatus.completed:
+      case OrderStatus.delivered:
+        return 'Pesanan Anda telah diterima dan selesai';
       case OrderStatus.pending:
         return 'Pesanan Anda sedang menunggu konfirmasi';
       case OrderStatus.approved:
         return 'Pesanan Anda telah disetujui oleh toko';
       case OrderStatus.preparing:
         return 'Toko sedang mempersiapkan pesanan Anda';
-      case OrderStatus.on_delivery:
-        return 'Pesanan Anda sedang dalam perjalanan';
-      case OrderStatus.delivered:
-        return 'Pesanan Anda telah diterima';
       case OrderStatus.driverAssigned:
         return 'Driver telah ditugaskan untuk pesanan Anda';
       case OrderStatus.driverHeadingToStore:
@@ -187,6 +185,7 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
       case OrderStatus.driverAtStore:
         return 'Driver telah tiba di toko dan sedang mengambil pesanan Anda';
       case OrderStatus.driverHeadingToCustomer:
+      case OrderStatus.on_delivery:
         return 'Driver sedang dalam perjalanan mengantarkan pesanan ke lokasi Anda';
       case OrderStatus.driverArrived:
         return 'Driver telah tiba di lokasi Anda. Silahkan terima pesanan Anda';
@@ -195,199 +194,53 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
     }
   }
 
-  // Get color based on order status
+  // Get status color
   Color _getStatusColor(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.completed:
-      case OrderStatus.delivered:
-        return Colors.green;
-      case OrderStatus.cancelled:
-        return Colors.red;
-      case OrderStatus.pending:
-      case OrderStatus.approved:
-      case OrderStatus.driverAssigned:
-      case OrderStatus.driverHeadingToStore:
-      case OrderStatus.preparing:
-        return Colors.blue;
-      case OrderStatus.driverAtStore:
-        return Colors.orange;
-      case OrderStatus.on_delivery:
-      case OrderStatus.driverHeadingToCustomer:
-      case OrderStatus.driverArrived:
-        return Colors.purple;
-      default:
-        return GlobalStyle.primaryColor;
-    }
+    if (status == OrderStatus.cancelled) return Colors.red;
+    if (status == OrderStatus.completed || status == OrderStatus.delivered) return Colors.green;
+    if (status == OrderStatus.driverHeadingToCustomer || status == OrderStatus.on_delivery) return Colors.purple;
+    if (status == OrderStatus.driverAtStore) return Colors.orange;
+    return Colors.blue;
   }
 
-  // Get icon based on status
-  IconData _getStatusIcon(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.completed:
-      case OrderStatus.delivered:
-        return Icons.check_circle;
-      case OrderStatus.cancelled:
-        return Icons.cancel;
-      case OrderStatus.pending:
-        return Icons.hourglass_empty;
-      case OrderStatus.approved:
-        return Icons.thumb_up;
-      case OrderStatus.preparing:
-        return Icons.restaurant;
-      case OrderStatus.on_delivery:
-        return Icons.delivery_dining;
-      case OrderStatus.driverAssigned:
-        return Icons.person_add;
-      case OrderStatus.driverHeadingToStore:
-        return Icons.store;
-      case OrderStatus.driverAtStore:
-        return Icons.store;
-      case OrderStatus.driverHeadingToCustomer:
-        return Icons.delivery_dining;
-      case OrderStatus.driverArrived:
-        return Icons.location_on;
-      default:
-        return Icons.local_shipping;
-    }
+  // Get animation path for status
+  String _getAnimationPath(OrderStatus status) {
+    if (status == OrderStatus.cancelled) return 'assets/animations/cancel.json';
+    if (status == OrderStatus.completed || status == OrderStatus.delivered) return 'assets/animations/pesanan_selesai.json';
+    if (status == OrderStatus.driverHeadingToCustomer || status == OrderStatus.on_delivery) return 'assets/animations/diantar.json';
+    if (status == OrderStatus.driverAtStore) return 'assets/animations/diambil.json';
+    return 'assets/animations/diproses.json';
   }
 
-  // Get current status index for timeline visualization
-  int _getCurrentStatusIndex(OrderStatus currentStatus) {
-    // Map both old and new status types to the timeline positions
-    if (currentStatus == OrderStatus.completed ||
-        currentStatus == OrderStatus.delivered) {
-      return 3; // Completed status
-    } else if (currentStatus == OrderStatus.driverHeadingToCustomer ||
-        currentStatus == OrderStatus.driverArrived ||
-        currentStatus == OrderStatus.on_delivery) {
-      return 2; // On the way to customer
-    } else if (currentStatus == OrderStatus.driverAtStore) {
-      return 1; // At store
-    } else if (currentStatus == OrderStatus.pending ||
-        currentStatus == OrderStatus.approved ||
-        currentStatus == OrderStatus.driverAssigned ||
-        currentStatus == OrderStatus.driverHeadingToStore ||
-        currentStatus == OrderStatus.preparing) {
-      return 0; // Processing
-    }
-
-    return 0; // Default to processing
+  // Get current progress index (0-3)
+  int _getCurrentStepIndex(OrderStatus status) {
+    if (status == OrderStatus.completed || status == OrderStatus.delivered) return 3;
+    if (status == OrderStatus.driverHeadingToCustomer || status == OrderStatus.on_delivery) return 2;
+    if (status == OrderStatus.driverAtStore) return 1;
+    return 0;
   }
 
-  // Build the simple status indicator when no tracking is available
-  Widget _buildSimpleStatusIndicator() {
-    final status = _tracking?.status ?? widget.order.status;
-    final statusText = _getStatusText(status);
-    final statusColor = _getStatusColor(status);
-    final statusIcon = _getStatusIcon(status);
-    final statusDescription = _tracking?.statusMessage ??
-        widget.order.tracking?.statusMessage ??
-        _getStatusDescription(status);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
+  // Main card wrapper
+  Widget _buildCardWrapper({required Widget child}) {
+    final content = Container(
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(statusIcon, color: statusColor, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  statusText,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: statusColor,
-                    fontSize: 16,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  statusDescription,
-                  style: TextStyle(
-                    color: GlobalStyle.fontColor,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-              ],
-            ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-    );
-  }
-
-  // Build error widget if tracking data fails to load
-  Widget _buildErrorWidget() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.error_outline, color: Colors.orange),
-          const SizedBox(height: 8),
-          Text(
-            'Gagal memuat data tracking',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: GlobalStyle.fontColor,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _trackingError ?? 'Silahkan coba lagi nanti',
-            style: TextStyle(
-              color: GlobalStyle.fontColor,
-              fontFamily: GlobalStyle.fontFamily,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 8),
-          ElevatedButton(
-            onPressed: _fetchTrackingData,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: GlobalStyle.primaryColor,
-            ),
-            child: Text('Coba Lagi'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Get current status, prioritizing tracking data if available
-    final currentStatus = _tracking?.status ?? widget.order.status;
-
-    // Handle loading state
-    if (_isLoadingTracking) {
-      Widget loadingContent = Container(
+      child: Padding(
         padding: const EdgeInsets.all(16),
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Card header
             Row(
               children: [
                 Icon(Icons.delivery_dining, color: GlobalStyle.primaryColor),
@@ -397,256 +250,197 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: GlobalStyle.fontColor,
                     fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            const Center(
-              child: CircularProgressIndicator(),
-            ),
-            const SizedBox(height: 16),
+            // Card content
+            child,
+          ],
+        ),
+      ),
+    );
+
+    // Apply animation if provided
+    if (widget.animation != null) {
+      return SlideTransition(
+        position: widget.animation!,
+        child: content,
+      );
+    }
+
+    return content;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Loading state
+    if (_isLoading) {
+      return _buildCardWrapper(
+        child: const Center(
+          child: Column(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Memuat status pesanan...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Error state
+    if (_errorMessage != null) {
+      return _buildCardWrapper(
+        child: Column(
+          children: [
+            Icon(Icons.error_outline, color: Colors.orange),
+            const SizedBox(height: 8),
             Text(
-              'Memuat status pesanan...',
+              'Gagal memuat data tracking',
               style: TextStyle(
-                color: GlobalStyle.fontColor,
+                fontWeight: FontWeight.bold,
                 fontFamily: GlobalStyle.fontFamily,
               ),
             ),
-          ],
-        ),
-      );
-
-      // Apply animation if provided
-      if (widget.animation != null) {
-        return SlideTransition(
-          position: widget.animation!,
-          child: loadingContent,
-        );
-      }
-      return loadingContent;
-    }
-
-    // Handle error state
-    if (_trackingError != null && _tracking == null) {
-      Widget errorContent = Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.delivery_dining, color: GlobalStyle.primaryColor),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Status Pesanan',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 4),
+            Text(
+              _errorMessage!,
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: GlobalStyle.fontFamily,
               ),
-              const SizedBox(height: 16),
-              _buildErrorWidget(),
-            ],
-          ),
-        ),
-      );
-
-      // Apply animation if provided
-      if (widget.animation != null) {
-        return SlideTransition(
-          position: widget.animation!,
-          child: errorContent,
-        );
-      }
-      return errorContent;
-    }
-
-    // If no tracking data is available or it's a simple status, use simple version
-    if (_tracking == null) {
-      Widget content = Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              textAlign: TextAlign.center,
             ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.delivery_dining, color: GlobalStyle.primaryColor),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Status Pesanan',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _buildSimpleStatusIndicator(),
-            ],
-          ),
-        ),
-      );
-
-      // Apply animation if provided
-      if (widget.animation != null) {
-        return SlideTransition(
-          position: widget.animation!,
-          child: content,
-        );
-      }
-
-      return content;
-    }
-
-    // Handle cancelled status specially
-    if (currentStatus == OrderStatus.cancelled) {
-      return _buildCancelledCard();
-    }
-
-    // Get current status index for normal flow
-    final int currentStatusIndex = _getCurrentStatusIndex(currentStatus);
-
-    // Get current animation based on status
-    String currentAnimation = 'assets/animations/diproses.json';
-    for (var status in _statusTimeline) {
-      if (status['status'] == currentStatus) {
-        currentAnimation = status['animation'];
-        break;
-      }
-    }
-
-    // For statuses not in the timeline, map to the closest one
-    if (currentStatus == OrderStatus.on_delivery) {
-      currentAnimation = 'assets/animations/diantar.json';
-    } else if (currentStatus == OrderStatus.delivered ||
-        currentStatus == OrderStatus.completed) {
-      currentAnimation = 'assets/animations/pesanan_selesai.json';
-    } else if (currentStatus == OrderStatus.preparing ||
-        currentStatus == OrderStatus.approved) {
-      currentAnimation = 'assets/animations/diproses.json';
-    }
-
-    Widget content = Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.timeline, color: Colors.blue),
-              const SizedBox(width: 8),
-              Text(
-                'Status Pesanan',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: GlobalStyle.fontColor,
-                  fontFamily: GlobalStyle.fontFamily,
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _fetchTracking,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GlobalStyle.primaryColor,
+                  foregroundColor: Colors.white,
                 ),
-              ),
-            ],
-          ),
-          // Status animation
-          Center(
-            child: SizedBox(
-              height: 200,
-              child: Lottie.asset(
-                currentAnimation,
-                repeat: true,
+                child: const Text('Coba Lagi'),
               ),
             ),
+          ],
+        ),
+      );
+    }
+
+    // Get current status
+    final currentStatus = _tracking?.status ?? widget.order.status;
+
+    // Special case for cancelled orders
+    if (currentStatus == OrderStatus.cancelled) {
+      return _buildCardWrapper(
+        child: Column(
+          children: [
+            Lottie.asset(
+              'assets/animations/cancel.json',
+              height: 150,
+              repeat: true,
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    'Pesanan Dibatalkan',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _tracking?.statusMessage ?? _getStatusDescription(currentStatus),
+                    style: TextStyle(
+                      color: Colors.red[700],
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Regular order status with timeline
+    final currentStepIndex = _getCurrentStepIndex(currentStatus);
+
+    return _buildCardWrapper(
+      child: Column(
+        children: [
+          // Animation
+          Center(
+            child: Lottie.asset(
+              _getAnimationPath(currentStatus),
+              height: 150,
+              repeat: true,
+            ),
           ),
-          // Add padding to shift the status icons row to the right
+
+          // Progress steps
           Padding(
-            padding: const EdgeInsets.only(left: 50),
+            padding: const EdgeInsets.symmetric(vertical: 16),
             child: Row(
-              children: List.generate(_statusTimeline.length, (index) {
-                final isActive = index <= currentStatusIndex;
-                final isLast = index == _statusTimeline.length - 1;
+              children: List.generate(_statusSteps.length, (index) {
+                // Step circle
+                final isActive = index <= currentStepIndex;
+                final statusStep = _statusSteps[index];
 
                 return Expanded(
                   child: Row(
                     children: [
+                      // Step icon
                       Column(
                         children: [
                           Container(
                             width: 24,
                             height: 24,
                             decoration: BoxDecoration(
-                              color: isActive ? _statusTimeline[index]['color'] : Colors.grey[300],
+                              color: isActive ? statusStep['color'] : Colors.grey[300],
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
-                              _statusTimeline[index]['icon'],
+                              statusStep['icon'],
                               color: Colors.white,
                               size: 14,
                             ),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            _statusTimeline[index]['label'],
+                            statusStep['label'],
                             style: TextStyle(
                               fontSize: 10,
-                              color: isActive ? _statusTimeline[index]['color'] : Colors.grey,
+                              color: isActive ? statusStep['color'] : Colors.grey,
                               fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                               fontFamily: GlobalStyle.fontFamily,
                             ),
                           ),
                         ],
                       ),
-                      if (!isLast)
+
+                      // Connecting line (not for last item)
+                      if (index < _statusSteps.length - 1)
                         Expanded(
                           child: Container(
                             height: 2,
-                            color: index < currentStatusIndex ? _statusTimeline[index]['color'] : Colors.grey[300],
+                            color: index < currentStepIndex ? statusStep['color'] : Colors.grey[300],
                           ),
                         ),
                     ],
@@ -655,42 +449,52 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
               }),
             ),
           ),
-          const SizedBox(height: 12),
+
+          // Status description
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: _getStatusColor(currentStatus).withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Text(
-              _tracking?.statusMessage ?? _getStatusDescription(currentStatus),
-              style: TextStyle(
-                color: _getStatusColor(currentStatus),
-                fontWeight: FontWeight.w600,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
+            child: Column(
+              children: [
+                Text(
+                  _getStatusText(currentStatus),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _getStatusColor(currentStatus),
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _tracking?.statusMessage ?? _getStatusDescription(currentStatus),
+                  style: TextStyle(
+                    color: _getStatusColor(currentStatus).withOpacity(0.8),
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
           ),
-          // Show driver info if available
-          if (_tracking != null && currentStatus != OrderStatus.completed &&
-              currentStatus != OrderStatus.cancelled)
+
+          // Driver info (if available)
+          if (_tracking != null && _tracking!.driverName.isNotEmpty && currentStatus != OrderStatus.completed)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.delivery_dining,
-                    color: GlobalStyle.primaryColor,
-                    size: 18,
-                  ),
+                  Icon(Icons.person, size: 16, color: GlobalStyle.primaryColor),
                   const SizedBox(width: 8),
                   Text(
                     'Driver: ${_tracking!.driverName}',
                     style: TextStyle(
                       fontFamily: GlobalStyle.fontFamily,
-                      fontSize: 12,
+                      fontSize: 14,
                     ),
                   ),
                   const Spacer(),
@@ -703,19 +507,14 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
                       ),
                       child: Row(
                         children: [
-                          Icon(
-                            Icons.access_time,
-                            color: Colors.blue,
-                            size: 14,
-                          ),
+                          const Icon(Icons.access_time, color: Colors.blue, size: 14),
                           const SizedBox(width: 4),
                           Text(
                             'ETA: ${_tracking!.formattedETA}',
-                            style: TextStyle(
+                            style: const TextStyle(
                               color: Colors.blue,
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
-                              fontFamily: GlobalStyle.fontFamily,
                             ),
                           ),
                         ],
@@ -727,94 +526,5 @@ class _OrderStatusCardState extends State<OrderStatusCard> {
         ],
       ),
     );
-
-    // Apply animation if provided
-    if (widget.animation != null) {
-      return SlideTransition(
-        position: widget.animation!,
-        child: content,
-      );
-    }
-
-    return content;
-  }
-
-  // Special widget for cancelled status
-  Widget _buildCancelledCard() {
-    Widget content = Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.red),
-              const SizedBox(width: 8),
-              Text(
-                'Pesanan Dibatalkan',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-              ),
-            ],
-          ),
-          // Cancelled animation
-          Center(
-            child: SizedBox(
-              height: 200,
-              child: Lottie.asset(
-                'assets/animations/cancel.json',
-                repeat: true,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.red.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              _tracking?.statusMessage ??
-                  widget.order.tracking?.statusMessage ??
-                  _getStatusDescription(OrderStatus.cancelled),
-              style: TextStyle(
-                color: Colors.red,
-                fontWeight: FontWeight.w600,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    // Apply animation if provided
-    if (widget.animation != null) {
-      return SlideTransition(
-        position: widget.animation!,
-        child: content,
-      );
-    }
-
-    return content;
   }
 }
