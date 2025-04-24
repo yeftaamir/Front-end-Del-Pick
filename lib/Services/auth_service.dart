@@ -347,5 +347,9 @@ class AuthService {
 
       return false;
     }
+
+    void dummy1(){
+
+    }
   }
 }
