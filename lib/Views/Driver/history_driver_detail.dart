@@ -1533,10 +1533,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               ),
               child: Row(
                 children: [
-                  _driverData?.profileImageUrl != null && _driverData!.profileImageUrl!.isNotEmpty ?
+                  _driverData?.avatar != null && _driverData!.avatar!.isNotEmpty ?
                   ClipOval(
                     child: ImageService.displayImage(
-                      imageSource: _driverData!.profileImageUrl!,
+                      imageSource: _driverData!.avatar!,
                       width: 60,
                       height: 60,
                       fit: BoxFit.cover,

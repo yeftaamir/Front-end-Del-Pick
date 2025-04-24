@@ -403,9 +403,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
             const SizedBox(height: 16),
             Row(
               children: [
-                _customer?.profileImageUrl != null && _customer!.profileImageUrl!.isNotEmpty
+                _customer?.avatar != null && _customer!.avatar!.isNotEmpty
                     ? ImageService.displayImage(
-                  imageSource: _customer!.profileImageUrl!,
+                  imageSource: _customer!.avatar!,
                   width: 60,
                   height: 60,
                   borderRadius: BorderRadius.circular(30),
@@ -960,9 +960,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           child: Row(
                             children: [
-                              _customer?.profileImageUrl != null && _customer!.profileImageUrl!.isNotEmpty
+                              _customer?.avatar != null && _customer!.avatar!.isNotEmpty
                                   ? ImageService.displayImage(
-                                imageSource: _customer!.profileImageUrl!,
+                                imageSource: _customer!.avatar!,
                                 width: 50,
                                 height: 50,
                                 borderRadius: BorderRadius.circular(25),

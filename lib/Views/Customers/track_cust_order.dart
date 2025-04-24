@@ -894,7 +894,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                   border: Border.all(color: Colors.grey[300]!),
                 ),
                 child: ClipOval(
-                  child: driver.profileImageUrl != null && driver.profileImageUrl!.isNotEmpty
+                  child: driver.avatar != null && driver.avatar!.isNotEmpty
                       ? Image.network(
                     driver.getProcessedImageUrl() ?? '',
                     fit: BoxFit.cover,

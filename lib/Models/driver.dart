@@ -8,7 +8,7 @@ class Driver {
   final String vehicleNumber;
   final String email;
   final String role;
-  final String? profileImageUrl;
+  final String? avatar;
   final int reviewsCount;
   final double? latitude;    // Added to match backend
   final double? longitude;   // Added to match backend
@@ -22,7 +22,7 @@ class Driver {
     required this.vehicleNumber,
     required this.email,
     required this.role,
-    this.profileImageUrl,
+    this.avatar,
     this.reviewsCount = 0,
     this.latitude,
     this.longitude,
@@ -46,7 +46,7 @@ class Driver {
       vehicleNumber: data['vehicle_number'] ?? '',
       email: data['email'] ?? '',
       role: data['role'] ?? 'driver',
-      profileImageUrl: avatarUrl,
+      avatar: avatarUrl,
       reviewsCount: data['reviews_count'] as int? ?? 0,
       latitude: data['latitude'] != null ? double.tryParse(data['latitude'].toString()) : null,
       longitude: data['longitude'] != null ? double.tryParse(data['longitude'].toString()) : null,
@@ -74,7 +74,7 @@ class Driver {
       vehicleNumber: driverData['vehicle_number'] ?? '',
       email: userData['email'] ?? '',
       role: userData['role'] ?? 'driver',
-      profileImageUrl: avatarUrl,
+      avatar: avatarUrl,
       reviewsCount: driverData['reviews_count'] as int? ?? 0,
       latitude: driverData['latitude'] != null ? double.tryParse(driverData['latitude'].toString()) : null,
       longitude: driverData['longitude'] != null ? double.tryParse(driverData['longitude'].toString()) : null,
@@ -92,7 +92,7 @@ class Driver {
       'vehicle_number': vehicleNumber,
       'email': email,
       'role': role,
-      'avatar': profileImageUrl,
+      'avatar': avatar,
       'reviews_count': reviewsCount,
       'latitude': latitude,
       'longitude': longitude,
@@ -110,7 +110,7 @@ class Driver {
       vehicleNumber: '',
       email: '',
       role: 'driver',
-      profileImageUrl: '',
+      avatar: '',
       status: 'inactive',
     );
   }
@@ -124,7 +124,7 @@ class Driver {
     String? vehicleNumber,
     String? email,
     String? role,
-    String? profileImageUrl,
+    String? avatar,
     int? reviewsCount,
     double? latitude,
     double? longitude,
@@ -138,7 +138,7 @@ class Driver {
       vehicleNumber: vehicleNumber ?? this.vehicleNumber,
       email: email ?? this.email,
       role: role ?? this.role,
-      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+      avatar: avatar ?? this.avatar,
       reviewsCount: reviewsCount ?? this.reviewsCount,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
@@ -148,9 +148,9 @@ class Driver {
 
   // Get the processed profile image URL
   String? getProcessedImageUrl() {
-    if (profileImageUrl == null || profileImageUrl!.isEmpty) {
+    if (avatar == null || avatar!.isEmpty) {
       return null;
     }
-    return ImageService.getImageUrl(profileImageUrl!);
+    return ImageService.getImageUrl(avatar!);
   }
 }

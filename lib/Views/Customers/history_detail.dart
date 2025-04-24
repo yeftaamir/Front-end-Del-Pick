@@ -216,7 +216,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         widget.order.tracking?.vehicleNumber ??
         '-';
 
-    final String? driverImageUrl = _driver?.profileImageUrl ??
+    final String? driverImageUrl = _driver?.avatar ??
         widget.order.tracking?.driverImageUrl;
 
     // Get driver rating

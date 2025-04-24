@@ -13,6 +13,7 @@
         android:label="Del-Pick"
         android:name="${applicationName}"
         android:icon="@mipmap/delpick">
+        android:usesCleartextTraffic="true"
 
         <!-- Mapbox token configuration -->
         <meta-data

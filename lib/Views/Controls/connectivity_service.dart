@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 // Kelas untuk mengelola konektivitas di seluruh aplikasi
 class ConnectivityService extends ChangeNotifier {
@@ -35,6 +37,18 @@ class ConnectivityService extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> _testHttpRequest() async {
+    try {
+      final response = await http.get(Uri.parse('https://delpick.horas-code.my.id/'));
+      print('HTTP response status: ${response.statusCode}');
+      print('HTTP response body (first 100 chars): ${response.body.substring(0, min(100, response.body.length))}');
+    } catch (e) {
+      print('HTTP request error: $e');
+    }
+  }
+
+
 
   // Pastikan subscription dibatalkan saat service tidak digunakan
   void dispose() {

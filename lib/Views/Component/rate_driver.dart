@@ -222,7 +222,7 @@ class _RateDriverState extends State<RateDriver> {
         ? widget.driver.vehicleNumber
         : 'No Plate';
 
-    final String? profileImageUrl = widget.driver.getProcessedImageUrl();
+    final String? avatar = widget.driver.getProcessedImageUrl();
 
     return _buildInfoSection(
       title: 'Informasi Driver',
@@ -243,9 +243,9 @@ class _RateDriverState extends State<RateDriver> {
                 child: SizedBox(
                   width: 60,
                   height: 60,
-                  child: profileImageUrl != null && profileImageUrl.isNotEmpty
+                  child: avatar != null && avatar.isNotEmpty
                       ? CachedNetworkImage(
-                    imageUrl: profileImageUrl,
+                    imageUrl: avatar,
                     fit: BoxFit.cover,
                     placeholder: (context, url) => Container(
                       decoration: BoxDecoration(

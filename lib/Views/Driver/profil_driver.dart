@@ -278,11 +278,11 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> {
                     width: 2,
                   ),
                 ),
-                child: _driver?.profileImageUrl != null
+                child: _driver?.avatar != null
                     ? CircleAvatar(
                   radius: 60,
                   backgroundImage: NetworkImage(
-                    ImageService.getImageUrl(_driver?.profileImageUrl),
+                    ImageService.getImageUrl(_driver?.avatar),
                   ),
                 )
                     : CircleAvatar(

@@ -1256,12 +1256,12 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                                   color: GlobalStyle.lightColor.withOpacity(0.3),
                                   shape: BoxShape.circle,
                                 ),
-                                child: _currentDriver?.profileImageUrl != null &&
-                                    _currentDriver!.profileImageUrl!.isNotEmpty
+                                child: _currentDriver?.avatar != null &&
+                                    _currentDriver!.avatar!.isNotEmpty
                                     ? ClipRRect(
                                   borderRadius: BorderRadius.circular(50),
                                   child: Image.network(
-                                    _currentDriver!.profileImageUrl!,
+                                    _currentDriver!.avatar!,
                                     width: 30,
                                     height: 30,
                                     fit: BoxFit.cover,

@@ -907,7 +907,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     final String driverName = _driver?.name ?? _orderData['driver']?['name'] ?? 'Driver';
     final String vehicleNumber = _driver?.vehicleNumber ?? _orderData['driver']?['vehicle_number'] ?? '';
     final String phoneNumber = _driver?.phoneNumber ?? _orderData['driver']?['phone'] ?? '';
-    final String? profileImageUrl = _driver?.profileImageUrl ?? _orderData['driver']?['avatar'];
+    final String? avatar = _driver?.avatar ?? _orderData['driver']?['avatar'];
 
     return _buildCard(
       index: 1,
@@ -934,11 +934,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             Row(
               children: [
                 // Show driver image if available, otherwise a placeholder
-                if (profileImageUrl != null && profileImageUrl.isNotEmpty)
+                if (avatar != null && avatar.isNotEmpty)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(25),
                     child: ImageService.displayImage(
-                      imageSource: profileImageUrl,
+                      imageSource: avatar,
                       width: 50,
                       height: 50,
                       fit: BoxFit.cover,
@@ -1048,7 +1048,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         _orderData['phoneNumber'] ?? '';
     final String deliveryAddress = _orderData['deliveryAddress'] ??
         _orderData['customerAddress'] ?? '';
-    final String? profileImageUrl = _customer?.profileImageUrl ??
+    final String? avatar = _customer?.avatar ??
         _orderData['customer']?['avatar'];
 
     return _buildCard(
@@ -1077,11 +1077,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             Row(
               children: [
                 // Show customer image if available, otherwise a placeholder
-                if (profileImageUrl != null && profileImageUrl.isNotEmpty)
+                if (avatar != null && avatar.isNotEmpty)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(30),
                     child: ImageService.displayImage(
-                      imageSource: profileImageUrl,
+                      imageSource: avatar,
                       width: 60,
                       height: 60,
                       fit: BoxFit.cover,

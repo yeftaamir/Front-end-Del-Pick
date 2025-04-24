@@ -17,7 +17,7 @@ class Tracking {
   final String? customStatusMessage;
 
   // Add these getters to access driver properties directly from Tracking
-  String get driverImageUrl => driver.profileImageUrl ?? '';
+  String get driverImageUrl => driver.avatar ?? '';
   String get driverName => driver.name;
   String get vehicleNumber => driver.vehicleNumber;
 
