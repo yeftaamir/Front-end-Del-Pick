@@ -47,7 +47,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   String _errorMessage = '';
 
   // Save the original item ID
-  int? _originalItemId;
+  String? _originalItemId;
 
   // Animation controllers
   late List<AnimationController> _cardControllers;
@@ -120,7 +120,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _quantity = menuItem.quantity;
     _selectedImageUrl = menuItem.imageUrl;
     _selectedStatus = menuItem.status.toLowerCase();
-    _originalItemId = menuItem.id;
+    _originalItemId = menuItem.id.toString();
   }
 
   void _initializeFromItem(Item item) {
@@ -131,7 +131,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _quantity = item.quantity;
     _selectedImageUrl = item.imageUrl;
     _selectedStatus = item.status.toLowerCase();
-    _originalItemId = int.tryParse(item.id);
+    _originalItemId = item.id;
   }
 
   void _onChange() {
@@ -199,9 +199,16 @@ class _AddEditItemFormState extends State<AddEditItemForm>
 
   Future<void> _showConfirmationDialog() async {
     // Validate inputs first
-    if (_nameController.text.isEmpty || _priceController.text.isEmpty) {
+    if (_nameController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Name and price are required')),
+        const SnackBar(content: Text('Nama item harus diisi')),
+      );
+      return;
+    }
+
+    if (_priceController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Harga harus diisi')),
       );
       return;
     }
@@ -293,56 +300,49 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     try {
       final String name = _nameController.text;
       final String description = _descriptionController.text;
-      final double price = double.tryParse(_priceController.text) ?? 0.0;
+      final double price = double.tryParse(_priceController.text.replaceAll(',', '').replaceAll('.', '')) ?? 0.0;
       final int stock = int.tryParse(_stockController.text) ?? 0;
       final bool isAvailable = _selectedStatus == 'available';
 
-      // Prepare image URL - could be existing URL or base64 data
-      final String imageUrl = _selectedImageUrl ?? '';
+      // Prepare item data
+      Map<String, dynamic> menuItemData = {
+        'name': name,
+        'description': description,
+        'price': price,
+        'quantity': stock,
+        'isAvailable': isAvailable,
+        'status': _selectedStatus,
+      };
 
       if (_originalItemId != null) {
-        // Update existing item
-        final Map<String, dynamic> itemData = {
-          'name': name,
-          'description': description,
-          'price': price,
-          'quantity': stock,
-          'isAvailable': isAvailable,
-          'status': _selectedStatus,
-        };
+        // Update existing item using updated MenuService.updateMenuItem method
+        final updatedItem = await MenuService.updateMenuItem(_originalItemId!, menuItemData);
 
-        // Update the item data first
-        final bool updated = await MenuService.updateItem(_originalItemId!, itemData);
+        // If we have a new image, upload it separately
+        if (_imageData != null && updatedItem != null) {
+          // Create a new data object just for the image
+          Map<String, dynamic> imageUpdateData = {
+            'imageUrl': _imageData!['base64'],
+          };
 
-        // If we have a new image, upload it
-        if (_imageData != null && updated) {
-          // No need to manually extract base64 data - the service handles it
-          await MenuService.uploadItemImage(_originalItemId!, _imageData!['base64']);
+          // Update the item with the new image
+          await MenuService.updateMenuItem(_originalItemId!, imageUpdateData);
         }
 
         _showSuccessAnimation();
       } else {
-        // Add new item
-        final Item newItem = await MenuService.addItem(
-            name,
-            price.toInt(),
-            description,
-            stock,
-            imageUrl,
-            isAvailable
-        );
-
-        // If we have a new image, upload it
-        if (_imageData != null) {
-          // Parse the ID from the new item
-          final int itemId = int.tryParse(newItem.id) ?? 0;
-          if (itemId > 0) {
-            // No need to manually extract base64 data - the service handles it
-            await MenuService.uploadItemImage(itemId, _imageData!['base64']);
-          }
+        // Add new item using updated MenuService.createMenuItem method
+        if (_selectedImageUrl != null && _selectedImageUrl!.isNotEmpty) {
+          menuItemData['imageUrl'] = _selectedImageUrl;
         }
 
-        _showSuccessAnimation();
+        final createdItem = await MenuService.createMenuItem(menuItemData);
+
+        if (createdItem != null) {
+          _showSuccessAnimation();
+        } else {
+          throw Exception('Failed to create menu item');
+        }
       }
     } catch (e) {
       setState(() {
@@ -469,6 +469,20 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     );
   }
 
+  // Format currency for display in the price field
+  String _formatCurrency(String value) {
+    if (value.isEmpty) return '';
+
+    // Remove all non-numeric characters
+    String cleanValue = value.replaceAll(RegExp(r'[^\d]'), '');
+
+    // Convert to double
+    double amount = double.tryParse(cleanValue) ?? 0;
+
+    // Format using GlobalStyle
+    return GlobalStyle.formatRupiah(amount);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Return full image view if in full image mode
@@ -537,7 +551,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
             }),
           ),
           title: Text(
-            _originalItemId != null ? 'Edit Item' : 'Add Item',
+            _originalItemId != null ? 'Edit Item' : 'Tambah Item',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -632,6 +646,25 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                           keyboardType: TextInputType.number,
                           prefix: 'Rp ',
                           icon: Icons.monetization_on_outlined,
+                          onChanged: (value) {
+                            final cleanValue = value.replaceAll(RegExp(r'[^\d]'), '');
+                            if (cleanValue.isNotEmpty) {
+                              final double amount = double.tryParse(cleanValue) ?? 0;
+                              final formatted = GlobalStyle.formatRupiah(amount);
+
+                              // Only update if the formatting actually changed something
+                              if (formatted != value) {
+                                // Keep cursor position relative to the end
+                                final cursorPosition = _priceController.text.length - _priceController.selection.extentOffset;
+                                _priceController.value = TextEditingValue(
+                                  text: formatted.replaceAll('Rp ', ''),
+                                  selection: TextSelection.collapsed(
+                                    offset: formatted.replaceAll('Rp ', '').length - cursorPosition,
+                                  ),
+                                );
+                              }
+                            }
+                          },
                         ),
                         const SizedBox(height: 16),
                         _buildInputField(
@@ -1064,6 +1097,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     String? hint,
     int maxLines = 1,
     IconData? icon,
+    Function(String)? onChanged,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1088,6 +1122,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
           controller: controller,
           keyboardType: keyboardType,
           maxLines: maxLines,
+          onChanged: onChanged,
           decoration: InputDecoration(
             filled: true,
             fillColor: GlobalStyle.lightColor.withOpacity(0.3),

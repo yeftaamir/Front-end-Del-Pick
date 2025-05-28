@@ -1,3 +1,5 @@
+// lib/Models/order_enum.dart
+
 // Payment method enum
 enum PaymentMethod {
   cash, // Only accepting cash as per requirement
@@ -19,7 +21,6 @@ enum OrderStatus {
   on_delivery,    // New status from backend
   delivered,      // New status from backend
   cancelled,      // Kept from original FE
-
   // Keep original FE statuses for backward compatibility
   driverAssigned,
   driverHeadingToStore,

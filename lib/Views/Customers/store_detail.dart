@@ -26,11 +26,15 @@ class StoreDetail extends StatefulWidget {
 class _StoreDetailState extends State<StoreDetail> {
   late List<MenuItem> menuItems = [];
   late List<MenuItem> filteredItems = [];
+  // Map to track original item stock
+  Map<int, int> originalStockMap = {};
+
   late PageController _pageController;
   late Timer _timer;
   int _currentPage = 0;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   final AudioPlayer _audioPlayer = AudioPlayer(); // Audio player instance
   bool _isLoading = true; // Add loading state
   bool _isLoadingLocation = true; // Loading state for location
@@ -54,12 +58,28 @@ class _StoreDetailState extends State<StoreDetail> {
 
   Future<void> fetchMenuItems(String storeId) async {
     try {
-      List<MenuItem> fetchedMenuItems =
-      await MenuService.fetchMenuItemsByStoreId(storeId);
+      // Updated to use the new service method getMenuItemsByStoreId
+      final menuData = await MenuService.getMenuItemsByStoreId(storeId);
+
+      // Extract the menuItems array from the response data
+      List<dynamic> menuItemsJson = menuData['menuItems'] ?? [];
+
+      // Convert to MenuItem objects
+      List<MenuItem> fetchedMenuItems = menuItemsJson
+          .map((json) => MenuItem.fromJson(json))
+          .toList();
 
       setState(() {
         menuItems = fetchedMenuItems;
         filteredItems = fetchedMenuItems;
+
+        // Store original stock quantities
+        for (var item in menuItems) {
+          originalStockMap[item.id] = item.quantity;
+          // Initialize each item's quantity to 0
+          item.quantity = 0;
+        }
+
         _isLoading = false;
       });
     } catch (e) {
@@ -72,8 +92,12 @@ class _StoreDetailState extends State<StoreDetail> {
 
   Future<void> getDetailStore(int storeId) async {
     try {
-      final storeDetail = await StoreService.fetchStoreById(storeId);
-      print(storeDetail);
+      // Updated to use the new service method getStoreById
+      final storeData = await StoreService.getStoreById(storeId.toString());
+
+      // Convert the returned data to a Store object
+      final storeDetail = Store.fromJson(storeData);
+
       setState(() {
         _storeDetail = storeDetail;
         // Calculate distance if we have both store and user location
@@ -135,8 +159,8 @@ class _StoreDetailState extends State<StoreDetail> {
     double distanceInMeters = Geolocator.distanceBetween(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
-      _storeDetail.latitude,
-      _storeDetail.longitude,
+      _storeDetail.latitude!,
+      _storeDetail.longitude!,
     );
 
     // Convert to kilometers
@@ -164,7 +188,7 @@ class _StoreDetailState extends State<StoreDetail> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    final int storeId = ModalRoute.of(context)!.settings.arguments as int;
+    final int storeId = ModalRoute.of(context)!.settings.arguments as int? ?? 0;
     fetchMenuItems(storeId.toString());
     getDetailStore(storeId);
     _getCurrentLocation(); // Get location when screen loads
@@ -176,159 +200,33 @@ class _StoreDetailState extends State<StoreDetail> {
     filteredItems = List<MenuItem>.from(menuItems);
     _pageController = PageController(viewportFraction: 0.8, initialPage: 0);
     _startAutoScroll();
+
+    // Add listener for search text changes - this is the key improvement for real-time search
+    _searchController.addListener(() {
+      _performSearch();
+    });
   }
 
+  // Improved search method that will be called directly from the TextEditingController listener
   void _performSearch() {
-    final query = _searchController.text;
-    final results = query.isEmpty
-        ? List<MenuItem>.from(menuItems)
-        : menuItems
-        .where(
-            (item) => item.name.toLowerCase().contains(query.toLowerCase()))
-        .toList();
+    final query = _searchController.text.trim().toLowerCase();
 
-    _showSearchResults(results);
-  }
+    if (query.isEmpty) {
+      setState(() {
+        filteredItems = List<MenuItem>.from(menuItems);
+      });
+    } else {
+      List<MenuItem> results = menuItems
+          .where((item) =>
+      item.name.toLowerCase().contains(query) ||
+          (item.description != null &&
+              item.description!.toLowerCase().contains(query)))
+          .toList();
 
-  void _showSearchResults(List<MenuItem> results) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.2,
-        maxChildSize: 0.9,
-        builder: (context, scrollController) {
-          return Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  margin: const EdgeInsets.symmetric(vertical: 12),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Search Results (${results.length})',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: ListView.builder(
-                    controller: scrollController,
-                    itemCount: results.length,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemBuilder: (context, index) {
-                      final item = results[index];
-                      return Opacity(
-                        opacity: item.isAvailable ? 1.0 : 0.5,
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.pop(context);
-                            if (item.isAvailable) {
-                              _showItemDetail(item);
-                            } else {
-                              _showItemUnavailableDialog();
-                            }
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 16),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.grey.withOpacity(0.2),
-                                  spreadRadius: 1,
-                                  blurRadius: 6,
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: ImageService.displayImage(
-                                    imageSource: item.getProcessedImageUrl(),
-                                    width: 80,
-                                    height: 80,
-                                    fit: BoxFit.cover,
-                                    placeholder: Container(
-                                      width: 80,
-                                      height: 80,
-                                      color: Colors.grey[200],
-                                      child: const Icon(Icons.restaurant_menu),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        item.name,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        GlobalStyle.formatRupiah(item.price),
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: GlobalStyle.primaryColor,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      if (!item.isAvailable)
-                                        Container(
-                                          margin: const EdgeInsets.only(top: 4),
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: Colors.red.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: const Text(
-                                            'Tidak tersedia',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.red,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
+      setState(() {
+        filteredItems = results;
+      });
+    }
   }
 
   void _startAutoScroll() {
@@ -356,8 +254,16 @@ class _StoreDetailState extends State<StoreDetail> {
     _pageController.dispose();
     _timer.cancel();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     _audioPlayer.dispose(); // Dispose the audio player
     super.dispose();
+  }
+
+  // Calculate remaining stock for an item
+  int _getRemainingStock(MenuItem item) {
+    int originalStock = originalStockMap[item.id] ?? 0;
+    int cartQuantity = item.quantity;
+    return originalStock - cartQuantity;
   }
 
   // Show dialog for quantity 0
@@ -390,6 +296,80 @@ class _StoreDetailState extends State<StoreDetail> {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text(
+                      'Mengerti',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Show dialog for out of stock
+  void _showOutOfStockDialog() {
+    // Play the wrong sound
+    _audioPlayer.play(AssetSource('audio/wrong.mp3'));
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.white,
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/caution.json',
+                  height: 200,
+                  width: 200,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Stok item tidak mencukupi',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Mohon kurangi jumlah pesanan atau pilih item lain',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -505,11 +485,15 @@ class _StoreDetailState extends State<StoreDetail> {
       return;
     }
 
+    // Check if there's enough stock
+    if (_getRemainingStock(item) <= 0) {
+      _showOutOfStockDialog();
+      return;
+    }
+
+    // Increment quantity by 1 when adding to cart
     setState(() {
-      // If quantity is 0, set it to 1
-      if (item.quantity == 0) {
-        item.quantity = 1;
-      }
+      item.quantity += 1;
     });
   }
 
@@ -526,6 +510,12 @@ class _StoreDetailState extends State<StoreDetail> {
   void _incrementItem(MenuItem item) {
     if (!item.isAvailable) {
       _showItemUnavailableDialog();
+      return;
+    }
+
+    // Check if there's enough stock
+    if (_getRemainingStock(item) <= 0) {
+      _showOutOfStockDialog();
       return;
     }
 
@@ -546,12 +536,14 @@ class _StoreDetailState extends State<StoreDetail> {
       backgroundColor: Colors.transparent,
       builder: (context) => DraggableItemDetail(
         item: item,
+        availableStock: _getRemainingStock(item),
         onQuantityChanged: (int quantity) {
           setState(() {
             item.quantity = quantity;
           });
         },
         onZeroQuantity: _showZeroQuantityDialog,
+        onOutOfStock: _showOutOfStockDialog,
       ),
     );
   }
@@ -585,9 +577,11 @@ class _StoreDetailState extends State<StoreDetail> {
     );
   }
 
+  // Improved search bar in header
   Widget _buildHeader() {
     return Stack(
       children: [
+        // Store banner image
         SizedBox(
           width: double.infinity,
           height: 230,
@@ -606,100 +600,109 @@ class _StoreDetailState extends State<StoreDetail> {
             ),
           ),
         ),
-        Positioned(
-          top: 40,
-          left: 16,
-          right: 16,
-          child: Row(
-            children: [
-              InkWell(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(color: Colors.black26, blurRadius: 6)
-                    ],
-                  ),
-                  child: const Icon(Icons.arrow_back_ios_new,
-                      color: Colors.blue, size: 16),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  width: _isSearching ? double.infinity : 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.black26, blurRadius: 6)
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        width: 40,
-                        child: Center(
-                          child: InkWell(
-                            onTap: () {
-                              if (_isSearching) {
-                                _performSearch();
-                              } else {
-                                setState(() {
-                                  _isSearching = true;
-                                });
-                              }
-                            },
-                            child: Icon(
-                              _isSearching ? Icons.search : Icons.search,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ),
+
+        // Back button and search bar
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8, left: 16, right: 16),
+            child: Row(
+              children: [
+                // Back button
+                Material(
+                  elevation: 4,
+                  borderRadius: BorderRadius.circular(24),
+                  color: Colors.white,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      height: 40,
+                      width: 40,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
                       ),
-                      Expanded(
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 300),
-                          opacity: _isSearching ? 1.0 : 0.0,
-                          child: _isSearching
-                              ? Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _searchController,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Search menu...',
-                                    border: InputBorder.none,
-                                    contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 8),
-                                  ),
+                      child: const Icon(
+                        Icons.arrow_back_ios_new,
+                        color: Colors.blue,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 12),
+
+                // Improved search bar that always shows the TextField
+                Expanded(
+                  child: Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(24),
+                    color: Colors.white,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: () {
+                        setState(() {
+                          _isSearching = true;
+                        });
+                        FocusScope.of(context).requestFocus(_searchFocusNode);
+                      },
+                      child: Container(
+                        height: 40,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            // Search icon
+                            const Icon(
+                              Icons.search,
+                              color: Colors.blue,
+                              size: 20,
+                            ),
+
+                            const SizedBox(width: 8),
+
+                            // Always show TextField for better UX
+                            Expanded(
+                              child: TextField(
+                                controller: _searchController,
+                                focusNode: _searchFocusNode,
+                                decoration: const InputDecoration(
+                                  hintText: 'Cari menu...',
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.zero,
+                                  isDense: true,
                                 ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () {
+                                style: const TextStyle(fontSize: 14),
+                                onTap: () {
                                   setState(() {
-                                    _isSearching = false;
-                                    _searchController.clear();
+                                    _isSearching = true;
                                   });
                                 },
                               ),
-                            ],
-                          )
-                              : const SizedBox(),
+                            ),
+
+                            // Clear button - visible when there's text input
+                            if (_searchController.text.isNotEmpty)
+                              GestureDetector(
+                                onTap: () {
+                                  _searchController.clear();
+                                  setState(() {
+                                    filteredItems = List<MenuItem>.from(menuItems);
+                                  });
+                                },
+                                child: const Icon(
+                                  Icons.close,
+                                  color: Colors.grey,
+                                  size: 18,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ],
@@ -889,6 +892,25 @@ class _StoreDetailState extends State<StoreDetail> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 4),
+                    // Stock information
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.inventory_2_outlined,
+                          size: 14,
+                          color: _getRemainingStock(item) > 0 ? Colors.grey : Colors.red,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Stok: ${_getRemainingStock(item)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _getRemainingStock(item) > 0 ? Colors.grey : Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -928,7 +950,19 @@ class _StoreDetailState extends State<StoreDetail> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          // Add search results count when searching
+          _searchController.text.isNotEmpty
+              ? Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              "Hasil pencarian: ${filteredItems.length} items",
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+          )
+              : const Text(
             "Menu",
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
@@ -942,7 +976,9 @@ class _StoreDetailState extends State<StoreDetail> {
                   Icon(Icons.restaurant_menu, size: 60, color: Colors.grey[400]),
                   const SizedBox(height: 16),
                   Text(
-                    'No menu items available',
+                    _searchController.text.isNotEmpty
+                        ? 'Tidak ada menu yang sesuai dengan pencarian'
+                        : 'Tidak ada menu tersedia',
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.grey[600],
@@ -1014,6 +1050,25 @@ class _StoreDetailState extends State<StoreDetail> {
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          // Stock information
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.inventory_2_outlined,
+                                size: 14,
+                                color: _getRemainingStock(item) > 0 ? Colors.grey : Colors.red,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Stok: ${_getRemainingStock(item)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _getRemainingStock(item) > 0 ? Colors.grey : Colors.red,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           Text(
@@ -1091,6 +1146,30 @@ class _StoreDetailState extends State<StoreDetail> {
                   ),
                 ),
               ),
+            // Out of stock badge
+            if (item.isAvailable && _getRemainingStock(item) <= 0)
+              Positioned(
+                top: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.8),
+                    borderRadius: const BorderRadius.only(
+                      topRight: Radius.circular(12),
+                      bottomLeft: Radius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'STOK HABIS',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -1099,13 +1178,17 @@ class _StoreDetailState extends State<StoreDetail> {
 
   // Add button widget
   Widget _buildAddButton(MenuItem item) {
+    final bool hasStock = _getRemainingStock(item) > 0;
+
     return SizedBox(
       height: 30,
       width: 90,
       child: ElevatedButton(
-        onPressed: item.isAvailable ? () => _addItemToCart(item) : () => _showItemUnavailableDialog(),
+        onPressed: (item.isAvailable && hasStock)
+            ? () => _addItemToCart(item)
+            : null, // Disable button if item is unavailable or out of stock
         style: ElevatedButton.styleFrom(
-          backgroundColor: item.isAvailable ? GlobalStyle.primaryColor : Colors.grey,
+          backgroundColor: (item.isAvailable && hasStock) ? GlobalStyle.primaryColor : Colors.grey,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(6),
@@ -1126,6 +1209,8 @@ class _StoreDetailState extends State<StoreDetail> {
 
   // Quantity control widget (- count +)
   Widget _buildQuantityControl(MenuItem item) {
+    final bool hasStock = _getRemainingStock(item) > 0;
+
     return Container(
       height: 30,
       decoration: BoxDecoration(
@@ -1163,7 +1248,9 @@ class _StoreDetailState extends State<StoreDetail> {
           ),
           // Plus button
           InkWell(
-            onTap: item.isAvailable ? () => _incrementItem(item) : () => _showItemUnavailableDialog(),
+            onTap: (item.isAvailable && hasStock)
+                ? () => _incrementItem(item)
+                : null, // Disable if item is unavailable or out of stock
             child: Container(
               width: 30,
               height: 30,
@@ -1225,13 +1312,15 @@ class _StoreDetailState extends State<StoreDetail> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  final cartItems =
-                  menuItems.where((item) => item.quantity > 0).toList();
-                  final int storeId = ModalRoute.of(context)!.settings.arguments as int;
+                  final cartItems = menuItems.where((item) => item.quantity > 0).toList();
+                  final int storeId = ModalRoute.of(context)!.settings.arguments as int? ?? 0;
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => CartScreen(cartItems: cartItems, storeId: storeId),
+                      builder: (context) => CartScreen(
+                        cartItems: cartItems,
+                        storeId: storeId,
+                      ),
                     ),
                   );
                 },
@@ -1268,14 +1357,18 @@ class _StoreDetailState extends State<StoreDetail> {
 
 class DraggableItemDetail extends StatefulWidget {
   final MenuItem item;
+  final int availableStock;
   final Function(int) onQuantityChanged;
   final VoidCallback onZeroQuantity;
+  final VoidCallback onOutOfStock;
 
   const DraggableItemDetail({
     Key? key,
     required this.item,
+    required this.availableStock,
     required this.onQuantityChanged,
     required this.onZeroQuantity,
+    required this.onOutOfStock,
   }) : super(key: key);
 
   @override
@@ -1348,12 +1441,46 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Text(
-                        widget.item.name,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.item.name,
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          // Stock badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: widget.availableStock > 0
+                                  ? Colors.green.withOpacity(0.1)
+                                  : Colors.red.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.inventory_2_outlined,
+                                  size: 14,
+                                  color: widget.availableStock > 0 ? Colors.green : Colors.red,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Stok: ${widget.availableStock}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: widget.availableStock > 0 ? Colors.green : Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -1404,9 +1531,13 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                           ),
                           IconButton(
                             onPressed: () {
-                              setState(() {
-                                _quantity++;
-                              });
+                              if (_quantity < widget.availableStock) {
+                                setState(() {
+                                  _quantity++;
+                                });
+                              } else {
+                                widget.onOutOfStock();
+                              }
                             },
                             icon: const Icon(Icons.add_circle_outline),
                             color: GlobalStyle.primaryColor,

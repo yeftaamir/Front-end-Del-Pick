@@ -46,6 +46,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
   Order? _order;
   Customer? _customer;
   Tracking? _tracking;
+  Map<String, dynamic>? _trackingData;
 
   // Loading states
   bool _isLoading = true;
@@ -58,9 +59,14 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
 
   // Timer for updating tracking data
   Timer? _trackingUpdateTimer;
+  Timer? _locationUpdateTimer;
 
   // Location service for managing real-time location
   final LocationService _locationService = LocationService();
+
+  // Driver status flags
+  bool _isDriver = false;
+  bool _hasStartedDelivery = false;
 
   @override
   void initState() {
@@ -111,6 +117,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
   @override
   void dispose() {
     _trackingUpdateTimer?.cancel();
+    _locationUpdateTimer?.cancel();
     for (var controller in _cardControllers) {
       controller.dispose();
     }
@@ -127,20 +134,29 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     });
 
     try {
+      // Get the current user ID
+      final String? userId = await TokenService.getUserId();
+
       // If we have an orderId but no order, fetch it
       if (widget.orderId != null && _order == null) {
-        // First try to get the order detail using driver service
-        // as this gives more driver-specific information
+        // First check if this is a driver request
         try {
-          final requestDetail = await DriverService.getDriverRequestDetail(widget.orderId!);
-          if (requestDetail.containsKey('order')) {
-            _order = Order.fromJson(requestDetail['order']);
+          final driverRequestDetail = await DriverService.getDriverRequestDetail(widget.orderId!);
+          if (driverRequestDetail.containsKey('order')) {
+            _order = Order.fromJson(driverRequestDetail['order']);
           }
         } catch (e) {
-          // Fallback to regular order service if driver-specific API fails
-          print('Error loading driver request detail: $e');
-          final orderData = await OrderService.getOrderById(widget.orderId!);
-          _order = Order.fromJson(orderData);
+          // If that fails, try getting order detail directly
+          try {
+            final orderData = await OrderService.getOrderDetail(widget.orderId!);
+            _order = Order.fromJson(orderData);
+          } catch (e) {
+            // Lastly, try tracking service
+            final trackingData = await TrackingService.getTrackingData(widget.orderId!);
+            if (trackingData.containsKey('order')) {
+              _order = Order.fromJson(trackingData['order']);
+            }
+          }
         }
       }
 
@@ -150,17 +166,19 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       }
 
       // Get tracking information for this order
-      final trackingData = await TrackingService.getOrderTracking(_order!.id);
-      _tracking = Tracking.fromJson(trackingData);
+      _trackingData = await TrackingService.getTrackingData(_order!.id);
 
-      // Extract customer information from order data
-      if (_order!.customerId != null) {
-        // Extract customer data from tracking data if available
-        Map<String, dynamic> userData = trackingData['user'] ?? {};
-        if (userData.isNotEmpty) {
-          _customer = Customer.fromJson(userData);
-        } else {
-          // Fallback to create a minimal customer object
+      if (_trackingData != null && _trackingData!.isNotEmpty) {
+        // Extract tracking data
+        _tracking = Tracking.fromJson(_trackingData!);
+
+        // Extract customer information
+        if (_trackingData!.containsKey('customer') && _trackingData!['customer'] != null) {
+          _customer = Customer.fromJson(_trackingData!['customer']);
+        } else if (_trackingData!.containsKey('user') && _trackingData!['user'] != null) {
+          _customer = Customer.fromJson(_trackingData!['user']);
+        } else if (_order!.customerId != null) {
+          // Create a minimal customer object from order data
           _customer = Customer(
             id: _order!.customerId.toString(),
             name: "Customer",
@@ -169,13 +187,21 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
             role: 'customer',
           );
         }
-      }
 
-      // Start location tracking if we're the driver of this order
-      await _checkAndStartDriverTracking();
+        // Check if current user is the driver
+        if (userId != null && _order!.driverId != null && userId == _order!.driverId.toString()) {
+          _isDriver = true;
+          await _checkAndStartDriverFunctionality();
+        }
+      }
 
       // Start periodic tracking updates
       _startTrackingUpdates();
+
+      // Start location updates if driver
+      if (_isDriver) {
+        _startLocationUpdates();
+      }
 
       // Start animations
       for (var controller in _cardControllers) {
@@ -196,21 +222,26 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     }
   }
 
-  // Check if we're the driver and start location tracking if so
-  Future<void> _checkAndStartDriverTracking() async {
+  // Check driver status and start delivery if needed
+  Future<void> _checkAndStartDriverFunctionality() async {
     try {
-      // Get the current user's ID
-      final String? userId = await TokenService.getUserId();
-
-      if (userId != null && _order != null && _order!.driverId != null) {
-        // Check if the current user is the driver for this order
-        if (userId == _order!.driverId.toString()) {
-          // We are the driver, start location tracking
-          await _locationService.startTracking();
+      if (_isDriver && _tracking != null) {
+        // Check if delivery has already been started
+        if (_tracking!.status == OrderStatus.driverHeadingToStore ||
+            _tracking!.status == OrderStatus.pending ||
+            _tracking!.status == OrderStatus.approved) {
+          // If driver hasn't started delivery yet, they might need to start it
+          _hasStartedDelivery = false;
+        } else {
+          // Delivery has already been started
+          _hasStartedDelivery = true;
         }
+
+        // Start location tracking for driver
+        await _locationService.startTracking();
       }
     } catch (e) {
-      print('Error checking driver status: $e');
+      print('Error checking driver functionality: $e');
     }
   }
 
@@ -224,10 +255,11 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       if (_order == null) return;
 
       try {
-        final trackingData = await TrackingService.getOrderTracking(_order!.id);
+        final trackingData = await TrackingService.getTrackingData(_order!.id);
 
-        if (mounted) {
+        if (mounted && trackingData != null) {
           setState(() {
+            _trackingData = trackingData;
             _tracking = Tracking.fromJson(trackingData);
           });
 
@@ -243,9 +275,27 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     });
   }
 
+  // Start location updates for driver
+  void _startLocationUpdates() {
+    if (!_isDriver) return;
+
+    // Cancel existing timer if any
+    _locationUpdateTimer?.cancel();
+
+    // Set up timer to update location every 10 seconds
+    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      try {
+        // Force location update from service
+        await _locationService.forceLocationUpdate();
+      } catch (e) {
+        print('Error updating driver location: $e');
+      }
+    });
+  }
+
   // Update map markers and route based on current tracking data
   void _updateMapAnnotations() {
-    if (_tracking != null) {
+    if (_tracking != null || _trackingData != null) {
       _addMarkers();
       _fetchAndDrawRoute();
     }
@@ -321,8 +371,6 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
         return [];
       }
 
-      final token = await TokenService.getToken();
-
       // Use the Mapbox Directions API to get the route
       final response = await http.get(
         Uri.parse(
@@ -330,10 +378,6 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                 '${origin.lng},${origin.lat};${destination.lng},${destination.lat}'
                 '?geometries=geojson&access_token=$mapboxAccessToken'
         ),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
       );
 
       if (response.statusCode == 200) {
@@ -359,6 +403,61 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
       print('Error fetching route: $e');
       // Return a direct line as fallback
       return [origin, destination];
+    }
+  }
+
+  // Start delivery (driver only)
+  Future<void> _startDelivery() async {
+    if (!_isDriver || _order == null) return;
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const Dialog(
+            child: Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Memulai pengantaran...'),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+      // Call API to start delivery
+      await TrackingService.startDelivery(_order!.id);
+
+      // Update local state
+      setState(() {
+        _hasStartedDelivery = true;
+      });
+
+      // Refresh tracking data
+      await _loadOrderData();
+
+      Navigator.pop(context); // Close loading dialog
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pengantaran dimulai'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      Navigator.pop(context); // Close loading dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memulai pengantaran: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -403,9 +502,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
             const SizedBox(height: 16),
             Row(
               children: [
-                _customer?.profileImageUrl != null && _customer!.profileImageUrl!.isNotEmpty
+                _customer?.avatar != null && _customer!.avatar!.isNotEmpty
                     ? ImageService.displayImage(
-                  imageSource: _customer!.profileImageUrl!,
+                  imageSource: _customer!.avatar!,
                   width: 60,
                   height: 60,
                   borderRadius: BorderRadius.circular(30),
@@ -510,9 +609,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
 
     // Calculate estimated time and distance from tracking data
     String estimatedTime = _tracking != null ? _tracking!.formattedETA : "15 menit";
-    String distance = _tracking != null
+    String distance = _order != null && _order!.store.distance > 0
         ? "${(_order!.store.distance).toStringAsFixed(1)} km"
-        : "2.5 km";
+        : "Menghitung...";
 
     return SlideTransition(
       position: _cardAnimations[1],
@@ -960,9 +1059,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           child: Row(
                             children: [
-                              _customer?.profileImageUrl != null && _customer!.profileImageUrl!.isNotEmpty
+                              _customer?.avatar != null && _customer!.avatar!.isNotEmpty
                                   ? ImageService.displayImage(
-                                imageSource: _customer!.profileImageUrl!,
+                                imageSource: _customer!.avatar!,
                                 width: 50,
                                 height: 50,
                                 borderRadius: BorderRadius.circular(25),
@@ -1035,31 +1134,66 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                       _buildItemsList(),
                     ],
 
-                    // Complete Order Button
+                    // Action Buttons Section
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: GlobalStyle.primaryColor,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                      child: Column(
+                        children: [
+                          // Start Delivery Button (Driver only, if not started)
+                          if (_isDriver && !_hasStartedDelivery && _tracking != null &&
+                              (_tracking!.status == OrderStatus.pending ||
+                                  _tracking!.status == OrderStatus.approved ||
+                                  _tracking!.status == OrderStatus.driverHeadingToStore))
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.amber,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                onPressed: _startDelivery,
+                                child: const Text(
+                                  'Mulai Pengantaran',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                          onPressed: () {
-                            _completeOrder();
-                          },
-                          child: const Text(
-                            'Selesai Antar',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+
+                          // Complete Order Button (Driver only, if delivery started)
+                          if (_isDriver && _hasStartedDelivery && _tracking != null &&
+                              (_tracking!.status == OrderStatus.driverHeadingToCustomer ||
+                                  _tracking!.status == OrderStatus.on_delivery ||
+                                  _tracking!.status == OrderStatus.driverAtStore ||
+                                  _tracking!.status == OrderStatus.preparing))
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: GlobalStyle.primaryColor,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                onPressed: _completeOrder,
+                                child: const Text(
+                                  'Selesai Antar',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
+                        ],
                       ),
                     ),
 
@@ -1121,10 +1255,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
         },
       );
 
-      // Call API to update order status through DriverService
-      // Updated to respond to driver request with 'complete' action
+      // Call API to complete delivery
       if (_order != null) {
-        await DriverService.respondToDriverRequest(_order!.id, 'complete');
+        await TrackingService.completeDelivery(_order!.id);
       }
 
       // Stop location tracking when order is complete

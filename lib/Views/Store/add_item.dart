@@ -9,9 +9,10 @@ import '../../Models/item_model.dart';
 import '../../Models/menu_item.dart';
 import '../Component/bottom_navigation.dart';
 import 'add_edit_items.dart';
-import 'package:del_pick/Services/Core/token_service.dart';
+import 'package:del_pick/Services/core/token_service.dart';
 import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/image_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
 
 class AddItemPage extends StatefulWidget {
   static const String route = '/Store/AddItem';
@@ -59,38 +60,65 @@ class _AddItemPageState extends State<AddItemPage>
     });
 
     try {
-      // First try to get own menu items directly (if store user is logged in)
-      try {
-        final List<Item> storeItems = await MenuService.getOwnMenuItems();
-        setState(() {
-          _items = storeItems;
-          _isLoading = false;
-        });
-        return;
-      } catch (e) {
-        // If that fails, try the alternative method
-        print('Error getting own menu items directly: $e');
+      // Get the current user's profile to determine their role and store
+      final userData = await AuthService.getUserData();
+
+      if (userData == null) {
+        throw Exception('User data not found. Please login again.');
       }
 
-      // Fallback to getting store ID from user data
-      final String? rawData = await TokenService.getUserData();
-      if (rawData != null) {
-        final Map<String, dynamic> data = json.decode(rawData);
-        if (data['data'] != null && data['data']['store'] != null && data['data']['store']['id'] != null) {
-          final storeId = data['data']['store']['id'];
+      // Check if user has a store (most reliable way)
+      Map<String, dynamic>? storeData;
+      if (userData['store'] != null) {
+        storeData = userData['store'];
+      }
 
-          // Fetch items using the retrieved store ID
-          final List<Item> storeItems = await MenuService.fetchItemsByStoreId(storeId.toString());
-          setState(() {
-            _items = storeItems;
-            _isLoading = false;
-          });
-        } else {
-          throw Exception('Store ID not found in user data');
+      if (storeData == null) {
+        // Try alternative approach if store isn't in the profile
+        final String? rawUserData = await TokenService.getUserData();
+        if (rawUserData != null) {
+          final Map<String, dynamic> data = json.decode(rawUserData);
+          if (data['user'] != null && data['user']['store'] != null) {
+            storeData = data['user']['store'];
+          }
         }
-      } else {
-        throw Exception('User data not found');
       }
+
+      if (storeData == null) {
+        throw Exception('Store information not found. Please login as a store owner.');
+      }
+
+      final String storeId = storeData['id'].toString();
+
+      // Fetch items using the MenuService.getMenuItemsByStoreId method
+      final menuItems = await MenuService.getMenuItemsByStoreId(storeId);
+
+      List<Item> items = [];
+      // Process items from the response structure
+      if (menuItems['menuItems'] != null && menuItems['menuItems'] is List) {
+        final List<dynamic> menuItemsList = menuItems['menuItems'];
+
+        for (var menuItemJson in menuItemsList) {
+          try {
+            // Process image URL using ImageService
+            if (menuItemJson['imageUrl'] != null) {
+              menuItemJson['imageUrl'] = ImageService.getImageUrl(menuItemJson['imageUrl']);
+            }
+
+            // Convert to Item model
+            final Item item = Item.fromJson(menuItemJson);
+            items.add(item);
+          } catch (e) {
+            print('Error parsing menu item: $e');
+          }
+        }
+      }
+
+      setState(() {
+        _items = items;
+        _isLoading = false;
+      });
+
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -98,6 +126,7 @@ class _AddItemPageState extends State<AddItemPage>
         _errorMessage = 'Failed to load menu items: $e';
         _items = []; // Set to empty list if error
       });
+      print('Error fetching menu items: $e');
     }
   }
 
@@ -158,15 +187,16 @@ class _AddItemPageState extends State<AddItemPage>
     try {
       final int itemId = int.tryParse(item.id) ?? 0;
       if (itemId > 0) {
-        // Update status via API
-        final itemData = {
+        // Create data object for update
+        final Map<String, dynamic> itemData = {
           'isAvailable': isAvailable,
           'status': isAvailable ? 'available' : 'out_of_stock',
         };
 
-        final success = await MenuService.updateItem(itemId, itemData);
+        // Use MenuService.updateMenuItem method from the updated service
+        final updatedItem = await MenuService.updateMenuItem(item.id, itemData);
 
-        if (success) {
+        if (updatedItem != null) {
           setState(() {
             // Update local state
             final index = _items.indexWhere((element) => element.id == item.id);
@@ -177,6 +207,15 @@ class _AddItemPageState extends State<AddItemPage>
               );
             }
           });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isAvailable
+                  ? 'Item berhasil diaktifkan.'
+                  : 'Item berhasil dinonaktifkan.'),
+              backgroundColor: Colors.green,
+            ),
+          );
         } else {
           throw Exception('Failed to update item status');
         }
@@ -399,8 +438,8 @@ class _AddItemPageState extends State<AddItemPage>
       final int itemId = int.tryParse(item.id) ?? 0;
 
       if (itemId > 0) {
-        // Delete item via API
-        final success = await MenuService.deleteItem(itemId);
+        // Use MenuService.deleteMenuItem method from the updated service
+        final success = await MenuService.deleteMenuItem(item.id);
 
         if (success) {
           setState(() {
@@ -478,14 +517,17 @@ class _AddItemPageState extends State<AddItemPage>
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            _errorMessage,
-            style: TextStyle(
-              color: GlobalStyle.fontColor.withOpacity(0.7),
-              fontSize: 14,
-              fontFamily: GlobalStyle.fontFamily,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              _errorMessage,
+              style: TextStyle(
+                color: GlobalStyle.fontColor.withOpacity(0.7),
+                fontSize: 14,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 20),
           ElevatedButton(
@@ -1114,6 +1156,10 @@ class _AddItemPageState extends State<AddItemPage>
         currentIndex: _currentIndex,
         onTap: (index) {
           setState(() => _currentIndex = index);
+
+          if (index == 0) {
+            Navigator.pushReplacementNamed(context, HomeStore.route);
+          }
         },
       ),
     );

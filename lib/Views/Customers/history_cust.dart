@@ -56,20 +56,43 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         _errorMessage = null;
       });
 
-      // Call the API service to get customer orders
-      final orderData = await OrderService.getCustomerOrders();
+      // Call the API service to get customer orders - update to use getOrdersByUser()
+      final orderData = await OrderService.getOrdersByUser();
 
       // Parse order data into Order objects
       List<Order> fetchedOrders = [];
-      if (orderData != null && orderData['orders'] is List) {
-        for (var orderJson in orderData['orders']) {
+
+      // Check if orderData has the expected structure
+      if (orderData.isNotEmpty) {
+        if (orderData['orders'] is List) {
+          // If the API returns orders in a 'orders' key
+          for (var orderJson in orderData['orders']) {
+            try {
+              final order = Order.fromJson(orderJson);
+              fetchedOrders.add(order);
+            } catch (e) {
+              print('Error parsing order: $e');
+              // Continue with next order if one fails to parse
+            }
+          }
+        } else {
+          // Alternative structure: Orders might be at the root level
           try {
-            // Use the Order.fromJson factory constructor directly
-            final order = Order.fromJson(orderJson);
-            fetchedOrders.add(order);
+            // Try to iterate over the main data
+            for (var key in orderData.keys) {
+              if (orderData[key] is List) {
+                for (var orderJson in orderData[key]) {
+                  try {
+                    final order = Order.fromJson(orderJson);
+                    fetchedOrders.add(order);
+                  } catch (e) {
+                    print('Error parsing order in $key: $e');
+                  }
+                }
+              }
+            }
           } catch (e) {
-            print('Error parsing order: $e');
-            // Continue with next order if one fails to parse
+            print('Error iterating order data: $e');
           }
         }
       }

@@ -144,7 +144,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     return (fee / 1000).ceil() * 1000;
   }
 
-  // Load order data from API using orderId
+  // Load order data using getOrdersByStore() to get the complete order with customer and driver info
   Future<void> _loadOrderData() async {
     setState(() {
       _isLoading = true;
@@ -152,16 +152,31 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     });
 
     try {
-      // Load order details from API
-      final orderDetails = await OrderService.getOrderById(widget.orderId!);
+      // Load orders from the store using getOrdersByStore which includes customer and driver info
+      final ordersData = await OrderService.getOrdersByStore();
 
-      setState(() {
-        _orderData = orderDetails;
-        _isLoading = false;
-      });
+      // Find the specific order by ID
+      if (ordersData['orders'] != null && ordersData['orders'] is List) {
+        final orders = ordersData['orders'] as List;
+        final targetOrder = orders.firstWhere(
+              (order) => order['id'].toString() == widget.orderId,
+          orElse: () => null,
+        );
 
-      // Process the order data
-      _processOrderData();
+        if (targetOrder != null) {
+          setState(() {
+            _orderData = Map<String, dynamic>.from(targetOrder);
+            _isLoading = false;
+          });
+
+          // Process the order data
+          _processOrderData();
+        } else {
+          throw Exception('Order not found');
+        }
+      } else {
+        throw Exception('No orders data received');
+      }
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -180,21 +195,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     });
 
     try {
-      if (widget.orderId != null) {
-        final orderDetails = await OrderService.getOrderById(widget.orderId!);
-        setState(() {
-          _orderData = orderDetails;
-          _hasStatusChanged = true;
-        });
-        _processOrderData();
-      } else if (_orderObject != null) {
-        final orderDetails = await OrderService.getOrderById(_orderObject!.id);
-        setState(() {
-          _orderData = orderDetails;
-          _hasStatusChanged = true;
-        });
-        _processOrderData();
-      }
+      // Reload from getOrdersByStore to get updated data
+      await _loadOrderData();
+      setState(() {
+        _hasStatusChanged = true;
+      });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to refresh order: $e')),
@@ -234,9 +239,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         }
       }
 
-      // Try to extract customer and driver information
-      _tryExtractCustomerInfo();
-      _tryExtractDriverInfo();
+      // Extract customer and driver information from embedded data
+      _extractCustomerInfo();
+      _extractDriverInfo();
 
       // Start animations
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -260,7 +265,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   // Extract coordinates from order data
   void _extractCoordinates() {
-    // Store coordinates
+    // Store coordinates - check store object first, then fallback to direct properties
     _storeLatitude = _orderData['store']?['latitude'] ??
         _orderData['storeLatitude'] ??
         _orderObject?.store.latitude;
@@ -269,13 +274,15 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         _orderData['storeLongitude'] ??
         _orderObject?.store.longitude;
 
-    // Customer coordinates
+    // Customer coordinates - check deliveryAddress for lat/lng, or customer object
     _customerLatitude = _orderData['latitude'] ??
         _orderData['customerLatitude'] ??
+        _orderData['customer']?['latitude'] ??
         (_orderData['tracking']?['customerPosition']?['latitude']);
 
     _customerLongitude = _orderData['longitude'] ??
         _orderData['customerLongitude'] ??
+        _orderData['customer']?['longitude'] ??
         (_orderData['tracking']?['customerPosition']?['longitude']);
 
     // Debug coordinates
@@ -307,22 +314,18 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-  // Try to extract customer information from order data
-  void _tryExtractCustomerInfo() {
+  // Extract customer information from embedded data
+  void _extractCustomerInfo() {
     try {
+      // Customer info is now directly embedded in the order response
       if (_orderData['customer'] != null) {
         _customer = Customer.fromJson(_orderData['customer']);
-        print('Customer extracted from order data: ${_customer?.name}');
-      } else if (_orderData['user'] != null) {
-        // Some APIs return user instead of customer
-        _customer = Customer.fromJson(_orderData['user']);
-        print('Customer extracted from user data: ${_customer?.name}');
+        print('Customer extracted from embedded data: ${_customer?.name}');
       } else if (_orderData['customerId'] != null) {
-        // If we have a customerName directly in orderDetail, use that
+        // Fallback to create basic customer object if only ID is available
         final String customerName = _orderData['customerName'] ?? 'Customer';
         final String phoneNumber = _orderData['customerPhone'] ?? '';
 
-        // Create a basic customer object with available info
         _customer = Customer(
           id: _orderData['customerId'].toString(),
           name: customerName,
@@ -337,31 +340,20 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-  // Try to extract driver information from order data
-  void _tryExtractDriverInfo() {
+  // Extract driver information from embedded data
+  void _extractDriverInfo() {
     try {
+      // Driver info is now directly embedded in the order response
       if (_orderData['driver'] != null) {
         _driver = Driver.fromJson(_orderData['driver']);
-        print('Driver extracted from order data: ${_driver?.name}');
+        print('Driver extracted from embedded data: ${_driver?.name}');
       } else if (_orderData['driverId'] != null) {
-        // Load driver data from API if we have the ID
-        _loadDriverData(_orderData['driverId'].toString());
+        // If we only have driver ID, try to create a basic driver object
+        // Note: with the new structure, driver data should always be embedded
+        print('Only driver ID available: ${_orderData['driverId']}');
       }
     } catch (e) {
       print('Error extracting driver info: $e');
-    }
-  }
-
-  // Load driver data from API
-  Future<void> _loadDriverData(String driverId) async {
-    try {
-      final driverData = await DriverService.getDriverById(driverId);
-      setState(() {
-        _driver = Driver.fromJson(driverData);
-        print('Driver loaded from API: ${_driver?.name}');
-      });
-    } catch (e) {
-      print('Error loading driver data: $e');
     }
   }
 
@@ -775,114 +767,44 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
+  // Updated to use the new OrderStatusCard implementation
   Widget _buildOrderStatusCard() {
-    // If we already have an Order object, use it directly
-    if (_orderObject != null) {
-      // If the status has changed, update the tracking
-      if (_hasStatusChanged) {
-        _orderObject = _orderObject!.copyWith(
-            tracking: _createTracking()
-        );
-        _hasStatusChanged = false;
-      }
+    final orderId = _orderObject?.id ?? _orderData['id']?.toString() ?? '';
 
-      return OrderStatusCard(
-        order: _orderObject!,
-        animation: _cardAnimations[0],
+    // Ensure we have an order ID to display
+    if (orderId.isEmpty) {
+      return _buildCard(
+        index: 0,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Center(
+            child: Text(
+              'Order ID tidak tersedia',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+          ),
+        ),
       );
     }
 
-    // Otherwise build from raw data
-    final List<Item> items = _getOrderItems();
-
-    // Create Store object
-    final store = StoreModel(
-      id: _orderData['storeId'] ?? 0,
-      name: _orderData['store']?['name'] ?? '',
-      address: _orderData['store']?['address'] ?? '',
-      openHours: _orderData['store']?['openHours'] ?? '08:00 - 22:00',
-      rating: double.tryParse(_orderData['store']?['rating']?.toString() ?? '0') ?? 0,
-      reviewCount: _orderData['store']?['reviewCount'] ?? 0,
-      phoneNumber: _orderData['store']?['phone'] ?? '',
+    return _buildCard(
+      index: 0,
+      child: OrderStatusCard(
+        orderId: orderId,
+        userRole: 'store', // Set user role to 'store'
+        animation: _cardAnimations[0],
+        onStatusUpdate: _refreshOrderData, // Refresh data when status updates
+      ),
     );
-
-    // Get order date
-    DateTime orderDate;
-    if (_orderData['orderDate'] != null) {
-      try {
-        orderDate = DateTime.parse(_orderData['orderDate']);
-      } catch (e) {
-        // Fallback if date parsing fails
-        orderDate = _orderData['orderTime'] ?? DateTime.now();
-      }
-    } else {
-      // Use orderTime field which could be passed from HomeStore
-      orderDate = _orderData['orderTime'] ?? DateTime.now();
-    }
-
-    // Create Order object
-    final order = Order(
-      id: _orderData['id']?.toString() ?? '',
-      items: items,
-      store: store,
-      deliveryAddress: _orderData['deliveryAddress'] ?? _orderData['customerAddress'] ?? '',
-      subtotal: double.tryParse(_orderData['subtotal']?.toString() ?? '0') ?? 0,
-      serviceCharge: _calculatedDeliveryFee, // Use calculated fee
-      total: double.tryParse(_orderData['total']?.toString() ?? '0') ?? 0,
-      orderDate: orderDate,
-      status: _getOrderStatus(),
-      tracking: _createTracking(),
-    );
-
-    return OrderStatusCard(
-      order: order,
-      animation: _cardAnimations[0],
-    );
-  }
-
-  // Extract items from order data
-  List<Item> _getOrderItems() {
-    if (_orderObject != null) {
-      return _orderObject!.items;
-    }
-
-    final itemsData = _orderData['items'] as List?;
-    if (itemsData == null || itemsData.isEmpty) {
-      // Fallback - try orderItems
-      final orderItemsData = _orderData['orderItems'] as List?;
-      if (orderItemsData == null || orderItemsData.isEmpty) {
-        return [];
-      }
-
-      return orderItemsData.map((item) => Item(
-        id: item['id']?.toString() ?? '',
-        name: item['name'] ?? '',
-        price: (item['price'] ?? 0).toDouble(),
-        quantity: item['quantity'] ?? 1,
-        imageUrl: item['imageUrl'] ?? item['image'] ?? '',
-        isAvailable: true,
-        status: 'available',
-        description: item['description'] ?? '',
-      )).toList();
-    }
-
-    return itemsData.map((item) => Item(
-      id: item['id']?.toString() ?? '',
-      name: item['name'] ?? '',
-      price: (item['price'] ?? 0).toDouble(),
-      quantity: item['quantity'] ?? 1,
-      imageUrl: item['imageUrl'] ?? item['image'] ?? '',
-      isAvailable: true,
-      status: 'available',
-      description: item['description'] ?? '',
-    )).toList();
   }
 
   Widget _buildDriverInfoCard() {
-    // If no driver assigned yet, don't show
-    if (_driver == null &&
-        _orderData['driver'] == null &&
-        _orderData['driverId'] == null) {
+    // Check if driver info is available
+    if (_driver == null && _orderData['driver'] == null) {
       return const SizedBox.shrink();
     }
 
@@ -1048,7 +970,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         _orderData['phoneNumber'] ?? '';
     final String deliveryAddress = _orderData['deliveryAddress'] ??
         _orderData['customerAddress'] ?? '';
-    final String? profileImageUrl = _customer?.profileImageUrl ??
+    final String? profileImageUrl = _customer?.avatar ??
         _orderData['customer']?['avatar'];
 
     return _buildCard(
@@ -1754,7 +1676,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Order #${_orderObject?.id.substring(0, 8) ?? _orderData['id']?.toString().substring(0, Math.min(8, (_orderData['id']?.toString().length ?? 0))) ?? ''}',
+                        'Order #${_orderObject?.id.substring(0, 8) ?? _orderData['id']?.toString().substring(0, min(8, (_orderData['id']?.toString().length ?? 0))) ?? ''}',
                         style: TextStyle(
                           color: Colors.grey[600],
                           fontSize: 14,
@@ -2073,6 +1995,44 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
+  // Extract items from order data
+  List<Item> _getOrderItems() {
+    if (_orderObject != null) {
+      return _orderObject!.items;
+    }
+
+    final itemsData = _orderData['items'] as List?;
+    if (itemsData == null || itemsData.isEmpty) {
+      // Fallback - try orderItems
+      final orderItemsData = _orderData['orderItems'] as List?;
+      if (orderItemsData == null || orderItemsData.isEmpty) {
+        return [];
+      }
+
+      return orderItemsData.map((item) => Item(
+        id: item['id']?.toString() ?? '',
+        name: item['name'] ?? '',
+        price: (item['price'] ?? 0).toDouble(),
+        quantity: item['quantity'] ?? 1,
+        imageUrl: item['imageUrl'] ?? item['image'] ?? '',
+        isAvailable: true,
+        status: 'available',
+        description: item['description'] ?? '',
+      )).toList();
+    }
+
+    return itemsData.map((item) => Item(
+      id: item['id']?.toString() ?? '',
+      name: item['name'] ?? '',
+      price: (item['price'] ?? 0).toDouble(),
+      quantity: item['quantity'] ?? 1,
+      imageUrl: item['imageUrl'] ?? item['image'] ?? '',
+      isAvailable: true,
+      status: 'available',
+      description: item['description'] ?? '',
+    )).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2146,9 +2106,4 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       ),
     );
   }
-}
-
-// Required for min operation
-class Math {
-  static int min(int a, int b) => a < b ? a : b;
 }

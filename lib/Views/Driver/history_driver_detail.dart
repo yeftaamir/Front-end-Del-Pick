@@ -20,6 +20,8 @@ import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/Core/token_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
+import 'package:del_pick/Services/store_service.dart';
 import 'dart:convert';
 
 import '../../Models/order_enum.dart';
@@ -154,15 +156,21 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   // Get driver data from token
   Future<void> _getDriverData() async {
     try {
-      final String? rawUserData = await TokenService.getUserData();
-      if (rawUserData != null) {
-        final Map<String, dynamic> userData = json.decode(rawUserData);
-        if (userData['data'] != null && userData['data']['driver'] != null) {
-          final driverId = userData['data']['driver']['id'];
-          if (driverId != null) {
-            final driverData = await DriverService.getDriverById(driverId.toString());
+      // Using AuthService to get profile data
+      final profileData = await AuthService.getProfile();
+
+      if (profileData.containsKey('driver')) {
+        setState(() {
+          _driverData = Driver.fromJson(profileData['driver']);
+        });
+      } else {
+        // Fallback to token data if needed
+        final String? rawUserData = await TokenService.getUserData();
+        if (rawUserData != null) {
+          final Map<String, dynamic> userData = json.decode(rawUserData);
+          if (userData['data'] != null && userData['data']['driver'] != null) {
             setState(() {
-              _driverData = Driver.fromJson(driverData);
+              _driverData = Driver.fromJson(userData['data']['driver']);
             });
           }
         }
@@ -176,7 +184,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   Future<void> _getOrderDetails() async {
     try {
       if (_orderId.isNotEmpty) {
-        final orderData = await OrderService.getOrderById(_orderId);
+        // Using OrderService.getOrderDetail instead of getOrderById
+        final orderData = await OrderService.getOrderDetail(_orderId);
 
         setState(() {
           _orderData = orderData;
@@ -244,7 +253,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     try {
       // Only perform API call if we have a valid order ID
       if (_orderId.isNotEmpty) {
-        // Use driver-specific endpoint for status updates
+        // Using the processOrderByStore method as per the API
         await OrderService.processOrderByStore(_orderId, status);
 
         // Play sound
@@ -475,14 +484,15 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     );
   }
 
-  // Cancel order
+  // Cancel order - using processOrderByStore since cancelOrder isn't available
   Future<void> _cancelOrder() async {
     try {
       // Play sound
       _playSound('audio/alert.wav');
 
       if (_orderId.isNotEmpty) {
-        await OrderService.cancelOrder(_orderId, 'Dibatalkan oleh driver');
+        // Using processOrderByStore with 'reject' action instead of cancelOrder
+        await OrderService.processOrderByStore(_orderId, 'reject');
         setState(() {
           _currentStatus = 'cancelled';
         });
@@ -696,10 +706,27 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     );
   }
 
-  // Complete the delivery
+  // Complete the delivery - now using TrackingService.completeDelivery
   Future<void> _completeDelivery() async {
-    await _updateOrderStatus('delivered');
-    _showCompletionDialog();
+    try {
+      if (_orderId.isNotEmpty) {
+        // First complete the delivery using tracking service
+        await TrackingService.completeDelivery(_orderId);
+
+        // Then update the order status
+        await _updateOrderStatus('delivered');
+      } else {
+        // For testing without a real order ID
+        await _updateOrderStatus('delivered');
+      }
+
+      _showCompletionDialog();
+    } catch (e) {
+      print('Error completing delivery: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal menyelesaikan pengantaran: $e')),
+      );
+    }
   }
 
   void _navigateToTrackOrder() async {
@@ -707,8 +734,17 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     _playSound('audio/alert.wav');
 
     if (_currentStatus == 'picking_up') {
-      // Update to on_delivery before tracking
-      await _updateOrderStatus('on_delivery');
+      // Start delivery using TrackingService first
+      try {
+        await TrackingService.startDelivery(_orderId);
+
+        // Then update order status
+        await _updateOrderStatus('on_delivery');
+      } catch (e) {
+        print('Error starting delivery: $e');
+        // Fall back to just updating the status if the tracking call fails
+        await _updateOrderStatus('on_delivery');
+      }
     }
 
     final result = await Navigator.push(
@@ -723,8 +759,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     );
 
     if (result == 'completed') {
-      await _updateOrderStatus('delivered');
-      _showCompletionDialog();
+      await _completeDelivery();
     }
   }
 
@@ -893,88 +928,17 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     );
   }
 
+  // Updated to use the new OrderStatusCard implementation
   Widget _buildOrderStatusCard() {
-    // Create Store object
-    final store = _storeData ?? StoreModel(
-      name: _orderData?['store']?['name'] ?? '',
-      address: _orderData?['store']?['address'] ?? '',
-      openHours: '08:00 - 22:00', // Default value if not available
-      rating: 4.5, // Default value if not available
-      reviewCount: 0,
-      phoneNumber: _orderData?['store']?['phone'] ?? '',
-    );
-
-    // Create tracking object if available
-    Tracking? tracking;
-    if (_trackingData != null && _driverData != null) {
-      // Get positions from tracking data
-      final driverLat = _trackingData?['driver']?['latitude'] ?? 0.0;
-      final driverLng = _trackingData?['driver']?['longitude'] ?? 0.0;
-      final storeLat = _orderData?['store']?['latitude'] ?? 0.0;
-      final storeLng = _orderData?['store']?['longitude'] ?? 0.0;
-      final customerLat = _orderData?['user']?['latitude'] ?? 0.0;
-      final customerLng = _orderData?['user']?['longitude'] ?? 0.0;
-
-      tracking = Tracking(
-        orderId: _orderId,
-        driver: _driverData!,
-        driverPosition: geotypes.Position(driverLng, driverLat),
-        customerPosition: geotypes.Position(customerLng, customerLat),
-        storePosition: geotypes.Position(storeLng, storeLat),
-        routeCoordinates: [
-          geotypes.Position(driverLng, driverLat),
-          geotypes.Position(storeLng, storeLat),
-          geotypes.Position(customerLng, customerLat),
-        ],
-        status: _getOrderStatus(),
-        estimatedArrival: DateTime.now().add(const Duration(minutes: 15)),
-        customStatusMessage: _getStatusMessage(_getOrderStatus()),
-      );
-    }
-
-    // Create Order object
-    final order = Order(
-      id: _orderId,
-      code: _orderCode,
-      items: _orderItems,
-      store: store,
-      deliveryAddress: _orderData?['delivery_address'] ?? '',
-      subtotal: double.tryParse(_orderData?['subtotal']?.toString() ?? '0') ?? 0,
-      serviceCharge: double.tryParse(_orderData?['service_charge']?.toString() ?? '0') ?? 0,
-      total: double.tryParse(_orderData?['total']?.toString() ?? '0') ?? 0,
-      orderDate: _orderData?['created_at'] != null
-          ? DateTime.parse(_orderData!['created_at'])
-          : DateTime.now(),
-      status: _getOrderStatus(),
-      tracking: tracking,
-    );
-
     return OrderStatusCard(
-      order: order,
+      orderId: _orderId,
+      userRole: 'driver',  // Specify role as 'driver'
       animation: _cardAnimations[0],
+      onStatusUpdate: () {
+        // Refresh order data when status is updated
+        _fetchOrderData();
+      },
     );
-  }
-
-  String _getStatusMessage(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.driverAssigned:
-        return 'Driver telah ditugaskan ke pesanan Anda';
-      case OrderStatus.driverHeadingToStore:
-        return 'Driver sedang menuju ke toko';
-      case OrderStatus.driverAtStore:
-        return 'Driver sedang mengambil pesanan Anda';
-      case OrderStatus.driverHeadingToCustomer:
-        return 'Driver sedang dalam perjalanan mengantar pesanan Anda';
-      case OrderStatus.driverArrived:
-        return 'Driver telah tiba di lokasi Anda';
-      case OrderStatus.completed:
-      case OrderStatus.delivered:
-        return 'Pesanan Anda telah selesai';
-      case OrderStatus.cancelled:
-        return 'Pesanan Anda dibatalkan';
-      default:
-        return 'Pesanan sedang diproses';
-    }
   }
 
   Widget _buildMapWidget() {
@@ -1790,7 +1754,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
             child: ElevatedButton(
               onPressed: () {
                 _playSound('audio/alert.wav');
-                _updateOrderStatus('on_delivery');
+                _navigateToTrackOrder(); // Using _navigateToTrackOrder to start delivery
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,

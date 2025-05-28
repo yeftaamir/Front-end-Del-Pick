@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Common/global_style.dart';
@@ -11,9 +12,12 @@ import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/customer.dart';
 import 'package:del_pick/Services/auth_service.dart';
+import 'package:badges/badges.dart' as badges;
+import 'dart:async';
 
 class HomeStore extends StatefulWidget {
   static const String route = '/Store/HomePage';
@@ -28,26 +32,45 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   int _currentIndex = 0;
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
-  bool _isStoreActive = false;
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
+  bool _isLocaleInitialized = false;
 
-  // Add loading state for store status toggle
+  // Status toggling in progress
   bool _isTogglingStatus = false;
-  // Store ID
-  int? _storeId;
+
+  // Store information
+  String? _storeId;
+  Map<String, dynamic>? _storeData;
+  bool _isStoreActive = false;
+
+  // Notification badge counter
+  int _notificationCount = 0;
+
+  // Track previous orders count for new order detection
+  int _previousOrdersCount = 0;
 
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
   FlutterLocalNotificationsPlugin();
   final AudioPlayer _audioPlayer = AudioPlayer();
 
-  // Real orders list to replace the dummy data
-  List<Map<String, dynamic>> _orders = [];
+  // Orders list - Enhanced structure
+  List<Map<String, dynamic>> _pendingOrders = []; // Orders pending approval
+  List<Map<String, dynamic>> _activeOrders = [];  // Orders being processed
+  List<Map<String, dynamic>> _allOrders = [];     // Combined orders for display
+
+  Timer? _pollTimer;
+
+  // Track active dialogs to prevent multiple notifications
+  bool _isShowingNewOrderDialog = false;
 
   @override
   void initState() {
     super.initState();
+
+    // Initialize locale data for date formatting
+    _initializeLocaleData();
 
     // Initialize with empty controllers and animations
     _cardControllers = [];
@@ -59,123 +82,46 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     // Request notification permissions
     _requestPermissions();
 
-    // Fetch store information and status
+    // Fetch store information
     _fetchStoreInfo();
 
     // Fetch orders data
-    fetchOrders();
+    _fetchOrders();
+
+    // Set up periodic order checking
+    _setupOrderPolling();
   }
 
-  // New method to fetch store information including ID and status
-  Future<void> _fetchStoreInfo() async {
+  // Initialize locale data for date formatting
+  Future<void> _initializeLocaleData() async {
     try {
-      // Get user data to extract store information
-      final userData = await AuthService.getUserData();
-
-      if (userData != null && userData['store'] != null) {
-        setState(() {
-          _storeId = userData['store']['id'];
-          // Set store status based on the 'status' field
-          _isStoreActive = userData['store']['status'] == 'active';
-        });
-      }
-    } catch (e) {
-      print('Error fetching store information: $e');
-      // Don't show error - we'll still load orders
-    }
-  }
-
-  // In _HomeStoreState class, replace this:
-  Future<void> fetchOrders() async {
-    setState(() {
-      _isLoading = true;
-      _hasError = false;
-    });
-
-    try {
-      // Directly use OrderService instead of the static method
-      final orderData = await OrderService.getStoreOrders();
-      // Process the response properly
-      List<Map<String, dynamic>> processedOrders = [];
-
-      if (orderData != null && orderData['orders'] != null) {
-        // Map each order to the format your UI expects
-        processedOrders = (orderData['orders'] as List).map((orderJson) {
-          // Extract customer name
-          String customerName = 'Customer';
-          if (orderJson['user'] != null) {
-            customerName = orderJson['user']['name'] ?? 'Customer';
-          }
-
-          // Process items if available
-          List<Map<String, dynamic>> items = [];
-          if (orderJson['items'] != null && orderJson['items'] is List) {
-            items = (orderJson['items'] as List).map((item) => {
-              'name': item['name'] ?? 'Product',
-              'quantity': item['quantity'] ?? 1,
-              'price': item['price'] ?? 0,
-              'image': item['imageUrl'] ?? ''
-            }).toList();
-          }
-
-          return {
-            'id': orderJson['id']?.toString() ?? '',
-            'customerName': customerName,
-            'orderTime': orderJson['orderDate'] != null ?
-            DateTime.parse(orderJson['orderDate']) : DateTime.now(),
-            'totalPrice': orderJson['subtotal'] ?? 0,
-            'status': orderJson['order_status'] ?? 'pending',
-            'items': items,
-            'deliveryFee': orderJson['serviceCharge'] ?? 0,
-            'amount': orderJson['total'] ?? 0,
-            'storeAddress': orderJson['store']?['address'] ?? 'Store address',
-            'customerAddress': orderJson['deliveryAddress'] ?? '',
-            'phoneNumber': orderJson['user']?['phone'] ?? '',
-          };
-        }).toList();
-      }
-
+      await initializeDateFormatting('id_ID', null);
       setState(() {
-        _orders = processedOrders;
-        _isLoading = false;
-
-        // Initialize animation controllers
-        _cardControllers = List.generate(
-          _orders.length,
-              (index) => AnimationController(
-            vsync: this,
-            duration: Duration(milliseconds: 600 + (index * 200)),
-          ),
-        );
-
-        // Create animations
-        _cardAnimations = _cardControllers.map((controller) {
-          return Tween<Offset>(
-            begin: const Offset(0, 0.5),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(
-            parent: controller,
-            curve: Curves.easeOutCubic,
-          ));
-        }).toList();
-
-        // Start animations
-        for (var controller in _cardControllers) {
-          controller.forward();
-        }
+        _isLocaleInitialized = true;
       });
     } catch (e) {
+      print('Error initializing locale data: $e');
+      // We'll still set the flag to true to avoid blocking UI
       setState(() {
-        _isLoading = false;
-        _hasError = true;
-        _errorMessage = 'Failed to load orders: $e';
+        _isLocaleInitialized = true;
       });
     }
   }
 
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  // Initialize notifications
   Future<void> _initializeNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-    AndroidInitializationSettings('@drawable/launch_background');
+    AndroidInitializationSettings('@mipmap/ic_launcher');
 
     const DarwinInitializationSettings initializationSettingsIOS =
     DarwinInitializationSettings(
@@ -184,8 +130,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       requestAlertPermission: true,
     );
 
-    const InitializationSettings initializationSettings =
-    InitializationSettings(
+    const InitializationSettings initializationSettings = InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsIOS,
     );
@@ -195,219 +140,184 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       onDidReceiveNotificationResponse: (NotificationResponse details) {
         // Handle notification tap
         if (details.payload != null) {
-          // You could parse order details from the payload and show dialog
-          _showNewOrderDialog();
+          _fetchOrders(); // Refresh orders when notification is tapped
         }
       },
     );
   }
 
+  // Request permissions
   Future<void> _requestPermissions() async {
     await Permission.notification.request();
   }
 
-  Future<void> _showNotification(Map<String, dynamic> orderDetails) async {
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
-    AndroidNotificationDetails(
-      'store_channel_id',
-      'Store Notifications',
-      channelDescription: 'Notifications for new store orders',
-      importance: Importance.max,
-      priority: Priority.high,
-      showWhen: true,
-      icon: '@mipmap/delpick', // Ensure this icon exists in your project
-    );
+  // Enhanced: Fetch store information
+  Future<void> _fetchStoreInfo() async {
+    try {
+      // Get user profile data
+      final profileData = await AuthService.getProfile();
 
-    const NotificationDetails platformChannelSpecifics =
-    NotificationDetails(android: androidPlatformChannelSpecifics);
-
-    await _flutterLocalNotificationsPlugin.show(
-      0,
-      'Pesanan Baru!',
-      'Pelanggan: ${orderDetails['customerName']} - ${GlobalStyle.formatRupiah(orderDetails['totalPrice'].toDouble())}',
-      platformChannelSpecifics,
-      payload: orderDetails['id'], // Pass the order ID as payload
-    );
-  }
-
-  Future<void> _playSound(String assetPath) async {
-    await _audioPlayer.play(AssetSource(assetPath));
-  }
-
-  // Show a dialog when a new order comes in
-  Future<void> _showNewOrderDialog({Map<String, dynamic>? orderDetails}) async {
-    await _playSound('audio/kring.mp3');
-
-    if (mounted) {
-      // Use provided order details or placeholder if none
-      final order = orderDetails ?? {
-        'id': 'new-order-${DateTime.now().millisecondsSinceEpoch}',
-        'customerName': 'New Customer',
-        'totalPrice': 0.0,
-      };
-
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            backgroundColor: Colors.white,
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Lottie.asset(
-                  'assets/animations/pilih_pesanan.json',
-                  width: 200,
-                  height: 200,
-                  fit: BoxFit.contain,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Pesanan Baru Masuk!',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Pelanggan: ${order['customerName']}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-                Text(
-                  'Total: ${GlobalStyle.formatRupiah(order['totalPrice'].toDouble())}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontFamily: GlobalStyle.fontFamily,
-                    color: GlobalStyle.primaryColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              Center(
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    // Refresh orders to get the latest data
-                    fetchOrders();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: GlobalStyle.primaryColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    minimumSize: const Size(double.infinity, 45),
-                  ),
-                  child: Text(
-                    'Lihat Pesanan',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      );
+      if (profileData != null && profileData['store'] != null) {
+        setState(() {
+          _storeData = profileData['store'];
+          _storeId = _storeData!['id']?.toString();
+          // Update store active status based on store status field
+          _isStoreActive = _storeData!['status'] == 'active';
+        });
+      } else {
+        // Try to get from cached user data
+        final userData = await AuthService.getUserData();
+        if (userData != null && userData['store'] != null) {
+          setState(() {
+            _storeData = userData['store'];
+            _storeId = _storeData!['id']?.toString();
+            _isStoreActive = _storeData!['status'] == 'active';
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching store information: $e');
+      setState(() {
+        _hasError = true;
+        _errorMessage = 'Failed to load store information: $e';
+      });
     }
   }
 
-  void _showStoreActiveDialog() async {
-    await _playSound('audio/found.wav');
-
-    if (mounted) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            backgroundColor: Colors.white,
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Lottie.asset(
-                  'assets/animations/diproses.json',
-                  width: 200,
-                  height: 200,
-                  fit: BoxFit.contain,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Toko Anda Sekarang Aktif!',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Anda akan menerima pesanan baru.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              Center(
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: GlobalStyle.primaryColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    minimumSize: const Size(double.infinity, 45),
-                  ),
-                  child: Text(
-                    'Mengerti',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
+  // Enhanced: Toggle store status using StoreService
+  Future<void> _toggleStoreStatus() async {
+    if (_storeId == null) {
+      // Show error if store ID is not available
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Tidak dapat mengubah status toko: ID toko tidak ditemukan',
+            style: TextStyle(fontFamily: GlobalStyle.fontFamily),
+          ),
+          backgroundColor: Colors.red,
+        ),
       );
+      return;
+    }
+
+    // Set loading state
+    setState(() {
+      _isTogglingStatus = true;
+    });
+
+    try {
+      // Get new status (opposite of current status)
+      final newStatus = _isStoreActive ? 'inactive' : 'active';
+
+      // Call StoreService to update store status
+      await StoreService.updateStoreStatus(_storeId!, newStatus);
+
+      // Update local state
+      setState(() {
+        _isStoreActive = !_isStoreActive;
+
+        // Update status in store data
+        if (_storeData != null) {
+          _storeData!['status'] = newStatus;
+        }
+      });
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isStoreActive
+                ? 'Toko aktif: Siap menerima pesanan! 🏪'
+                : 'Toko nonaktif: Tidak menerima pesanan baru 🛑',
+            style: TextStyle(fontFamily: GlobalStyle.fontFamily),
+          ),
+          backgroundColor: _isStoreActive ? Colors.green : Colors.red,
+        ),
+      );
+
+      // Play status change sound
+      await _playSound(_isStoreActive ? 'audio/success.mp3' : 'audio/info.mp3');
+
+      // If store is now active, update orders
+      if (_isStoreActive) {
+        _fetchOrders();
+      }
+
+    } catch (e) {
+      print('Error toggling store status: $e');
+
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Gagal mengubah status toko: ${e.toString()}',
+            style: TextStyle(fontFamily: GlobalStyle.fontFamily),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      // Reset loading state
+      setState(() {
+        _isTogglingStatus = false;
+      });
     }
   }
 
-  void _showDeactivateConfirmationDialog() async {
-    // Play wrong sound for deactivation confirmation
-    await _playSound('audio/wrong.mp3');
+  // Enhanced: Show confirmation dialog before toggling store status
+  void _showStatusConfirmationDialog() {
+    final newStatus = _isStoreActive ? 'nonaktif' : 'aktif';
+    final statusIcon = _isStoreActive ? '🛑' : '🏪';
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(
-            'Konfirmasi',
-            style: TextStyle(
-              fontFamily: GlobalStyle.fontFamily,
-              fontWeight: FontWeight.bold,
-            ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
-          content: Text(
-            'Anda yakin ingin menonaktifkan status toko? Anda tidak akan menerima pesanan baru.',
-            style: TextStyle(
-              fontFamily: GlobalStyle.fontFamily,
-            ),
+          title: Row(
+            children: [
+              Text(statusIcon, style: const TextStyle(fontSize: 24)),
+              const SizedBox(width: 8),
+              Text(
+                'Konfirmasi Status',
+                style: TextStyle(
+                  fontFamily: GlobalStyle.fontFamily,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Anda yakin ingin mengubah status toko menjadi $newStatus?',
+                style: TextStyle(
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: (_isStoreActive ? Colors.red : Colors.green).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _isStoreActive
+                      ? 'Toko akan berhenti menerima pesanan baru'
+                      : 'Toko akan mulai menerima pesanan baru',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _isStoreActive ? Colors.red : Colors.green,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -429,9 +339,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
               ),
               child: Text(
-                'Ya, Nonaktifkan',
+                'Ya, Ubah Status',
                 style: TextStyle(
                   color: Colors.white,
                   fontFamily: GlobalStyle.fontFamily,
@@ -444,125 +357,634 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-  // Updated method to toggle store status using StoreService
-  void _toggleStoreStatus() async {
-    // Check if we have a valid store ID
-    if (_storeId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Store ID tidak ditemukan'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    // Set toggling status to show loading
+  // Enhanced: Fetch orders from API with better data processing
+  Future<void> _fetchOrders() async {
     setState(() {
-      _isTogglingStatus = true;
+      _isLoading = true;
+      _hasError = false;
     });
 
     try {
-      // Determine new status based on current status
-      final newStatus = _isStoreActive ? 'inactive' : 'active';
+      // Use OrderService.getOrdersByStore()
+      final response = await OrderService.getOrdersByStore();
 
-      // Call the StoreService to update status
-      final result = await StoreService.updateStoreStatus(_storeId!, newStatus);
+      List<Map<String, dynamic>> newPendingOrders = [];
+      List<Map<String, dynamic>> newActiveOrders = [];
 
-      // Update the local state based on the response
-      if (result != null && result.containsKey('status')) {
-        setState(() {
-          _isStoreActive = result['status'] == 'active';
-        });
-
-        // Show activation dialog if the store is now active
-        if (_isStoreActive) {
-          _showStoreActiveDialog();
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Toko berhasil dinonaktifkan'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+      // FIXED: Proper handling of response structure
+      if (response is Map<String, dynamic>) {
+        // Check if response has 'orders' key
+        if (response.containsKey('orders') && response['orders'] is List) {
+          final List<dynamic> ordersList = response['orders'];
+          for (var orderItem in ordersList) {
+            if (orderItem is Map<String, dynamic>) {
+              final processedOrder = _processStoreOrder(orderItem);
+              if (processedOrder != null) {
+                // Separate pending and active orders
+                if (processedOrder['status'] == 'pending') {
+                  newPendingOrders.add(processedOrder);
+                } else {
+                  newActiveOrders.add(processedOrder);
+                }
+              }
+            }
+          }
+        }
+        // Check if response has 'data' key containing orders
+        else if (response.containsKey('data') && response['data'] is Map<String, dynamic>) {
+          final data = response['data'] as Map<String, dynamic>;
+          if (data.containsKey('orders') && data['orders'] is List) {
+            final List<dynamic> ordersList = data['orders'];
+            for (var orderItem in ordersList) {
+              if (orderItem is Map<String, dynamic>) {
+                final processedOrder = _processStoreOrder(orderItem);
+                if (processedOrder != null) {
+                  // Separate pending and active orders
+                  if (processedOrder['status'] == 'pending') {
+                    newPendingOrders.add(processedOrder);
+                  } else {
+                    newActiveOrders.add(processedOrder);
+                  }
+                }
+              }
+            }
+          }
         }
       }
-    } catch (e) {
-      // Show error message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal mengubah status toko: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      // Regardless of success or failure, set toggling status to false
+
+      // Check for new pending orders and show notifications
+      int totalNewOrders = newPendingOrders.length + newActiveOrders.length;
+      if (totalNewOrders > _previousOrdersCount &&
+          _isStoreActive &&
+          _previousOrdersCount > 0) {
+        // Show notification for new orders
+        int newOrdersCount = totalNewOrders - _previousOrdersCount;
+        _notificationCount += newOrdersCount;
+
+        // Show notification for the newest pending order
+        if (newPendingOrders.isNotEmpty) {
+          await _showNotification(newPendingOrders.first);
+          await _showNewOrderDialog(orderDetails: newPendingOrders.first);
+        }
+      }
+
       setState(() {
-        _isTogglingStatus = false;
+        _pendingOrders = newPendingOrders;
+        _activeOrders = newActiveOrders;
+        _previousOrdersCount = totalNewOrders;
+        _combineAllOrders();
+        _isLoading = false;
       });
+
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+        _errorMessage = 'Failed to load orders: $e';
+      });
+      print('Error fetching orders: $e');
     }
   }
 
-  @override
-  void dispose() {
+  // Process store order data
+  Map<String, dynamic>? _processStoreOrder(Map<String, dynamic> orderData) {
+    try {
+      // Extract customer information
+      final customerData = orderData['user'] ?? orderData['customer'] ?? {};
+      final storeData = orderData['store'] ?? {};
+      final orderItems = orderData['orderItems'] ?? orderData['items'] ?? [];
+
+      // Get customer avatar
+      String customerAvatar = '';
+      if (customerData['avatar'] != null && customerData['avatar'].toString().isNotEmpty) {
+        customerAvatar = ImageService.getImageUrl(customerData['avatar']);
+      }
+
+      // Process items
+      List<Map<String, dynamic>> items = [];
+      if (orderItems is List) {
+        items = orderItems.map((item) {
+          String imageUrl = '';
+          if (item['imageUrl'] != null && item['imageUrl'].toString().isNotEmpty) {
+            imageUrl = ImageService.getImageUrl(item['imageUrl']);
+          }
+
+          return {
+            'name': item['name'] ?? 'Product',
+            'quantity': item['quantity'] ?? 1,
+            'price': _parseDouble(item['price'] ?? 0),
+            'imageUrl': imageUrl,
+          };
+        }).toList();
+      }
+
+      return {
+        'id': orderData['id']?.toString() ?? '',
+        'customerName': customerData['name'] ?? 'Unknown Customer',
+        'customerPhone': customerData['phone'] ?? customerData['phoneNumber'] ?? '',
+        'customerAvatar': customerAvatar,
+        'orderTime': _parseDateTime(orderData['created_at'] ?? orderData['createdAt']),
+        'totalPrice': _parseDouble(orderData['subtotal'] ?? orderData['total'] ?? 0),
+        'status': orderData['status'] ?? orderData['order_status'] ?? 'pending',
+        'items': items,
+        'deliveryFee': _parseDouble(orderData['service_charge'] ?? orderData['serviceCharge'] ?? 0),
+        'amount': _parseDouble(orderData['total'] ?? 0),
+        'customerAddress': orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? '',
+        'paymentMethod': orderData['payment_method'] ?? orderData['paymentMethod'] ?? 'cash',
+        'notes': orderData['notes'] ?? '',
+        'orderDetail': orderData,
+        'type': 'order', // Mark as store order
+      };
+    } catch (e) {
+      print('Error processing store order: $e');
+      return null;
+    }
+  }
+
+  // Helper methods for safe parsing
+  DateTime _parseDateTime(dynamic dateTime) {
+    if (dateTime == null) return DateTime.now();
+    if (dateTime is DateTime) return dateTime;
+    if (dateTime is String) {
+      try {
+        return DateTime.parse(dateTime);
+      } catch (e) {
+        return DateTime.now();
+      }
+    }
+    return DateTime.now();
+  }
+
+  double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      try {
+        return double.parse(value);
+      } catch (e) {
+        return 0.0;
+      }
+    }
+    return 0.0;
+  }
+
+  // Combine all orders for display
+  void _combineAllOrders() {
+    List<Map<String, dynamic>> combinedOrders = [];
+
+    // Add pending orders first (highest priority)
+    combinedOrders.addAll(_pendingOrders);
+
+    // Add active orders (being processed)
+    combinedOrders.addAll(_activeOrders.where((order) =>
+    !['delivered', 'completed', 'cancelled'].contains(order['status'])
+    ).toList());
+
+    // Sort by priority: pending -> approved -> preparing -> ready_for_pickup, etc.
+    combinedOrders.sort((a, b) {
+      final statusPriority = {
+        'pending': 0,
+        'approved': 1,
+        'preparing': 2,
+        'ready_for_pickup': 3,
+        'driverHeadingToStore': 4,
+        'driverAtStore': 5,
+        'driverHeadingToCustomer': 6,
+        'on_delivery': 7,
+      };
+
+      final aStatus = a['status'];
+      final bStatus = b['status'];
+
+      return (statusPriority[aStatus] ?? 8).compareTo(statusPriority[bStatus] ?? 8);
+    });
+
+    setState(() {
+      _allOrders = combinedOrders;
+      // Initialize animations for each card
+      _initializeAnimations();
+    });
+  }
+
+  // Initialize animations
+  void _initializeAnimations() {
+    // Clear existing controllers first
     for (var controller in _cardControllers) {
       controller.dispose();
     }
-    _audioPlayer.dispose();
-    super.dispose();
+
+    if (_allOrders.isEmpty) return;
+
+    // Initialize new controllers for each card
+    _cardControllers = List.generate(
+      _allOrders.length,
+          (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 200)),
+      ),
+    );
+
+    // Create slide animations for each card
+    _cardAnimations = _cardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0, 0.5),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+
+    // Start animations
+    for (var controller in _cardControllers) {
+      controller.forward();
+    }
   }
 
-  // Filter orders based on status
-  List<Map<String, dynamic>> get filteredOrders {
-    return _orders
-        .where((order) => ['processed', 'detained', 'picked_up', 'pending', 'approved', 'preparing']
-        .contains(order['status']))
-        .toList();
+  // Enhanced: Process order by store (approve/reject)
+  Future<void> _processOrderByStore(String orderId, String action) async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      // Use OrderService to process order
+      final response = await OrderService.processOrderByStore(orderId, action);
+
+      // Reload orders after processing
+      await _fetchOrders();
+
+      // Show success message
+      if (mounted) {
+        final message = action == 'approve'
+            ? 'Pesanan berhasil disetujui!'
+            : 'Pesanan berhasil ditolak!';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              message,
+              style: TextStyle(fontFamily: GlobalStyle.fontFamily),
+            ),
+            backgroundColor: action == 'approve' ? Colors.green : Colors.orange,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+
+        // Play sound
+        await _playSound(action == 'approve' ? 'audio/success.mp3' : 'audio/info.mp3');
+      }
+
+    } catch (e) {
+      print('Error processing order: $e');
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Gagal memproses pesanan: ${e.toString()}',
+              style: TextStyle(fontFamily: GlobalStyle.fontFamily),
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
-  // Get status color based on order status
+  // Set up periodic order polling
+  void _setupOrderPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted && _isStoreActive) {
+        _fetchOrders();
+      } else if (!mounted) {
+        timer.cancel();
+      }
+    });
+  }
+
+  // Show notification for new order
+  Future<void> _showNotification(Map<String, dynamic> orderDetails) async {
+    try {
+      const AndroidNotificationDetails androidPlatformChannelSpecifics =
+      AndroidNotificationDetails(
+        'store_channel_id',
+        'Store Notifications',
+        channelDescription: 'Notifications for new store orders',
+        importance: Importance.max,
+        priority: Priority.high,
+        showWhen: true,
+        icon: '@mipmap/ic_launcher',
+        sound: RawResourceAndroidNotificationSound('notification_sound'),
+      );
+
+      const NotificationDetails platformChannelSpecifics =
+      NotificationDetails(android: androidPlatformChannelSpecifics);
+
+      await _flutterLocalNotificationsPlugin.show(
+        orderDetails['id'].hashCode,
+        'Pesanan Baru Masuk! 🏪',
+        'Pelanggan: ${orderDetails['customerName']} - ${GlobalStyle.formatRupiah(orderDetails['totalPrice'])}',
+        platformChannelSpecifics,
+        payload: orderDetails['id'],
+      );
+    } catch (e) {
+      print('Error showing notification: $e');
+    }
+  }
+
+  // Play notification sound
+  Future<void> _playSound(String assetPath) async {
+    try {
+      await _audioPlayer.play(AssetSource(assetPath));
+    } catch (e) {
+      print('Error playing sound: $e');
+    }
+  }
+
+  // Enhanced: Show new order dialog
+  Future<void> _showNewOrderDialog({Map<String, dynamic>? orderDetails}) async {
+    if (_isShowingNewOrderDialog) return; // Prevent multiple dialogs
+
+    _isShowingNewOrderDialog = true;
+    await _playSound('audio/notification_sound.mp3');
+
+    if (mounted) {
+      final order = orderDetails ?? {
+        'id': 'new-order-${DateTime.now().millisecondsSinceEpoch}',
+        'customerName': 'New Customer',
+        'totalPrice': 0.0,
+      };
+
+      final result = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Animation
+                  Lottie.asset(
+                    'assets/animations/new_order.json',
+                    width: 180,
+                    height: 180,
+                    fit: BoxFit.contain,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Title
+                  Text(
+                    'Pesanan Baru Masuk! 🏪',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: GlobalStyle.fontFamily,
+                      color: GlobalStyle.primaryColor,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Order Details Card
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: GlobalStyle.lightColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        _buildOrderDetailRow('Pelanggan:', order['customerName']),
+                        const SizedBox(height: 8),
+                        _buildOrderDetailRow('Alamat:', order['customerAddress'] ?? 'Tidak ada alamat'),
+                        const SizedBox(height: 8),
+                        _buildOrderDetailRow('Item:', '${order['items']?.length ?? 0} item'),
+                        const SizedBox(height: 8),
+                        _buildOrderDetailRow('Total:', GlobalStyle.formatRupiah(order['totalPrice']),
+                            isHighlight: true),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              if (order['status'] == 'pending') ...[
+                // For pending orders - Approve/Reject buttons
+                Row(
+                  children: [
+                    // Reject button
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop('reject');
+                        },
+                        icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                        label: Text(
+                          'Tolak',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontFamily: GlobalStyle.fontFamily,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.red),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Approve button
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop('approve');
+                        },
+                        icon: const Icon(Icons.check, color: Colors.white, size: 18),
+                        label: Text(
+                          'Setujui',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontFamily: GlobalStyle.fontFamily,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GlobalStyle.primaryColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                // For other orders - Just view button
+                Center(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop('view');
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GlobalStyle.primaryColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      minimumSize: const Size(200, 45),
+                    ),
+                    child: Text(
+                      'Lihat Pesanan',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          );
+        },
+      );
+
+      _isShowingNewOrderDialog = false;
+
+      // Handle the response
+      if (result != null && order['id'] != null) {
+        if (result == 'approve' || result == 'reject') {
+          await _processOrderByStore(order['id'], result);
+        } else if (result == 'view') {
+          _fetchOrders(); // Just refresh orders
+        }
+      }
+    }
+  }
+
+  // Helper method to build order detail row
+  Widget _buildOrderDetailRow(String label, String value, {bool isHighlight = false}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              color: GlobalStyle.fontColor.withOpacity(0.7),
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              color: isHighlight ? GlobalStyle.primaryColor : GlobalStyle.fontColor,
+              fontWeight: isHighlight ? FontWeight.bold : FontWeight.normal,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Reset notification count
+  void _resetNotificationCount() {
+    setState(() {
+      _notificationCount = 0;
+    });
+  }
+
+  // Get status color
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'processed':
-        return Colors.blue;
-      case 'detained':
+      case 'pending':
         return Colors.orange;
-      case 'picked_up':
-        return Colors.purple;
       case 'approved':
         return Colors.green;
       case 'preparing':
+        return Colors.blue;
+      case 'ready_for_pickup':
+        return Colors.purple;
+      case 'driverHeadingToStore':
+        return Colors.indigo;
+      case 'driverAtStore':
+        return Colors.teal;
+      case 'driverHeadingToCustomer':
         return Colors.amber;
+      case 'on_delivery':
+        return Colors.cyan;
       default:
         return Colors.grey;
     }
   }
 
-  // Get readable status label
+  // Get status label
   String _getStatusLabel(String status) {
     switch (status) {
-      case 'processed':
-        return 'Diproses';
-      case 'detained':
-        return 'Ditahan';
-      case 'picked_up':
-        return 'Diambil';
+      case 'pending':
+        return 'Menunggu';
       case 'approved':
         return 'Disetujui';
       case 'preparing':
         return 'Sedang Disiapkan';
-      case 'pending':
-        return 'Menunggu';
+      case 'ready_for_pickup':
+        return 'Siap Diambil';
+      case 'driverHeadingToStore':
+        return 'Driver Menuju Toko';
+      case 'driverAtStore':
+        return 'Driver di Toko';
+      case 'driverHeadingToCustomer':
+        return 'Driver Menuju Customer';
+      case 'on_delivery':
+        return 'Sedang Dikirim';
       default:
-        return 'Unknown';
+        return 'Status Tidak Diketahui';
     }
   }
 
-  // Build an order card for the list
+  // Navigate to order detail
+  void _navigateToOrderDetail(Map<String, dynamic> order) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => HistoryStoreDetailPage(
+          orderDetail: order,
+          orderId: order['id'],
+        ),
+      ),
+    ).then((_) {
+      // Refresh orders when returning from detail page
+      _fetchOrders();
+    });
+  }
+
+  // Enhanced: Build order card with approve/reject functionality
   Widget _buildOrderCard(Map<String, dynamic> order, int index) {
     String status = order['status'] as String;
-
-    // Ensure index is within bounds of animations array
+    bool isPendingOrder = status == 'pending';
     final animationIndex = index < _cardAnimations.length ? index : 0;
 
     return SlideTransition(
@@ -572,6 +994,9 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
+          border: isPendingOrder
+              ? Border.all(color: Colors.orange, width: 2)
+              : null,
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
@@ -593,8 +1018,30 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.person, color: GlobalStyle.primaryColor),
-                            const SizedBox(width: 8),
+                            // Customer avatar
+                            if (order['customerAvatar'] != null &&
+                                order['customerAvatar'].toString().isNotEmpty)
+                              ImageService.displayImage(
+                                imageSource: order['customerAvatar'],
+                                width: 36,
+                                height: 36,
+                                borderRadius: BorderRadius.circular(18),
+                              )
+                            else
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: GlobalStyle.primaryColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Icon(
+                                  Icons.person,
+                                  color: GlobalStyle.primaryColor,
+                                  size: 20,
+                                ),
+                              ),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 order['customerName'] ?? 'Customer',
@@ -620,6 +1067,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                               style: TextStyle(
                                 color: GlobalStyle.fontColor,
                                 fontFamily: GlobalStyle.fontFamily,
+                                fontSize: 12,
                               ),
                             ),
                           ],
@@ -631,8 +1079,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                                 color: GlobalStyle.primaryColor, size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              GlobalStyle.formatRupiah(
-                                  order['totalPrice'].toDouble()),
+                              GlobalStyle.formatRupiah(order['totalPrice']),
                               style: TextStyle(
                                 color: GlobalStyle.primaryColor,
                                 fontWeight: FontWeight.bold,
@@ -644,21 +1091,44 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                       ],
                     ),
                   ),
-                  Container(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _getStatusColor(status),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      _getStatusLabel(status),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                  Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(status),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _getStatusLabel(status),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                    ),
+                      if (isPendingOrder)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              'BARU!',
+                              style: TextStyle(
+                                color: Colors.orange,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),
@@ -687,15 +1157,26 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            'Alamat Pengiriman: ${order['customerAddress'] ?? 'No address'}',
-                            style: TextStyle(
-                              color: GlobalStyle.fontColor,
-                              fontSize: 12,
+                          if (order['customerAddress'] != null &&
+                              order['customerAddress'].toString().isNotEmpty)
+                            Text(
+                              'Alamat: ${order['customerAddress']}',
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor,
+                                fontSize: 12,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          if (order['customerPhone'] != null &&
+                              order['customerPhone'].toString().isNotEmpty)
+                            Text(
+                              'Telepon: ${order['customerPhone']}',
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor,
+                                fontSize: 12,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -703,33 +1184,78 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => HistoryStoreDetailPage(
-                        orderDetail: order,
+
+              // Action buttons
+              if (isPendingOrder) ...[
+                // For pending orders - Approve/Reject buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await _processOrderByStore(order['id'], 'reject');
+                        },
+                        icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                        label: Text(
+                          'Tolak',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.red),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
                       ),
                     ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: GlobalStyle.primaryColor,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  minimumSize: const Size(double.infinity, 40),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          await _processOrderByStore(order['id'], 'approve');
+                        },
+                        icon: const Icon(Icons.check, color: Colors.white, size: 18),
+                        label: Text(
+                          'Setujui',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GlobalStyle.primaryColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                child: Text(
-                  'Lihat Detail',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontFamily: GlobalStyle.fontFamily,
+              ] else ...[
+                // For other orders - Detail button
+                ElevatedButton(
+                  onPressed: () => _navigateToOrderDetail(order),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    minimumSize: const Size(double.infinity, 40),
+                  ),
+                  child: Text(
+                    'Lihat Detail',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -737,7 +1263,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-  // Empty state widget
+  // Build empty state
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -745,39 +1271,61 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         children: [
           Lottie.asset(
             'assets/animations/empty.json',
-            width: 200,
-            height: 200,
+            width: 250,
+            height: 250,
             fit: BoxFit.contain,
           ),
           const SizedBox(height: 16),
           Text(
-            'Tidak ada pesanan yang diproses',
+            'Tidak ada pesanan',
             style: TextStyle(
               color: GlobalStyle.fontColor,
-              fontSize: 16,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               fontFamily: GlobalStyle.fontFamily,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Pesanan baru akan muncul di sini',
+            _isStoreActive
+                ? 'Pesanan baru akan muncul di sini'
+                : 'Aktifkan toko untuk menerima pesanan',
             style: TextStyle(
               color: GlobalStyle.fontColor.withOpacity(0.7),
               fontSize: 14,
               fontFamily: GlobalStyle.fontFamily,
             ),
+            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 20),
-          Text(
-            _isStoreActive
-                ? 'Status: Aktif - Siap Menerima Pesanan'
-                : 'Status: Tidak Aktif - Aktifkan untuk menerima pesanan',
-            style: TextStyle(
-              color: _isStoreActive ? Colors.green : Colors.red,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              fontFamily: GlobalStyle.fontFamily,
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            decoration: BoxDecoration(
+              color: _isStoreActive
+                  ? Colors.green.withOpacity(0.1)
+                  : Colors.red.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
+              border:
+              Border.all(color: _isStoreActive ? Colors.green : Colors.red, width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                    _isStoreActive ? Icons.check_circle : Icons.warning_amber,
+                    color: _isStoreActive ? Colors.green : Colors.red,
+                    size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Status: ${_isStoreActive ? "Aktif 🏪" : "Nonaktif 🛑"}',
+                  style: TextStyle(
+                    color: _isStoreActive ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -785,7 +1333,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-  // Loading state widget
+  // Build loading state
   Widget _buildLoadingState() {
     return Center(
       child: Column(
@@ -806,19 +1354,24 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-  // Error state widget
+  // Build error state
   Widget _buildErrorState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.error_outline, color: Colors.red, size: 64),
+          Lottie.asset(
+            'assets/animations/error.json',
+            width: 200,
+            height: 200,
+            fit: BoxFit.contain,
+          ),
           const SizedBox(height: 16),
           Text(
             'Gagal memuat pesanan',
             style: TextStyle(
-              color: GlobalStyle.fontColor,
-              fontSize: 16,
+              color: Colors.red,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               fontFamily: GlobalStyle.fontFamily,
             ),
@@ -833,14 +1386,18 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: fetchOrders,
+            onPressed: () {
+              _fetchStoreInfo();
+              _fetchOrders();
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: GlobalStyle.primaryColor,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
             ),
             child: Text(
               'Coba Lagi',
@@ -858,27 +1415,41 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final orders = filteredOrders;
+    // If locale is not initialized yet, show loading
+    if (!_isLocaleInitialized) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
 
     return Scaffold(
-      backgroundColor: const Color(0xffD6E6F2),
+      backgroundColor: const Color(0xffF8F9FA),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
+              // Enhanced Header
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    colors: [
+                      GlobalStyle.primaryColor,
+                      GlobalStyle.primaryColor.withOpacity(0.8),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+                      color: GlobalStyle.primaryColor.withOpacity(0.3),
+                      blurRadius: 15,
+                      offset: const Offset(0, 5),
                     ),
                   ],
                 ),
@@ -896,100 +1467,194 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
                                 fontFamily: GlobalStyle.fontFamily,
+                                color: Colors.white,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              DateFormat('EEEE, dd MMMM yyyy')
-                                  .format(DateTime.now()),
+                              _safeFormatDate(DateTime.now()),
                               style: TextStyle(
-                                color: GlobalStyle.fontColor,
+                                color: Colors.white.withOpacity(0.8),
                                 fontSize: 12,
                                 fontFamily: GlobalStyle.fontFamily,
                               ),
                             ),
+                            if (_storeData != null && _storeData!['name'] != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.store,
+                                      color: Colors.white.withOpacity(0.8),
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _storeData!['name'],
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        fontFamily: GlobalStyle.fontFamily,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                           ],
                         ),
+                        // Enhanced profile button with notification badge
                         GestureDetector(
                           onTap: () {
-                            Navigator.pushNamed(
-                                context, ProfileStorePage.route);
+                            _resetNotificationCount();
+                            Navigator.pushNamed(context, ProfileStorePage.route).then((_) {
+                              // Refresh store status when returning from profile page
+                              _fetchStoreInfo();
+                            });
                           },
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: GlobalStyle.lightColor.withOpacity(0.3),
-                              shape: BoxShape.circle,
+                          child: _notificationCount > 0
+                              ? badges.Badge(
+                            badgeContent: Text(
+                              _notificationCount.toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                            child: FaIcon(
-                              FontAwesomeIcons.user,
-                              size: 20,
-                              color: GlobalStyle.primaryColor,
+                            badgeStyle: badges.BadgeStyle(
+                              badgeColor: Colors.red,
+                              padding: const EdgeInsets.all(5),
                             ),
-                          ),
+                            position: badges.BadgePosition.topEnd(
+                                top: -5, end: -5),
+                            child: _buildProfileButton(),
+                          )
+                              : _buildProfileButton(),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    // Status toggle button with loading indicator
-                    _isTogglingStatus
-                        ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            _isStoreActive ? Colors.green : Colors.red,
-                          ),
-                        ),
-                      ),
-                    )
-                        : ElevatedButton.icon(
-                      onPressed: () {
-                        if (_isStoreActive) {
-                          _showDeactivateConfirmationDialog();
-                        } else {
-                          _toggleStoreStatus();
-                        }
-                      },
+                    const SizedBox(height: 20),
+                    // Enhanced store status toggle button
+                    ElevatedButton.icon(
+                      onPressed: _isTogglingStatus ? null : _showStatusConfirmationDialog,
                       icon: Icon(
-                        _isStoreActive ? Icons.toggle_on : Icons.toggle_off,
-                        color: Colors.white,
+                        _isStoreActive ? Icons.radio_button_checked : Icons.radio_button_off,
+                        color: _isStoreActive ? Colors.green : Colors.red,
                         size: 24,
                       ),
-                      label: Text(
+                      label: _isTogglingStatus
+                          ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(
+                              color: GlobalStyle.primaryColor,
+                              strokeWidth: 2,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Mengubah Status...',
+                            style: TextStyle(
+                              color: GlobalStyle.primaryColor,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ],
+                      )
+                          : Text(
                         _isStoreActive
-                            ? 'Status Toko: Aktif'
-                            : 'Status Toko: Tidak Aktif',
-                        style: const TextStyle(
-                          color: Colors.white,
+                            ? 'Status: Aktif 🏪'
+                            : 'Status: Nonaktif 🛑',
+                        style: TextStyle(
+                          color: _isStoreActive ? Colors.green : Colors.red,
                           fontWeight: FontWeight.bold,
+                          fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                        _isStoreActive ? Colors.green : Colors.red,
+                        backgroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(25),
                         ),
-                        minimumSize: const Size(double.infinity, 45),
+                        minimumSize: const Size(double.infinity, 50),
+                        disabledBackgroundColor: Colors.white.withOpacity(0.7),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              // Orders List or appropriate state widget
+              const SizedBox(height: 20),
+
+              // Enhanced orders summary
+              if (!_isLoading && !_hasError && _allOrders.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildSummaryItem('Total', _allOrders.length.toString()),
+                      Container(
+                        height: 40,
+                        width: 1,
+                        color: GlobalStyle.primaryColor.withOpacity(0.3),
+                      ),
+                      _buildSummaryItem(
+                        'Menunggu',
+                        _pendingOrders.length.toString(),
+                        color: Colors.orange,
+                      ),
+                      Container(
+                        height: 40,
+                        width: 1,
+                        color: GlobalStyle.primaryColor.withOpacity(0.3),
+                      ),
+                      _buildSummaryItem(
+                        'Aktif',
+                        _activeOrders
+                            .where((order) => ['preparing', 'approved'].contains(order['status']))
+                            .length
+                            .toString(),
+                        color: Colors.blue,
+                      ),
+                    ],
+                  ),
+                ),
+              if (!_isLoading && !_hasError && _allOrders.isNotEmpty)
+                const SizedBox(height: 20),
+
+              // Orders list
               Expanded(
                 child: _isLoading
                     ? _buildLoadingState()
                     : _hasError
                     ? _buildErrorState()
-                    : orders.isEmpty
+                    : _allOrders.isEmpty
                     ? _buildEmptyState()
-                    : ListView.builder(
-                  itemCount: orders.length,
-                  itemBuilder: (context, index) =>
-                      _buildOrderCard(orders[index], index),
+                    : RefreshIndicator(
+                  onRefresh: _fetchOrders,
+                  color: GlobalStyle.primaryColor,
+                  child: ListView.builder(
+                    itemCount: _allOrders.length,
+                    itemBuilder: (context, index) =>
+                        _buildOrderCard(_allOrders[index], index),
+                  ),
                 ),
               ),
             ],
@@ -1002,6 +1667,64 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           setState(() => _currentIndex = index);
         },
       ),
+    );
+  }
+
+  // Safe date formatting with fallback
+  String _safeFormatDate(DateTime date) {
+    try {
+      return DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(date);
+    } catch (e) {
+      print('Error formatting date: $e');
+      // Fallback to simple date format without locale
+      return DateFormat('dd/MM/yyyy').format(date);
+    }
+  }
+
+  // Build profile button
+  Widget _buildProfileButton() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: const FaIcon(
+        FontAwesomeIcons.user,
+        size: 20,
+        color: Colors.white,
+      ),
+    );
+  }
+
+  // Build summary item
+  Widget _buildSummaryItem(String label, String value, {Color? color}) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color ?? GlobalStyle.primaryColor,
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: GlobalStyle.fontColor.withOpacity(0.7),
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }

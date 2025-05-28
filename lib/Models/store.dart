@@ -14,6 +14,7 @@ class StoreModel {
   final int productCount;
   final double? latitude;
   final double? longitude;
+  final String status;
 
   StoreModel({
     required this.name,
@@ -30,6 +31,7 @@ class StoreModel {
     this.userId,
     this.latitude,
     this.longitude,
+    this.status = '',
   });
 
   factory StoreModel.fromJson(Map<String, dynamic> json) {
@@ -54,12 +56,11 @@ class StoreModel {
       description: json['description'] ?? '',
       latitude: (json['latitude'] != null) ? double.tryParse(json['latitude'].toString()) : null,
       longitude: (json['longitude'] != null) ? double.tryParse(json['longitude'].toString()) : null,
+      status: json['status'] ?? 'active',
     );
   }
 
-  // This is the method that needed to be defined
   Map<String, dynamic> toJson() {
-    // Split openHours to get open and close times
     final openTimeParts = openHours.split('-');
     final openTime = openTimeParts.isNotEmpty ? openTimeParts[0].trim() : '';
     final closeTime = openTimeParts.length > 1 ? openTimeParts[1].trim() : '';
@@ -80,6 +81,7 @@ class StoreModel {
       'latitude': latitude,
       'longitude': longitude,
       'distance': distance,
+      'status': status,
     };
   }
 
@@ -103,7 +105,8 @@ class Store {
   double latitude;
   double longitude;
   double distance;
-  String email; // Add this field
+  String email;
+  String status;
 
   Store({
     required this.id,
@@ -121,10 +124,10 @@ class Store {
     this.latitude = 0.0,
     this.longitude = 0.0,
     this.distance = 0.0,
-    this.email = '', // Initialize it
+    this.email = '',
+    this.status = '',
   });
 
-  // Update fromJson method to include email
   factory Store.fromJson(Map<String, dynamic> json) {
     return Store(
       id: json['id'] ?? 0,
@@ -142,11 +145,11 @@ class Store {
       latitude: (json['latitude'] != null) ? double.tryParse(json['latitude'].toString()) ?? 0.0 : 0.0,
       longitude: (json['longitude'] != null) ? double.tryParse(json['longitude'].toString()) ?? 0.0 : 0.0,
       distance: (json['distance'] != null) ? double.tryParse(json['distance'].toString()) ?? 0.0 : 0.0,
-      email: json['email'] ?? '', // Get email if available
+      email: json['email'] ?? '',
+      status: json['status'] ?? 'active',
     );
   }
 
-  // Update toJson method to include email
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -165,6 +168,7 @@ class Store {
       'longitude': longitude,
       'distance': distance,
       'email': email,
+      'status': status,
     };
   }
 }

@@ -12,38 +12,180 @@ import 'core/token_service.dart';
 class ImageService {
   static final ImagePicker _picker = ImagePicker();
 
-  // Convert backend image path to displayable image URL
+  /// Convert backend image path to displayable image URL
   static String getImageUrl(String? imageSource) {
     if (imageSource == null || imageSource.isEmpty) {
-      return ''; // Return empty string for null/empty images
+      print('getImageUrl: Empty or null image source');
+      return '';
     }
+
+    print('getImageUrl processing: $imageSource');
 
     // Handle data URLs (base64)
     if (imageSource.startsWith('data:image/')) {
+      print('getImageUrl: Already a base64 data URL, returning as is');
       return imageSource;
     }
 
     // Handle raw base64 strings (without data:image prefix)
     if (_isBase64(imageSource)) {
-      return 'data:image/jpeg;base64,$imageSource'; // Assume JPEG if not specified
+      print('getImageUrl: Detected as raw base64, converting to data URL');
+      return 'data:image/jpeg;base64,$imageSource';
     }
 
-    // Handle server paths
-    if (imageSource.startsWith('/')) {
-      return '${ApiConstants.baseUrl}$imageSource';
-    }
-
-    // Handle full URLs
-    if (imageSource.startsWith('http')) {
+    // Handle absolute URLs
+    if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
+      print('getImageUrl: Already a full URL, returning as is');
       return imageSource;
     }
 
-    // Fallback: assume it's a relative path
-    return '${ApiConstants.baseUrl}/$imageSource';
+    // Handle server paths (relative paths starting with /)
+    if (imageSource.startsWith('/')) {
+      // For uploads directory
+      if (imageSource.contains('/uploads/')) {
+        String fullUrl = ApiConstants.baseUrl + imageSource;
+        print('getImageUrl: Uploads path converted to: $fullUrl');
+        return fullUrl;
+      }
+
+      // Other relative paths
+      String fullUrl = ApiConstants.baseUrl + imageSource;
+      print('getImageUrl: Relative path converted to: $fullUrl');
+      return fullUrl;
+    }
+
+    // Fallback for any other format
+    String fullUrl = ApiConstants.baseUrl + '/' + imageSource;
+    print('getImageUrl: Fallback path converted to: $fullUrl');
+    return fullUrl;
+  }
+
+  /// Display image widget with proper handling of various image formats
+  static Widget displayImage({
+    required String imageSource,
+    double width = 100,
+    double height = 100,
+    BoxFit fit = BoxFit.cover,
+    Widget? placeholder,
+    Widget? errorWidget,
+    BorderRadius? borderRadius,
+  }) {
+    // Default placeholder and error widgets
+    final defaultPlaceholder = Container(
+      width: width,
+      height: height,
+      color: Colors.grey[300],
+      child: Icon(Icons.image, color: Colors.grey[600]),
+    );
+
+    final defaultErrorWidget = Container(
+      width: width,
+      height: height,
+      color: Colors.grey[200],
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.broken_image, color: Colors.grey[400]),
+          Text('Error loading image', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+        ],
+      ),
+    );
+
+    // Check if imageSource is empty
+    if (imageSource.isEmpty) {
+      print('Empty image source provided');
+      return placeholder ?? defaultPlaceholder;
+    }
+
+    // Process URL using getImageUrl
+    final processedSource = getImageUrl(imageSource);
+    print('Processed to: $processedSource');
+
+    if (processedSource.isEmpty) {
+      print('Processing resulted in empty URL');
+      return placeholder ?? defaultPlaceholder;
+    }
+
+    // For base64 images
+    if (processedSource.startsWith('data:image/')) {
+      try {
+        final parts = processedSource.split(',');
+        if (parts.length != 2) {
+          print('Invalid data URL format');
+          return errorWidget ?? defaultErrorWidget;
+        }
+
+        final base64Data = parts[1];
+        try {
+          final bytes = base64Decode(base64Data);
+          print('Base64 image decoded, size: ${bytes.length} bytes');
+
+          return ClipRRect(
+            borderRadius: borderRadius ?? BorderRadius.zero,
+            child: Image.memory(
+              bytes,
+              width: width,
+              height: height,
+              fit: fit,
+              errorBuilder: (_, error, stack) {
+                print('Error displaying base64 image: $error');
+                return errorWidget ?? defaultErrorWidget;
+              },
+            ),
+          );
+        } catch (e) {
+          print('Error decoding base64: $e');
+          return errorWidget ?? defaultErrorWidget;
+        }
+      } catch (e) {
+        print('Error processing base64 image: $e');
+        return errorWidget ?? defaultErrorWidget;
+      }
+    }
+
+    // For network images
+    return ClipRRect(
+      borderRadius: borderRadius ?? BorderRadius.zero,
+      child: Image.network(
+        processedSource,
+        width: width,
+        height: height,
+        fit: fit,
+        headers: {
+          'Accept': 'image/*',
+        },
+        loadingBuilder: (_, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              placeholder ?? defaultPlaceholder,
+              CircularProgressIndicator(
+                value: loadingProgress.expectedTotalBytes != null
+                    ? loadingProgress.cumulativeBytesLoaded /
+                    loadingProgress.expectedTotalBytes!
+                    : null,
+              ),
+            ],
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          print('Error loading network image: $error');
+          print('URL: $processedSource');
+          return errorWidget ?? defaultErrorWidget;
+        },
+      ),
+    );
   }
 
   // Simple check if string is base64 encoded
   static bool _isBase64(String str) {
+    // Check if string could potentially be base64
+    if (str.length % 4 != 0 ||
+        str.contains(RegExp(r'[^A-Za-z0-9+/=]'))) {
+      return false;
+    }
+
     try {
       base64Decode(str);
       return true;
@@ -52,7 +194,7 @@ class ImageService {
     }
   }
 
-  // Pick and encode single image
+  /// Pick and encode single image
   static Future<Map<String, dynamic>?> pickAndEncodeImage({
     ImageSource source = ImageSource.gallery,
   }) async {
@@ -91,8 +233,14 @@ class ImageService {
         case 'gif':
           mimeType = 'image/gif';
           break;
+        case 'bmp':
+          mimeType = 'image/bmp';
+          break;
+        case 'webp':
+          mimeType = 'image/webp';
+          break;
         default:
-          mimeType = 'image/jpeg'; // Default to JPEG
+          mimeType = 'image/jpeg';
       }
 
       // Encode to base64
@@ -112,7 +260,7 @@ class ImageService {
     }
   }
 
-  // Pick and encode multiple images
+  /// Pick and encode multiple images
   static Future<List<Map<String, dynamic>>> pickAndEncodeMultipleImages() async {
     try {
       final List<XFile> pickedFiles = await _picker.pickMultiImage(
@@ -151,7 +299,7 @@ class ImageService {
             mimeType = 'image/gif';
             break;
           default:
-            mimeType = 'image/jpeg'; // Default to JPEG
+            mimeType = 'image/jpeg';
         }
 
         // Encode to base64
@@ -174,7 +322,7 @@ class ImageService {
     }
   }
 
-  // Compress image bytes
+  /// Compress image bytes
   static Future<Uint8List> compressImage(Uint8List bytes) async {
     try {
       final result = await FlutterImageCompress.compressWithList(
@@ -194,178 +342,7 @@ class ImageService {
     }
   }
 
-  // Upload user profile image
-  static Future<bool> uploadUserProfileImage(String userId, String base64Image) async {
-    try {
-      // Ensure base64Image has proper format
-      String formattedBase64 = base64Image;
-      if (!base64Image.startsWith('data:image/')) {
-        formattedBase64 = 'data:image/jpeg;base64,$base64Image';
-      }
-
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/users/$userId/image'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'image': formattedBase64,
-        }),
-      );
-
-      return response.statusCode == 200;
-    } catch (e) {
-      print('Error uploading profile image: $e');
-      return false;
-    }
-  }
-
-  // Upload store image
-  static Future<bool> uploadStoreImage(int storeId, String base64Image) async {
-    try {
-      // Ensure base64Image has proper format
-      String formattedBase64 = base64Image;
-      if (!base64Image.startsWith('data:image/')) {
-        formattedBase64 = 'data:image/jpeg;base64,$base64Image';
-      }
-
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/stores/$storeId/image'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'image': formattedBase64,
-        }),
-      );
-
-      return response.statusCode == 200;
-    } catch (e) {
-      print('Error uploading store image: $e');
-      return false;
-    }
-  }
-
-  // Upload menu item image
-  static Future<bool> uploadMenuItemImage(int itemId, String base64Image) async {
-    try {
-      // Ensure base64Image has proper format
-      String formattedBase64 = base64Image;
-      if (!base64Image.startsWith('data:image/')) {
-        formattedBase64 = 'data:image/jpeg;base64,$base64Image';
-      }
-
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/menu-items/$itemId/image'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'image': formattedBase64,
-        }),
-      );
-
-      return response.statusCode == 200;
-    } catch (e) {
-      print('Error uploading menu item image: $e');
-      return false;
-    }
-  }
-
-  // Display image widget with proper handling for different formats
-  static Widget displayImage({
-    required String imageSource,
-    double width = 100,
-    double height = 100,
-    BoxFit fit = BoxFit.cover,
-    Widget? placeholder,
-    Widget? errorWidget,
-    BorderRadius? borderRadius,
-  }) {
-    // Default placeholder and error widgets
-    final defaultPlaceholder = Container(
-      width: width,
-      height: height,
-      color: Colors.grey[300],
-      child: Icon(Icons.image, color: Colors.grey[600]),
-    );
-
-    final defaultErrorWidget = Container(
-      width: width,
-      height: height,
-      color: Colors.grey[200],
-      child: Icon(Icons.broken_image, color: Colors.grey[400]),
-    );
-
-    // Process the image source
-    String processedSource = getImageUrl(imageSource);
-    if (processedSource.isEmpty) {
-      return placeholder ?? defaultPlaceholder;
-    }
-
-    // Create appropriate image widget based on source type
-    Widget imageWidget;
-
-    try {
-      if (processedSource.startsWith('data:image/')) {
-        // Handle base64 images
-        String base64Data = processedSource.split(',')[1];
-        imageWidget = Image.memory(
-          base64Decode(base64Data),
-          width: width,
-          height: height,
-          fit: fit,
-          errorBuilder: (_, __, ___) => errorWidget ?? defaultErrorWidget,
-        );
-      } else {
-        // Handle network/asset images
-        imageWidget = Image.network(
-          processedSource,
-          width: width,
-          height: height,
-          fit: fit,
-          loadingBuilder: (_, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            return placeholder ?? defaultPlaceholder;
-          },
-          errorBuilder: (_, __, ___) => errorWidget ?? defaultErrorWidget,
-        );
-      }
-    } catch (e) {
-      print('Error creating image widget: $e');
-      return errorWidget ?? defaultErrorWidget;
-    }
-
-    // Apply border radius if provided
-    if (borderRadius != null) {
-      return ClipRRect(
-        borderRadius: borderRadius,
-        child: imageWidget,
-      );
-    }
-
-    return imageWidget;
-  }
-
-  // Utility method to convert XFile to base64
+  /// Convert XFile to base64
   static Future<String> xFileToBase64(XFile file) async {
     final bytes = await file.readAsBytes();
     final String extension = file.path.split('.').last.toLowerCase();
@@ -382,9 +359,25 @@ class ImageService {
         mimeType = 'image/png';
         break;
       default:
-        mimeType = 'image/jpeg'; // Default
+        mimeType = 'image/jpeg';
     }
 
     return 'data:$mimeType;base64,$base64String';
+  }
+
+  /// Decode base64 image to bytes
+  static Uint8List? decodeBase64Image(String base64String) {
+    try {
+      // Make sure we only take the base64 data part
+      String pureBase64 = base64String;
+      if (base64String.contains(';base64,')) {
+        pureBase64 = base64String.split(';base64,')[1];
+      }
+
+      return base64Decode(pureBase64);
+    } catch (e) {
+      print('Error decoding base64: $e');
+      return null;
+    }
   }
 }

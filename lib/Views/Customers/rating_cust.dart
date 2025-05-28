@@ -6,7 +6,7 @@ import 'package:del_pick/Views/Component/rate_driver.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Services/order_service.dart';
-import 'package:del_pick/Services/driver_service.dart';
+import 'package:del_pick/Services/tracking_service.dart';
 
 class RatingCustomerPage extends StatefulWidget {
   static const String route = "/Customers/RatingCustomerPage";
@@ -38,7 +38,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
   String? _errorMessage;
 
   // Driver data
-  Driver? _driver;
+  Map<String, dynamic>? _driver;
   bool _isLoadingDriver = false;
 
   @override
@@ -97,11 +97,20 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     });
 
     try {
-      final driverData = await DriverService.getDriverById(widget.order.driverId.toString());
-      setState(() {
-        _driver = Driver.fromJson(driverData);
-        _isLoadingDriver = false;
-      });
+      // Using TrackingService to get order details which includes driver
+      final orderDetailData = await TrackingService.getOrderDetail(widget.order.id);
+
+      if (orderDetailData != null && orderDetailData['driver'] != null) {
+        setState(() {
+          _driver = orderDetailData['driver'];
+          _isLoadingDriver = false;
+        });
+      } else {
+        setState(() {
+          _isLoadingDriver = false;
+          _errorMessage = 'Driver information not available.';
+        });
+      }
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to load driver data: $e';
@@ -124,20 +133,34 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
       final int storeRatingInt = _storeRating.round();
       final int driverRatingInt = _driverRating.round();
 
-      // Only submit ratings that have been set by the user
-      final bool success = await OrderService.reviewOrder(
-        widget.order.id,
-        storeRating: storeRatingInt > 0 ? storeRatingInt : null,
-        storeComment: _storeReviewController.text.isNotEmpty ? _storeReviewController.text : null,
-        driverRating: driverRatingInt > 0 ? driverRatingInt : null,
-        driverComment: _driverReviewController.text.isNotEmpty ? _driverReviewController.text : null,
-      );
+      // Prepare review data
+      Map<String, dynamic> reviewData = {
+        'orderId': widget.order.id,
+      };
+
+      // Only add ratings that have been set
+      if (storeRatingInt > 0) {
+        reviewData['storeRating'] = storeRatingInt;
+        if (_storeReviewController.text.isNotEmpty) {
+          reviewData['storeComment'] = _storeReviewController.text;
+        }
+      }
+
+      if (_driver != null && driverRatingInt > 0) {
+        reviewData['driverRating'] = driverRatingInt;
+        if (_driverReviewController.text.isNotEmpty) {
+          reviewData['driverComment'] = _driverReviewController.text;
+        }
+      }
+
+      // Use OrderService.createReview() from the updated services
+      final result = await OrderService.createReview(reviewData);
 
       setState(() {
         _isSubmitting = false;
       });
 
-      if (success) {
+      if (result != null) {
         await _showSuccessDialog();
       } else {
         setState(() {
@@ -378,7 +401,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                 _buildCard(
                   index: 1,
                   child: RateDriver(
-                    driver: _driver!,
+                    driver: Driver.fromJson(_driver!),
                     initialRating: _driverRating,
                     onRatingChanged: (value) => setState(() => _driverRating = value),
                     reviewController: _driverReviewController,

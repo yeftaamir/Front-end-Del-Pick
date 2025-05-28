@@ -15,6 +15,8 @@ import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/tracking.dart';
+import 'package:del_pick/Models/order_enum.dart';
+import 'Models/menu_item.dart';
 import 'Views/Store/add_edit_items.dart' as add_edit_items;
 import 'Views/Store/add_item.dart' as add_item;
 
@@ -46,6 +48,11 @@ import 'Services/auth_service.dart';
 import 'Services/store_service.dart';
 import 'Services/core/token_service.dart';
 import 'Services/order_service.dart';
+import 'Services/image_service.dart';
+import 'Services/driver_service.dart';
+import 'Services/tracking_service.dart';
+import 'Services/menu_service.dart';
+import 'Services/customer_service.dart';
 
 Future<void> main() async {
   try {
@@ -114,6 +121,94 @@ Future<void> main() async {
   }
 }
 
+// Helper function to get order data using OrderService
+Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
+  if (orderId == null || orderId.isEmpty) {
+    throw Exception('Order ID is required');
+  }
+
+  try {
+    // Get token to verify authentication
+    final token = await TokenService.getToken();
+
+    if (token == null) {
+      throw Exception('Authentication token not found. Please login again.');
+    }
+
+    // Use OrderService.getOrderDetail to fetch order details
+    final orderData = await OrderService.getOrderDetail(orderId);
+
+    // Process images if they exist in the order data
+    if (orderData['store'] != null && orderData['store']['image'] != null) {
+      orderData['store']['image'] = ImageService.getImageUrl(orderData['store']['image']);
+    }
+
+    // Process customer avatar if present
+    if (orderData['customer'] != null && orderData['customer']['avatar'] != null) {
+      orderData['customer']['avatar'] = ImageService.getImageUrl(orderData['customer']['avatar']);
+    }
+
+    // Process driver avatar if present
+    if (orderData['driver'] != null && orderData['driver']['avatar'] != null) {
+      orderData['driver']['avatar'] = ImageService.getImageUrl(orderData['driver']['avatar']);
+    }
+
+    // Process order item images if present
+    if (orderData['items'] != null && orderData['items'] is List) {
+      for (var item in orderData['items']) {
+        if (item['imageUrl'] != null) {
+          item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
+        }
+      }
+    }
+
+    return orderData;
+  } catch (e) {
+    print('Error fetching order data: $e');
+    throw Exception('Failed to load order details: $e');
+  }
+}
+
+// Helper function to determine the initial route based on authentication status
+Future<String> _determineInitialRoute() async {
+  try {
+    final token = await TokenService.getToken();
+
+    if (token == null) {
+      return LoginPage.route;
+    }
+
+    // Verify token and get user role
+    final userData = await AuthService.getUserData();
+
+    if (userData == null) {
+      // Token exists but is invalid or expired
+      await TokenService.clearToken();
+      return LoginPage.route;
+    }
+
+    // Determine home route based on user role
+    final role = userData['role']?.toString().toLowerCase() ?? '';
+
+    switch (role) {
+      case 'customer':
+        return HomePage.route;
+      case 'store':
+      case 'store_owner':
+        return HomeStore.route;
+      case 'driver':
+        return HomeDriverPage.route;
+      case 'admin':
+        return '/Admin/HomePage';
+      default:
+        return LoginPage.route;
+    }
+  } catch (e) {
+    print('Error determining initial route: $e');
+    return LoginPage.route;
+  }
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -156,24 +251,32 @@ class MyApp extends StatelessWidget {
       const InternetConnectivityWrapper(child: HomePage()),
       StoreDetail.route: (context) =>
       const InternetConnectivityWrapper(child: StoreDetail()),
-      // Updated ProfilePage route to use the new implementation
-      ProfilePage.route: (context) =>
+      LocationAccessScreen.route: (context) => const LocationAccessScreen(),
+        ProfilePage.route: (context) =>
       const InternetConnectivityWrapper(child: ProfilePage()),
       HistoryCustomer.route: (context) =>
       const InternetConnectivityWrapper(child: HistoryCustomer()),
-      CartScreen.route: (context) => const InternetConnectivityWrapper(
+      CartScreen.route: (context) {
+        final arguments = ModalRoute.of(context)?.settings.arguments;
+        List<MenuItem> cartItems = [];
+        int storeId = 0;
+
+        if (arguments is Map) {
+          cartItems = arguments['cartItems'] as List<MenuItem>? ?? [];
+          storeId = arguments['storeId'] as int? ?? 0;
+        } else if (arguments is int) {
+          storeId = arguments;
+        } else {
+          print('Invalid arguments for CartScreen: $arguments');
+        }
+
+        return InternetConnectivityWrapper(
           child: CartScreen(
-            cartItems: [],
-            storeId: 0,
-          )),
-      LocationAccessScreen.route: (context) => InternetConnectivityWrapper(
-        child: LocationAccessScreen(
-          onLocationSelected: (String location) {
-            print('Selected location: $location');
-            Navigator.pop(context);
-          },
-        ),
-      ),
+            cartItems: cartItems,
+            storeId: storeId,
+          ),
+        );
+      },
       TrackCustOrderScreen.route: (context) =>
       const InternetConnectivityWrapper(child: TrackCustOrderScreen()),
       // Updated HistoryDetailPage route to use Order fetching
@@ -367,14 +470,14 @@ class MyApp extends StatelessWidget {
             // Process the order data to match the expected format for HistoryDriverDetailPage
             final orderData = snapshot.data!;
             final Map<String, dynamic> orderDetail = {
-              'customerName': orderData['user']?['name'] ?? 'Customer',
-              'customerPhone': orderData['user']?['phone'] ?? '-',
+              'customerName': orderData['customer']?['name'] ?? 'Customer',
+              'customerPhone': orderData['customer']?['phone'] ?? '-',
               'customerAddress': orderData['deliveryAddress'] ?? '-',
               'storeName': orderData['store']?['name'] ?? 'Store',
               'storePhone': orderData['store']?['phone'] ?? '-',
               'storeAddress': orderData['store']?['address'] ?? '-',
               'storeImage': orderData['store']?['image'] ?? '',
-              'status': orderData['order_status'] ?? 'pending',
+              'status': orderData['status'] ?? 'pending',
               'amount': orderData['total'] ?? 0,
               'deliveryFee': orderData['serviceCharge'] ?? 0,
               'items': (orderData['items'] as List<dynamic>?)?.map((item) => {
@@ -393,10 +496,10 @@ class MyApp extends StatelessWidget {
       const InternetConnectivityWrapper(child: ProfileDriverPage()),
 
       // Store routes
-      '/Store/HomePage': (context) =>
+      HomeStore.route: (context) =>
       const InternetConnectivityWrapper(child: HomeStore()),
-      '/Store/AddItem': (context) =>
-          InternetConnectivityWrapper(child: add_item.AddItemPage()),
+      AddItemPage.route: (context) =>
+          InternetConnectivityWrapper(child: AddItemPage()),
       AddEditItemForm.route: (context) =>
       const InternetConnectivityWrapper(child: AddEditItemForm()),
       // Updated HistoryStoreDetailPage to use OrderService
@@ -454,17 +557,8 @@ class MyApp extends StatelessWidget {
               );
             }
 
-            // Process the order data for HistoryStoreDetailPage
-            final orderData = snapshot.data!;
-            final Map<String, dynamic> orderDetail = {
-              'customerName': orderData['user']?['name'] ?? 'Customer',
-              'date': orderData['orderDate'] ?? DateTime.now().toIso8601String(),
-              'status': orderData['order_status'] ?? 'pending',
-              'amount': orderData['total'] ?? 0,
-              'icon': orderData['user']?['avatar'] ?? '',
-            };
-
-            return HistoryStoreDetailPage(orderDetail: orderDetail);
+            final String orderId = ModalRoute.of(context)?.settings.arguments as String? ?? '';
+            return HistoryStoreDetailPage(orderId: orderId);
           },
         ),
       ),
@@ -477,54 +571,13 @@ class MyApp extends StatelessWidget {
     };
   }
 
-  // Helper method to get order data
-  static Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
-    if (orderId == null || orderId.isEmpty) {
-      throw Exception('Order ID is required');
-    }
-
-    try {
-      // Fetch order data using OrderService
-      return await OrderService.getOrderById(orderId);
-    } catch (e) {
-      print('Error fetching order data: $e');
-      rethrow; // Rethrow to handle in the FutureBuilder
-    }
-  }
-
-  // Helper method to get store data from service
-  static Future<Store> _getStoreData() async {
-    try {
-      // Get user data to check if we have a store ID
-      final userData = await AuthService.getUserData();
-
-      if (userData == null) {
-        throw Exception('User data not found. Please log in again.');
-      }
-
-      // If user has a store ID, fetch the store
-      final storeId = userData['store_id'] ?? userData['id'];
-
-      if (storeId == null) {
-        throw Exception('Store ID not found in user data.');
-      }
-
-      // Fetch store data by ID
-      return await StoreService.fetchStoreById(storeId);
-
-    } catch (e) {
-      print('Error fetching store data: $e');
-      rethrow; // Rethrow to handle in the FutureBuilder
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Del Pick',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
-      initialRoute: '/', // Changed to start with splash screen
+      initialRoute: '/', // Start with splash screen which will handle authentication
       routes: _buildRoutes(),
       // Wrap root level with InternetConnectivityWrapper (optional since we wrapped each route)
       builder: (context, child) {

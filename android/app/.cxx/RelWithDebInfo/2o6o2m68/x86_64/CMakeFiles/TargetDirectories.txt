@@ -1,0 +1,2 @@
+D:/TA/Front-end-Del-Pick/android/app/.cxx/RelWithDebInfo/2o6o2m68/x86_64/CMakeFiles/edit_cache.dir
+D:/TA/Front-end-Del-Pick/android/app/.cxx/RelWithDebInfo/2o6o2m68/x86_64/CMakeFiles/rebuild_cache.dir

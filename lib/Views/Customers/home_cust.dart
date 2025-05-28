@@ -199,8 +199,14 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
 
     try {
-      // Call the fetch stores method
-      final stores = await StoreService.fetchStores();
+      // Get all stores using the updated StoreService
+      final storesData = await StoreService.getAllStores();
+
+      // Convert the dynamic list to a list of StoreModel objects
+      List<StoreModel> stores = [];
+      for (var storeData in storesData) {
+        stores.add(StoreModel.fromJson(storeData));
+      }
 
       // Calculate distances if we have location
       _calculateDistances(stores);
@@ -256,7 +262,15 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
 
     try {
-      final stores = await StoreService.fetchStores();
+      // Using the updated StoreService to get all stores
+      final storesData = await StoreService.getAllStores();
+
+      // Convert the dynamic list to a list of StoreModel objects
+      List<StoreModel> stores = [];
+      for (var storeData in storesData) {
+        stores.add(StoreModel.fromJson(storeData));
+      }
+
       if (mounted) {
         setState(() {
           _stores = stores;
@@ -274,16 +288,25 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  // Get user profile data
+  // Get user profile data using updated AuthService
   Future<void> _getUserData() async {
     try {
-      // Check if user is logged in
-      final userData = await AuthService.getUserData();
-
-      if (userData != null) {
-        setState(() {
-          _userName = userData['name'] ?? '';
-        });
+      // Check if user is logged in and fetch profile data
+      try {
+        final profileData = await AuthService.getProfile();
+        if (profileData.isNotEmpty) {
+          setState(() {
+            _userName = profileData['name'] ?? '';
+          });
+        }
+      } catch (e) {
+        // If profile fetch fails, try from cached data
+        final userData = await AuthService.getUserData();
+        if (userData != null) {
+          setState(() {
+            _userName = userData['name'] ?? '';
+          });
+        }
       }
     } catch (e) {
       print('Error getting user data: $e');

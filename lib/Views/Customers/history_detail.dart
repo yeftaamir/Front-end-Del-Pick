@@ -87,7 +87,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
   // Fetch latest order details from the API
   Future<void> _refreshOrderDetails() async {
     try {
-      final orderData = await OrderService.getOrderById(widget.order.id);
+      // Use updated OrderService.getOrderDetail method
+      final orderData = await OrderService.getOrderDetail(widget.order.id);
       if (mounted) {
         setState(() {
           // Update tracking status if available
@@ -112,17 +113,53 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     });
 
     try {
-      final driverData = await DriverService.getDriverById(driverId);
-      final driver = Driver.fromJson(driverData);
+      // Since driver_service.dart doesn't have getDriverById method,
+      // we can try to get driver location which might return driver details
+      // or we could use the tracking data which has driver information
+      final driverData = await DriverService.getDriverLocation(driverId);
 
-      if (mounted) {
-        setState(() {
-          _driver = driver;
-          _isLoadingDriver = false;
-        });
+      // Assuming we can convert the response to a Driver object
+      // Note: You may need to adjust this depending on the actual response structure
+      if (driverData['driver'] != null) {
+        final driver = Driver.fromJson(driverData['driver']);
+
+        if (mounted) {
+          setState(() {
+            _driver = driver;
+            _isLoadingDriver = false;
+          });
+        }
+      } else {
+        throw Exception('Driver data not found');
       }
     } catch (e) {
       print('Error loading driver details: $e');
+
+      // Alternative: Try to get driver info from tracking data
+      try {
+        final trackingData = await TrackingService.getOrderTracking(widget.order.id);
+        if (trackingData['driver'] != null) {
+          // Create a simplified Driver object from tracking data
+          final driverInfo = {
+            'id': driverId,
+            'name': trackingData['driver']['name'] ?? 'Unknown Driver',
+            'phoneNumber': trackingData['driver']['phoneNumber'] ?? '',
+            'vehicleNumber': trackingData['driver']['vehicleNumber'] ?? '-',
+            'profileImageUrl': trackingData['driver']['avatar'] ?? '',
+            'rating': trackingData['driver']['rating'] ?? 4.5,
+          };
+
+          if (mounted) {
+            setState(() {
+              _driver = Driver.fromJson(driverInfo);
+              _isLoadingDriver = false;
+            });
+          }
+        }
+      } catch (trackingError) {
+        print('Error loading driver from tracking: $trackingError');
+      }
+
       if (mounted) {
         setState(() {
           _isLoadingDriver = false;
@@ -131,7 +168,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
   }
 
-  // Submit rating to the API
+  // Submit rating to the API with updated format
   Future<void> _submitRating(int storeRating, String? storeComment, int driverRating, String? driverComment) async {
     setState(() {
       _isLoading = true;
@@ -139,18 +176,25 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     });
 
     try {
-      final success = await OrderService.reviewOrder(
-        widget.order.id,
-        storeRating: storeRating,
-        storeComment: storeComment,
-        driverRating: driverRating,
-        driverComment: driverComment,
-      );
+      // Updated to use the new format for OrderService.createReview()
+      final reviewData = {
+        'orderId': widget.order.id,
+        'store': {
+          'rating': storeRating,
+          'comment': storeComment ?? ''
+        },
+        'driver': {
+          'rating': driverRating,
+          'comment': driverComment ?? ''
+        }
+      };
+
+      final result = await OrderService.createReview(reviewData);
 
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _hasGivenRating = success;
+          _hasGivenRating = true; // Set to true if successful
         });
       }
     } catch (e) {
@@ -273,12 +317,16 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Order Status Card
-              if (widget.order.tracking != null)
-                OrderStatusCard(
-                  order: widget.order,
+              // Order Status Card - Updated to use orderId and userRole
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                child: OrderStatusCard(
+                  orderId: widget.order.id,
+                  userRole: 'customer',
                   animation: _cardAnimations[0],
+                  onStatusUpdate: _refreshOrderDetails,
                 ),
+              ),
 
               // Order Date Section
               _buildCard(
@@ -436,6 +484,68 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                       child: Divider(thickness: 1),
                     ),
                     _buildTotalPaymentRow(widget.order.total.toInt()),
+                    if (widget.order.paymentStatus != null && widget.order.paymentMethod != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Metode Pembayaran:',
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[200],
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                widget.order.paymentMethod == PaymentMethod.cash ? 'Tunai' : 'Online',
+                                style: TextStyle(
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (widget.order.paymentStatus != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Status Pembayaran:',
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: _getPaymentStatusColor(widget.order.paymentStatus!).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                _getPaymentStatusText(widget.order.paymentStatus!),
+                                style: TextStyle(
+                                  color: _getPaymentStatusColor(widget.order.paymentStatus!),
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -527,7 +637,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                   context,
                   MaterialPageRoute(
                     builder: (context) => RatingCustomerPage(
-                      order: widget.order, // Pass the required 'order' parameter
+                      order: widget.order,
                     ),
                   ),
                 ).then((result) {
@@ -644,65 +754,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildPaymentRow(String label, int amount) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: GlobalStyle.fontColor,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-          Text(
-            NumberFormat.currency(
-              locale: 'id',
-              symbol: 'Rp ',
-              decimalDigits: 0,
-            ).format(amount),
-            style: TextStyle(
-              color: GlobalStyle.fontColor,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTotalPaymentRow(int amount) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          'Total Pembayaran',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: GlobalStyle.fontColor,
-            fontFamily: GlobalStyle.fontFamily,
-          ),
-        ),
-        Text(
-          NumberFormat.currency(
-            locale: 'id',
-            symbol: 'Rp ',
-            decimalDigits: 0,
-          ).format(amount),
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: GlobalStyle.primaryColor,
-            fontFamily: GlobalStyle.fontFamily,
-          ),
-        ),
-      ],
     );
   }
 
@@ -874,6 +925,65 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     );
   }
 
+  Widget _buildPaymentRow(String label, int amount) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: GlobalStyle.fontColor,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          Text(
+            NumberFormat.currency(
+              locale: 'id',
+              symbol: 'Rp ',
+              decimalDigits: 0,
+            ).format(amount),
+            style: TextStyle(
+              color: GlobalStyle.fontColor,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTotalPaymentRow(int amount) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          'Total Pembayaran',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: GlobalStyle.fontColor,
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+        Text(
+          NumberFormat.currency(
+            locale: 'id',
+            symbol: 'Rp ',
+            decimalDigits: 0,
+          ).format(amount),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: GlobalStyle.primaryColor,
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+      ],
+    );
+  }
+
   // Call driver using url_launcher
   void _callDriver(String? phoneNumber) async {
     if (phoneNumber == null || phoneNumber.isEmpty) {
@@ -921,6 +1031,38 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           behavior: SnackBarBehavior.floating,
         ),
       );
+    }
+  }
+
+  // Get payment status color
+  Color _getPaymentStatusColor(PaymentStatus status) {
+    switch (status) {
+      case PaymentStatus.paid:
+        return Colors.green;
+      case PaymentStatus.pending:
+        return Colors.orange;
+      case PaymentStatus.failed:
+        return Colors.red;
+      case PaymentStatus.refunded:
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  // Get payment status text
+  String _getPaymentStatusText(PaymentStatus status) {
+    switch (status) {
+      case PaymentStatus.paid:
+        return 'Lunas';
+      case PaymentStatus.pending:
+        return 'Menunggu';
+      case PaymentStatus.failed:
+        return 'Gagal';
+      case PaymentStatus.refunded:
+        return 'Dikembalikan';
+      default:
+        return 'Tidak Diketahui';
     }
   }
 

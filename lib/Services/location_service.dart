@@ -1,8 +1,9 @@
+// lib/services/location_service.dart
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/material.dart';
-import 'package:del_pick/Services/driver_service.dart';
+import 'driver_service.dart';
 
 class LocationService {
   // Singleton instance
@@ -27,7 +28,7 @@ class LocationService {
   bool get isTracking => _isTracking;
   Position? get currentPosition => _currentPosition;
 
-  // Initialize location service
+  /// Initialize location service and request permissions
   Future<bool> initialize() async {
     // Check if location services are enabled
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -66,7 +67,7 @@ class LocationService {
     return _isPermissionGranted;
   }
 
-  // Start tracking location at set intervals
+  /// Start tracking location at set intervals
   Future<bool> startTracking() async {
     if (_isTracking) {
       _log('Already tracking location');
@@ -106,7 +107,7 @@ class LocationService {
     }
   }
 
-  // Stop tracking location
+  /// Stop tracking location
   void stopTracking() {
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = null;
@@ -114,7 +115,7 @@ class LocationService {
     _log('Location tracking stopped');
   }
 
-  // Update location once (called from timer)
+  /// Update location once (called from timer)
   Future<void> _updateLocation() async {
     try {
       // Get current position
@@ -132,7 +133,7 @@ class LocationService {
     }
   }
 
-  // Send location update to backend
+  /// Send location update to backend
   Future<void> _sendLocationUpdate() async {
     if (_currentPosition == null) {
       _log('No position available to send');
@@ -151,7 +152,7 @@ class LocationService {
     }
   }
 
-  // Force a location update immediately (can be called manually)
+  /// Force a location update immediately
   Future<bool> forceLocationUpdate() async {
     try {
       await _updateLocation();
@@ -162,7 +163,7 @@ class LocationService {
     }
   }
 
-  // Show location permission dialog
+  /// Show location permission dialog
   Future<void> showLocationPermissionDialog(BuildContext context) async {
     showDialog(
       context: context,
@@ -194,7 +195,7 @@ class LocationService {
     );
   }
 
-  // Get last known position or current position
+  /// Get last known position or current position
   Future<Position?> getLastKnownPosition() async {
     try {
       if (_currentPosition != null) {

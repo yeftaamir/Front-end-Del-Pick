@@ -5,6 +5,7 @@ import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';
+import 'package:del_pick/Models/order_enum.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Views/Store/home_store.dart';
@@ -12,8 +13,6 @@ import 'package:del_pick/Views/Store/historystore_detail.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/image_service.dart';
-
-import '../../Models/order_enum.dart';
 
 class HistoryStorePage extends StatefulWidget {
   static const String route = '/Store/HistoryStore';
@@ -63,15 +62,38 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     });
 
     try {
-      // Fetch orders data using the store service
-      final orderData = await OrderService.getStoreOrders();
-      final List<dynamic> ordersList = orderData['orders'];
+      // Use OrderService.getOrdersByStore() from the updated services
+      final orderData = await OrderService.getOrdersByStore();
+
+      // Adapt to the structure returned by the updated API
+      final List<dynamic> ordersList = orderData['orders'] ?? [];
 
       // Convert raw order data to Order objects
       List<Order> orders = [];
 
       for (var orderJson in ordersList) {
         try {
+          // Process images in order data using ImageService if needed
+          if (orderJson['store'] != null && orderJson['store']['image'] != null) {
+            orderJson['store']['image'] =
+                ImageService.getImageUrl(orderJson['store']['image']);
+          }
+
+          // Process customer avatar if present
+          if (orderJson['customer'] != null && orderJson['customer']['avatar'] != null) {
+            orderJson['customer']['avatar'] =
+                ImageService.getImageUrl(orderJson['customer']['avatar']);
+          }
+
+          // Process items images if present
+          if (orderJson['items'] != null && orderJson['items'] is List) {
+            for (var item in orderJson['items']) {
+              if (item['imageUrl'] != null) {
+                item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
+              }
+            }
+          }
+
           Order order = Order.fromJson(orderJson);
           orders.add(order);
         } catch (e) {
@@ -118,6 +140,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         _hasError = true;
         _errorMessage = 'Failed to load order history: $e';
       });
+      print('Error in _fetchOrderHistory: $e');
     }
   }
 
@@ -210,6 +233,47 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     });
   }
 
+  // Process the order - approve or reject
+  Future<void> _processOrder(String orderId, String action) async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      // Call the processOrderByStore method from updated OrderService
+      await OrderService.processOrderByStore(orderId, action);
+
+      // Refresh the order list
+      await _fetchOrderHistory();
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            action == 'approve'
+                ? 'Pesanan berhasil disetujui'
+                : 'Pesanan ditolak',
+          ),
+          backgroundColor: action == 'approve' ? Colors.green : Colors.red,
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+        _errorMessage = 'Failed to process order: $e';
+      });
+
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memproses pesanan: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   String getOrderItemsText(Order order) {
     if (order.items.isEmpty) {
       return "Tidak ada item";
@@ -241,13 +305,16 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   }
 
   void _navigateToOrderDetail(Order order) {
-    // Navigate to order detail page with orderId
+    // Navigate to order detail page with orderId using updated services
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => HistoryStoreDetailPage(orderId: order.id),
       ),
-    );
+    ).then((_) {
+      // Refresh the list when returning from detail page
+      _fetchOrderHistory();
+    });
   }
 
   Widget _buildOrderCard(Order order, int index) {
@@ -282,34 +349,19 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Customer image if available
-                    if (order.customerId != null)
-                      Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: GlobalStyle.lightColor,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          Icons.person,
-                          color: GlobalStyle.primaryColor,
-                          size: 32,
-                        ),
-                      )
-                    else
-                      Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: GlobalStyle.lightColor,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          Icons.person,
-                          color: GlobalStyle.primaryColor,
-                          size: 32,
-                        ),
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: GlobalStyle.lightColor,
+                        borderRadius: BorderRadius.circular(12),
                       ),
+                      child: Icon(
+                        Icons.person,
+                        color: GlobalStyle.primaryColor,
+                        size: 32,
+                      ),
+                    ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -382,23 +434,56 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                         ),
                       ],
                     ),
-                    ElevatedButton(
-                      onPressed: () {
-                        _navigateToOrderDetail(order);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: GlobalStyle.primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                    // Show approval buttons for pending orders
+                    if (order.status == OrderStatus.pending)
+                      Row(
+                        children: [
+                          OutlinedButton(
+                            onPressed: () => _processOrder(order.id, 'reject'),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: Colors.red),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            child: Text(
+                              'Tolak',
+                              style: TextStyle(color: Colors.red),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: () => _processOrder(order.id, 'approve'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            child: Text('Terima'),
+                          ),
+                        ],
+                      )
+                    else
+                      ElevatedButton(
+                        onPressed: () {
+                          _navigateToOrderDetail(order);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GlobalStyle.primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Lihat Detail',
+                          style: TextStyle(fontWeight: FontWeight.w500),
                         ),
                       ),
-                      child: const Text(
-                        'Lihat Detail',
-                        style: TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                    ),
                   ],
                 ),
               ],
@@ -445,6 +530,19 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _fetchOrderHistory,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('Refresh'),
+          ),
         ],
       ),
     );
@@ -489,14 +587,17 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            _errorMessage,
-            style: TextStyle(
-              color: GlobalStyle.fontColor.withOpacity(0.7),
-              fontSize: 14,
-              fontFamily: GlobalStyle.fontFamily,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              _errorMessage,
+              style: TextStyle(
+                color: GlobalStyle.fontColor.withOpacity(0.7),
+                fontSize: 14,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 20),
           ElevatedButton(
@@ -593,12 +694,16 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
               return _buildEmptyState('Tidak ada pesanan ${_tabs[tabIndex].toLowerCase()}');
             }
 
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: filteredOrders.length,
-              itemBuilder: (context, index) {
-                return _buildOrderCard(filteredOrders[index], index);
-              },
+            return RefreshIndicator(
+              onRefresh: _fetchOrderHistory,
+              color: GlobalStyle.primaryColor,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: filteredOrders.length,
+                itemBuilder: (context, index) {
+                  return _buildOrderCard(filteredOrders[index], index);
+                },
+              ),
             );
           }),
         ),
