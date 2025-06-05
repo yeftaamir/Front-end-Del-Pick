@@ -2,17 +2,17 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
-import '../../Models/customer.dart';
 
+import '../../Models/customer.dart';
 import '../../Services/auth_service.dart';
 import '../../Services/image_service.dart';
 import '../../Services/customer_service.dart';
+import '../Controls/login_page.dart';
 
 class ProfilePage extends StatefulWidget {
   static const String route = "/Customers/Profile";
@@ -23,18 +23,55 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin {
   Customer? _customer;
   bool _isLoading = true;
   bool _isUpdatingImage = false;
   bool _hasError = false;
   String _errorMessage = '';
-  String? _processedImageUrl; // Menyimpan URL gambar yang sudah diproses
+  String? _processedImageUrl;
+
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
     _loadUserData();
+  }
+
+  void _initializeAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeIn,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutQuart,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _slideController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserData() async {
@@ -48,18 +85,15 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
-      // Try to get customer profile using the new CustomerService
       Customer? customer;
       try {
         customer = await CustomerService.getCustomerProfile();
         print('Customer profile loaded successfully from API');
       } catch (e) {
         print('Error loading customer profile from API: $e');
-        // Fall back to getProfile from AuthService
         customer = null;
       }
 
-      // If CustomerService failed, try using existing AuthService
       if (customer == null) {
         final profile = await AuthService.getProfile();
         print('Profile data received from AuthService: $profile');
@@ -77,7 +111,7 @@ class _ProfilePageState extends State<ProfilePage> {
             if (!mounted) return;
             Navigator.pushAndRemoveUntil(
               context,
-              MaterialPageRoute(builder: (context) => const SplashScreen()),
+              MaterialPageRoute(builder: (context) => const LoginPage()),
                   (route) => false,
             );
             return;
@@ -90,28 +124,17 @@ class _ProfilePageState extends State<ProfilePage> {
       if (customer.avatar != null && customer.avatar!.isNotEmpty) {
         print('Original avatar value: ${customer.avatar}');
 
-        // Debug data URL jika dalam format base64
         if (customer.avatar!.startsWith('data:image/')) {
           print('Avatar is in data URL format');
-          _debugBase64DataUrl(customer.avatar!, source: 'Customer Avatar');
           imageUrl = customer.avatar;
-        }
-        // Jika avatar mungkin raw base64 string tanpa prefix
-        else if (_isBase64String(customer.avatar!)) {
+        } else if (_isBase64String(customer.avatar!)) {
           print('Avatar appears to be a raw base64 string');
           String formattedBase64 = 'data:image/jpeg;base64,${customer.avatar}';
-          _debugBase64DataUrl(formattedBase64, source: 'Formatted Avatar Base64');
           imageUrl = formattedBase64;
-        }
-        // Jika avatar adalah URL server atau path lainnya
-        else {
+        } else {
           print('Avatar is a server path or URL');
-          // Menggunakan ImageService untuk memproses URL gambar
           imageUrl = ImageService.getImageUrl(customer.avatar!);
           print('Processed image URL: $imageUrl');
-
-          // Verifikasi URL dengan membuat request test
-          _testImageUrl(imageUrl);
         }
       } else {
         print('No avatar found for customer');
@@ -122,6 +145,8 @@ class _ProfilePageState extends State<ProfilePage> {
           _customer = customer;
           _processedImageUrl = imageUrl;
         });
+        _fadeController.forward();
+        _slideController.forward();
       }
     } catch (e) {
       print('Error loading user data: $e');
@@ -129,10 +154,13 @@ class _ProfilePageState extends State<ProfilePage> {
         setState(() {
           _hasError = true;
           _errorMessage = e.toString();
-          _customer = Customer.empty(); // Use empty customer as fallback
+          _customer = Customer.empty();
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load user data: $_errorMessage')),
+          SnackBar(
+            content: Text('Failed to load user data: $_errorMessage'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -144,15 +172,11 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-// Fungsi untuk memeriksa apakah string adalah base64 valid
   bool _isBase64String(String str) {
     try {
-      // Memeriksa jika string bisa menjadi base64 yang valid
       if (str.length % 4 != 0 || str.contains(RegExp(r'[^A-Za-z0-9+/=]'))) {
         return false;
       }
-
-      // Coba decode untuk memverifikasi
       base64Decode(str);
       return true;
     } catch (_) {
@@ -160,154 +184,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-// Fungsi untuk men-debug format data URL base64
-  void _debugBase64DataUrl(String dataUrl, {String source = 'unknown'}) {
-    print('======= DEBUG BASE64 DATA URL (Source: $source) =======');
-
-    // Periksa apakah format umum adalah data URL
-    if (!dataUrl.startsWith('data:')) {
-      print('❌ BUKAN DATA URL: String tidak dimulai dengan "data:"');
-      print('🔍 Awal string: ${dataUrl.substring(0, min(20, dataUrl.length))}...');
-      return;
-    }
-
-    // Coba pisahkan header dan content
-    final parts = dataUrl.split(',');
-    if (parts.length != 2) {
-      print('❌ FORMAT TIDAK VALID: Data URL harus memiliki format "data:[mediatype][;base64],<data>"');
-      print('🔍 Jumlah bagian yang ditemukan: ${parts.length}');
-      return;
-    }
-
-    final header = parts[0];
-    final base64Content = parts[1];
-
-    // Periksa header
-    print('📋 HEADER: $header');
-    if (!header.contains(';base64')) {
-      print('⚠️ PERINGATAN: Header tidak mengandung ";base64", mungkin bukan encoding base64');
-    }
-
-    // Periksa tipe media (MIME type)
-    final mimeMatch = RegExp(r'data:([\w\/\-\.+]+);').firstMatch(header);
-    if (mimeMatch != null) {
-      final mimeType = mimeMatch.group(1);
-      print('📄 MIME Type: $mimeType');
-
-      if (!mimeType!.startsWith('image/')) {
-        print('⚠️ PERINGATAN: MIME Type bukan tipe gambar');
-      }
-    } else {
-      print('⚠️ PERINGATAN: MIME Type tidak ditemukan dalam header');
-    }
-
-    // Periksa konten base64
-    print('📊 PANJANG CONTENT: ${base64Content.length} karakter');
-    print('🔍 AWAL CONTENT: ${base64Content.substring(0, min(30, base64Content.length))}...');
-    print('🔍 AKHIR CONTENT: ...${base64Content.substring(max(0, base64Content.length - 30))}');
-
-    // Periksa karakter yang tidak valid dalam base64
-    final invalidChars = RegExp(r'[^A-Za-z0-9+/=]').allMatches(base64Content).map((m) => m.group(0)).toSet();
-    if (invalidChars.isNotEmpty) {
-      print('❌ KARAKTER TIDAK VALID TERDETEKSI: $invalidChars');
-    } else {
-      print('✅ FORMAT BASE64 VALID: Tidak ada karakter ilegal');
-    }
-
-    // Periksa panjang (harus kelipatan 4 untuk base64 yang valid)
-    if (base64Content.length % 4 != 0) {
-      print('❌ PANJANG TIDAK VALID: Panjang (${base64Content.length}) bukan kelipatan 4');
-    } else {
-      print('✅ PANJANG VALID: Panjang adalah kelipatan 4');
-    }
-
-    // Periksa padding
-    if (base64Content.endsWith('=')) {
-      final paddingCount = base64Content.split('').reversed.takeWhile((char) => char == '=').length;
-      print('ℹ️ PADDING: $paddingCount karakter "="');
-    } else if (base64Content.length % 4 != 0) {
-      print('⚠️ PADDING HILANG: Tidak ada "=" di akhir tapi panjang bukan kelipatan 4');
-    }
-
-    // Coba decode untuk memvalidasi
-    try {
-      final decoded = base64Decode(base64Content);
-      print('✅ DECODE BERHASIL: ${decoded.length} bytes');
-
-      // Deteksi format gambar dari bytes jika tersedia
-      if (decoded.length > 4) {
-        String detectedFormat = "unknown";
-        if (decoded[0] == 0xFF && decoded[1] == 0xD8 && decoded[2] == 0xFF) {
-          detectedFormat = "JPEG/JPG";
-        } else if (decoded[0] == 0x89 && decoded[1] == 0x50 && decoded[2] == 0x4E && decoded[3] == 0x47) {
-          detectedFormat = "PNG";
-        } else if (decoded[0] == 0x47 && decoded[1] == 0x49 && decoded[2] == 0x46) {
-          detectedFormat = "GIF";
-        } else if (decoded[0] == 0x42 && decoded[1] == 0x4D) {
-          detectedFormat = "BMP";
-        }
-        print('🖼️ FORMAT GAMBAR TERDETEKSI: $detectedFormat');
-      }
-    } catch (e) {
-      print('❌ DECODE GAGAL: $e');
-
-      // Coba perbaiki padding dan decode ulang
-      String fixedContent = base64Content;
-      if (fixedContent.length % 4 != 0) {
-        final paddingNeeded = 4 - (fixedContent.length % 4);
-        fixedContent = fixedContent.padRight(fixedContent.length + paddingNeeded, '=');
-        print('🔧 MENCOBA PERBAIKI PADDING: Menambahkan $paddingNeeded karakter "="');
-
-        try {
-          final decoded = base64Decode(fixedContent);
-          print('✅ DECODE BERHASIL SETELAH PERBAIKAN: ${decoded.length} bytes');
-        } catch (e) {
-          print('❌ DECODE MASIH GAGAL SETELAH PERBAIKAN: $e');
-        }
-      }
-    }
-
-    print('======= AKHIR DEBUG =======\n');
-  }
-
-// Fungsi untuk menguji URL gambar
-  Future<void> _testImageUrl(String url) async {
-    try {
-      print('======= TESTING IMAGE URL =======');
-      print('URL yang diuji: $url');
-
-      final response = await http.head(Uri.parse(url));
-
-      print('Status code: ${response.statusCode}');
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        print('✅ URL VALID: Status ${response.statusCode}');
-        print('Content-Type: ${response.headers['content-type']}');
-        print('Content-Length: ${response.headers['content-length']}');
-      } else {
-        print('❌ URL TIDAK VALID: Status ${response.statusCode}');
-
-        // Jika URL mengandung /api/v1/, coba versi tanpa itu
-        if (url.contains('/api/v1/')) {
-          final alternativeUrl = url.replaceFirst('/api/v1/', '/');
-          print('🔄 Mencoba URL alternatif: $alternativeUrl');
-          await _testImageUrl(alternativeUrl);
-        }
-
-        // Jika URL tidak dimulai dengan domain penuh
-        if (!url.startsWith('http')) {
-          final fullUrl = 'https://delpick.horas-code.my.id$url';
-          print('🔄 Mencoba URL dengan domain lengkap: $fullUrl');
-          await _testImageUrl(fullUrl);
-        }
-      }
-
-      print('======= AKHIR TESTING URL =======\n');
-    } catch (e) {
-      print('❌ ERROR TESTING URL: $e');
-      print('======= AKHIR TESTING URL =======\n');
-    }
-  }
-  // Update profile image
   Future<void> _updateProfileImage() async {
     if (_customer == null) return;
 
@@ -316,7 +192,6 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
-      // Get image from image picker and encode to base64
       final imageData = await ImageService.pickAndEncodeImage();
       if (imageData == null) {
         setState(() {
@@ -325,28 +200,36 @@ class _ProfilePageState extends State<ProfilePage> {
         return;
       }
 
-      // Upload profile image
-      final success = await CustomerService.updateProfileImage(_customer!, imageData['base64']);
+      final success = await CustomerService.updateProfileImage(
+          _customer!, imageData['base64']);
 
       if (success) {
-        // Refresh user data to get updated profile image
         await _loadUserData();
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile image updated successfully')),
+          const SnackBar(
+            content: Text('Profile image updated successfully'),
+            backgroundColor: Colors.green,
+          ),
         );
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to update profile image')),
+          const SnackBar(
+            content: Text('Failed to update profile image'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } catch (e) {
       print('Error updating profile image: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating profile image: $e')),
+        SnackBar(
+          content: Text('Error updating profile image: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       if (mounted) {
@@ -357,110 +240,84 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _handleLogout(BuildContext context) async {
+  // Simplified logout implementation
+  void _handleLogout() async {
+    // Show loading dialog
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text(
-            'Konfirmasi Logout',
-            style: TextStyle(
-              fontFamily: GlobalStyle.fontFamily,
-              fontWeight: FontWeight.bold,
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    GlobalStyle.primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Logging out...',
+                  style: TextStyle(
+                    fontFamily: GlobalStyle.fontFamily,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
-          content: Text(
-            'Apakah Anda yakin ingin keluar?',
-            style: TextStyle(
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Batal',
-                style: TextStyle(
-                  fontFamily: GlobalStyle.fontFamily,
-                  color: Colors.grey,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(context); // Close dialog
-
-                // Show loading indicator
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (BuildContext context) {
-                    return const Center(child: CircularProgressIndicator());
-                  },
-                );
-
-                try {
-                  // Logout from AuthService
-                  bool success = await AuthService.logout();
-                  print('Logout result: $success');
-
-                  // Close loading dialog
-                  if (!mounted) return;
-                  Navigator.pop(context);
-
-                  // Navigate to SplashScreen
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (context) => const SplashScreen()),
-                        (route) => false, // Remove all previous routes
-                  );
-                } catch (e) {
-                  print('Logout error: $e');
-                  // Close loading dialog
-                  if (!mounted) return;
-                  Navigator.pop(context);
-
-                  // Show error message
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Gagal logout: ${e.toString()}')),
-                  );
-                }
-              },
-              child: Text(
-                'Keluar',
-                style: TextStyle(
-                  fontFamily: GlobalStyle.fontFamily,
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
         );
       },
     );
+
+    try {
+      // Call logout service
+      await AuthService.logout();
+
+      // Navigate to login page
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+            (route) => false,
+      );
+    } catch (e) {
+      print('Logout error: $e');
+      // Even if logout fails, navigate to login page
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+            (route) => false,
+      );
+    }
   }
 
-  // View profile image full screen
   void _viewProfileImage() {
-    // First check if we have a processed URL
     if (_processedImageUrl == null || _processedImageUrl!.isEmpty) {
-      print('No processed image URL available for viewing');
-      // If no processed URL, try to get it from customer
       if (_customer == null || _customer!.avatar == null || _customer!.avatar!.isEmpty) {
-        print('No profile image URL available for viewing');
-        return; // No image to show
+        return;
       }
-
-      // Try to process the URL if we have it
       _processedImageUrl = ImageService.getImageUrl(_customer!.avatar!);
       if (_processedImageUrl!.isEmpty) {
-        print('Could not process profile image URL: ${_customer!.avatar}');
-        return; // Could not process the URL
+        return;
       }
     }
-
-    print('Showing fullscreen image: $_processedImageUrl');
 
     showDialog(
       context: context,
@@ -468,45 +325,76 @@ class _ProfilePageState extends State<ProfilePage> {
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              Align(
-                alignment: Alignment.topRight,
-                child: GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.close, color: Colors.black, size: 20),
-                  ),
-                ),
-              ),
               Container(
                 constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.7,
-                  maxWidth: MediaQuery.of(context).size.width,
+                  maxHeight: MediaQuery.of(context).size.height * 0.8,
+                  maxWidth: MediaQuery.of(context).size.width * 0.9,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(20),
                   child: ImageService.displayImage(
                     imageSource: _processedImageUrl!,
                     width: double.infinity,
                     height: double.infinity,
                     fit: BoxFit.contain,
-                    placeholder: const Center(child: CircularProgressIndicator()),
-                    errorWidget: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.broken_image, size: 80, color: Colors.grey),
-                        const SizedBox(height: 10),
-                        Text('Failed to load image', style: TextStyle(color: Colors.grey[600])),
-                        Text('URL: $_processedImageUrl',
-                            style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-                      ],
+                    placeholder: const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                      ),
+                    ),
+                    errorWidget: Container(
+                      color: Colors.grey[900],
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.broken_image,
+                            size: 80,
+                            color: Colors.white54,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Failed to load image',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    margin: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 24,
                     ),
                   ),
                 ),
@@ -518,392 +406,481 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Future<void> _testHttpRequest() async {
-    try {
-      // Test the base URL
-      final baseResponse = await http.get(Uri.parse('https://delpick.horas-code.my.id/'));
-      print('Base URL response status: ${baseResponse.statusCode}');
-
-      // Test with API path
-      final apiResponse = await http.get(Uri.parse('https://delpick.horas-code.my.id/api/v1/'));
-      print('API URL response status: ${apiResponse.statusCode}');
-
-      // Test the specific image path
-      final imageResponse = await http.get(Uri.parse('https://delpick.horas-code.my.id/uploads/users/avatar_1745315575533.jpeg'));
-      print('Image URL response status: ${imageResponse.statusCode}');
-
-      // Test with API prefix for image path
-      final apiImageResponse = await http.get(Uri.parse('https://delpick.horas-code.my.id/uploads/users/avatar_1745315575533.jpeg'));
-      print('API Image URL response status: ${apiImageResponse.statusCode}');
-    } catch (e) {
-      print('HTTP request error: $e');
-    }
-  }
-
-  void testImageLoading() {
-    // URL gambar normal
-    final imageUrl = 'https://delpick.horas-code.my.id/uploads/users/avatar-1745403326107.png';
-
-    // Contoh data URL dengan encoding base64
-    // Format: data:image/[format];base64,[data]
-    final String dataUrlImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==';
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Test Image Loading'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      body: _isLoading
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Tampilan gambar dari URL biasa
-            const Text('URL Image:'),
-            SizedBox(
-              width: 150,
-              height: 150,
-              child: Image.network(
-                imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (_, error, __) => Text('Error: $error', style: const TextStyle(fontSize: 10)),
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(
+                GlobalStyle.primaryColor,
               ),
             ),
-
-            const SizedBox(height: 20),
-
-            // Tampilan gambar dari data URL (base64)
-            const Text('Data URL (base64) Image:'),
-            SizedBox(
-              width: 150,
-              height: 150,
-              child: Image.memory(
-                _decodeDataUrl(dataUrlImage),
-                fit: BoxFit.cover,
-                errorBuilder: (_, error, __) => Text('Error: $error', style: const TextStyle(fontSize: 10)),
+            const SizedBox(height: 24),
+            Text(
+              'Loading your profile...',
+              style: TextStyle(
+                fontFamily: GlobalStyle.fontFamily,
+                fontSize: 16,
+                color: GlobalStyle.primaryColor,
               ),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-// Fungsi untuk mengekstrak dan mendecode data URL
-  Uint8List _decodeDataUrl(String dataUrl) {
-    // Memisahkan header dan data base64
-    final regexResult = RegExp(r'data:image/[^;]+;base64,(.*)').firstMatch(dataUrl);
-    final base64Str = regexResult?.group(1) ?? '';
-
-    // Decode base64 menjadi Uint8List
-    return base64Decode(base64Str);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Calculate 25% of screen height for the image
-    final double imageHeight = MediaQuery.of(context).size.height * 0.25;
-
-    return Scaffold(
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _customer == null
-            ? Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('Data pengguna tidak ditemukan'),
-              ElevatedButton(
-                onPressed: _loadUserData,
-                child: const Text('Coba Lagi'),
-              ),
-            ],
-          ),
-        )
-            : Column(
+      )
+          : _customer == null
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Fixed header with back button and title
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Stack(
-                alignment: Alignment.centerLeft,
-                children: [
-                  Center(
-                    child: Text(
-                      'Profil',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: GlobalStyle.fontColor,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(7.0),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.blue, width: 1.0),
-                      ),
-                      child: const Icon(Icons.arrow_back_ios_new, color: Colors.blue, size: 18),
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
+            Icon(
+              Icons.error_outline,
+              size: 80,
+              color: Colors.red[400],
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Unable to load profile',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                fontFamily: GlobalStyle.fontFamily,
               ),
             ),
+            const SizedBox(height: 12),
+            Text(
+              'Please check your connection',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: _loadUserData,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try Again'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GlobalStyle.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                elevation: 0,
+              ),
+            ),
+          ],
+        ),
+      )
+          : CustomScrollView(
+        slivers: [
+          // Modern App Bar with Gradient
+          SliverAppBar(
+            expandedHeight: 280,
+            floating: false,
+            pinned: true,
+            backgroundColor: Colors.transparent,
+            flexibleSpace: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final double top = constraints.biggest.height;
+                final bool isCollapsed = top <= kToolbarHeight + 50;
 
-            // Profile Image (25% of screen height) with edit button overlay
-            Stack(
-              alignment: Alignment.bottomRight,
-              children: [
-                // Profile Image
-                GestureDetector(
-                  onTap: _viewProfileImage,
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(0),
-                      bottom: Radius.circular(16),
+                return Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        GlobalStyle.primaryColor,
+                        GlobalStyle.primaryColor.withOpacity(0.8),
+                      ],
                     ),
-                    child: _processedImageUrl != null && _processedImageUrl!.isNotEmpty
-                        ? SizedBox(
-                      width: double.infinity,
-                      height: imageHeight,
-                      child: ImageService.displayImage(
-                        imageSource: _processedImageUrl!,
-                        width: double.infinity,
-                        height: imageHeight,
-                        fit: BoxFit.cover,
-                        placeholder: const Center(child: CircularProgressIndicator()),
-                        errorWidget: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Container(
-                              color: Colors.grey[300],
-                              width: double.infinity,
-                              height: imageHeight,
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(30),
+                      bottomRight: Radius.circular(30),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: GlobalStyle.primaryColor.withOpacity(0.3),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: FlexibleSpaceBar(
+                    title: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 200),
+                      opacity: isCollapsed ? 1.0 : 0.0,
+                      child: Text(
+                        _customer!.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    background: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Background Pattern
+                        Positioned(
+                          right: -50,
+                          top: -50,
+                          child: Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.1),
                             ),
-                            Column(
+                          ),
+                        ),
+                        Positioned(
+                          left: -30,
+                          bottom: -30,
+                          child: Container(
+                            width: 150,
+                            height: 150,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.1),
+                            ),
+                          ),
+                        ),
+
+                        // Profile Content
+                        FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(Icons.person, size: 80, color: Colors.grey),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 40),
+                                // Profile Image
+                                Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Container(
+                                      width: 130,
+                                      height: 130,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Colors.white.withOpacity(0.3),
+                                            Colors.white.withOpacity(0.1),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: _viewProfileImage,
+                                      child: Hero(
+                                        tag: 'profileImage',
+                                        child: Container(
+                                          width: 120,
+                                          height: 120,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: Colors.white,
+                                              width: 3,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(0.2),
+                                                blurRadius: 15,
+                                                offset: const Offset(0, 5),
+                                              ),
+                                            ],
+                                          ),
+                                          child: ClipOval(
+                                            child: _processedImageUrl != null &&
+                                                _processedImageUrl!.isNotEmpty
+                                                ? ImageService.displayImage(
+                                              imageSource: _processedImageUrl!,
+                                              width: 120,
+                                              height: 120,
+                                              fit: BoxFit.cover,
+                                              placeholder: Container(
+                                                color: Colors.white,
+                                                child: Center(
+                                                  child: CircularProgressIndicator(
+                                                    valueColor:
+                                                    AlwaysStoppedAnimation<Color>(
+                                                      GlobalStyle.primaryColor,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              errorWidget: Container(
+                                                color: Colors.white,
+                                                child: Icon(
+                                                  Icons.person,
+                                                  size: 60,
+                                                  color: GlobalStyle.primaryColor,
+                                                ),
+                                              ),
+                                            )
+                                                : Container(
+                                              color: Colors.white,
+                                              child: Icon(
+                                                Icons.person,
+                                                size: 60,
+                                                color: GlobalStyle.primaryColor,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      bottom: 0,
+                                      right: 0,
+                                      child: GestureDetector(
+                                        onTap: _isUpdatingImage ? null : _updateProfileImage,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                Colors.white,
+                                                Colors.grey[100]!,
+                                              ],
+                                            ),
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(0.2),
+                                                blurRadius: 8,
+                                                offset: const Offset(0, 2),
+                                              ),
+                                            ],
+                                          ),
+                                          child: _isUpdatingImage
+                                              ? SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor: AlwaysStoppedAnimation<Color>(
+                                                GlobalStyle.primaryColor,
+                                              ),
+                                            ),
+                                          )
+                                              : Icon(
+                                            Icons.camera_alt,
+                                            color: GlobalStyle.primaryColor,
+                                            size: 22,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                // Name
                                 Text(
-                                  'Error loading image',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                  _customer!.name,
+                                  style: const TextStyle(
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                // Role Badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.3),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.verified_user,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _customer!.role.toUpperCase(),
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                          letterSpacing: 1.2,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
-                          ],
-                        ),
-                      ),
-                    )
-                        : Container(
-                      color: Colors.grey[300],
-                      width: double.infinity,
-                      height: imageHeight,
-                      child: const Center(
-                        child: Icon(Icons.person, size: 80, color: Colors.grey),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Edit Button overlay
-                Positioned(
-                  bottom: 16,
-                  right: 16,
-                  child: GestureDetector(
-                    onTap: _isUpdatingImage ? null : _updateProfileImage,
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: GlobalStyle.primaryColor,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            spreadRadius: 1,
-                            blurRadius: 3,
-                            offset: const Offset(0, 1),
                           ),
-                        ],
-                      ),
-                      child: _isUpdatingImage
-                          ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
                         ),
-                      )
-                          : const Icon(
-                        Icons.camera_alt,
-                        color: Colors.white,
-                        size: 24,
-                      ),
+                      ],
                     ),
                   ),
-                ),
-              ],
+                );
+              },
             ),
-
-            // User name and role badge
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Column(
-                children: [
-                  // User name
-                  Text(
-                    _customer!.name,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-
-                  // User role badge
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: GlobalStyle.primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: GlobalStyle.primaryColor.withOpacity(0.5),
-                        ),
-                      ),
-                      child: Text(
-                        _customer!.role.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: GlobalStyle.primaryColor,
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+            leading: Container(
+              margin: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                onPressed: () => Navigator.pop(context),
               ),
             ),
+          ),
 
-            // Scrollable content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+          // Profile Content
+          SliverToBoxAdapter(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // User information card
+                    // Personal Information Section
+                    _buildSectionHeader(
+                      icon: Icons.person_pin,
+                      title: 'Personal Information',
+                      color: GlobalStyle.primaryColor,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildInfoCard(
+                      children: [
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.idCard,
+                          title: 'User ID',
+                          value: _customer!.id,
+                          iconColor: Colors.blue[600]!,
+                        ),
+                        _buildDivider(),
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.userAlt,
+                          title: 'Full Name',
+                          value: _customer!.name,
+                          iconColor: Colors.green[600]!,
+                        ),
+                        _buildDivider(),
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.phone,
+                          title: 'Phone Number',
+                          value: _customer!.phoneNumber,
+                          iconColor: Colors.orange[600]!,
+                        ),
+                        _buildDivider(),
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.envelope,
+                          title: 'Email Address',
+                          value: _customer!.email,
+                          iconColor: Colors.purple[600]!,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Logout Button
                     Container(
+                      width: double.infinity,
+                      height: 56,
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.red[400]!,
+                            Colors.red[600]!,
+                          ],
+                        ),
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            spreadRadius: 3,
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
+                            color: Colors.red.withOpacity(0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
                           ),
                         ],
                       ),
-                      child: Column(
-                        children: [
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.idCard,
-                            title: 'User ID',
-                            value: _customer!.id,
-                          ),
-                          const Divider(height: 1, indent: 60),
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.user,
-                            title: 'Nama User',
-                            value: _customer!.name,
-                          ),
-                          const Divider(height: 1, indent: 60),
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.phone,
-                            title: 'Nomor Telepon',
-                            value: _customer!.phoneNumber,
-                          ),
-                          const Divider(height: 1, indent: 60),
-                          _buildInfoTile(
-                            icon: FontAwesomeIcons.envelope,
-                            title: 'Email Pengguna',
-                            value: _customer!.email,
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-// Test Image Loading Button
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: ElevatedButton(
-                        onPressed: testImageLoading, // Call your existing method
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.image, size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Test Image Loading',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: GlobalStyle.fontFamily,
-                              ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _handleLogout,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.logout,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Logout',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16), // Add space between buttons
 
-                    // Logout button
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: ElevatedButton(
-                        onPressed: () => _handleLogout(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                    // App Version
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 32.0),
+                        child: Column(
                           children: [
-                            const Icon(Icons.logout, size: 20),
-                            const SizedBox(width: 8),
+                            Image.asset(
+                              'assets/images/delpick_image.png',
+                              width: 80,
+                              height: 80,
+                              color: Colors.grey[400],
+                              colorBlendMode: BlendMode.modulate,
+                            ),
+                            const SizedBox(height: 12),
                             Text(
-                              'Keluar',
+                              'DelPick v1.0.0',
                               style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[500],
+                                fontSize: 14,
                                 fontFamily: GlobalStyle.fontFamily,
                               ),
                             ),
@@ -915,55 +892,203 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required String title,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            color: color,
+            size: 24,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: GlobalStyle.fontColor,
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoCard({required List<Widget> children}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildSettingsCard({required List<Widget> children}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildInfoItem({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color iconColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: FaIcon(
+              icon,
+              size: 20,
+              color: iconColor,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  size: 24,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: GlobalStyle.fontColor,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: Colors.grey[400],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildInfoTile({
-    required IconData icon,
-    required String title,
-    required String value,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-      child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            FaIcon(
-              icon,
-              size: 20,
-              color: GlobalStyle.primaryColor,
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ]
-      ),
+  Widget _buildDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: Colors.grey[100],
+      indent: 80,
     );
   }
 }

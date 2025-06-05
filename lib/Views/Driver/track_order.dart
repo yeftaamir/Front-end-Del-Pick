@@ -16,6 +16,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 import '../../Models/order_enum.dart';
+import '../Component/driver_order_status.dart';
 
 class TrackOrderScreen extends StatefulWidget {
   static const String route = "/Driver/TrackOrder";
@@ -77,7 +78,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
 
     // Initialize animation controllers
     _cardControllers = List.generate(
-      3, // Number of card sections
+      4, // Number of card sections (including status card)
           (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
@@ -461,6 +462,32 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     }
   }
 
+  // Build order status card using DriverOrderStatusCard
+  Widget _buildOrderStatusCard() {
+    if (_order == null) return const SizedBox.shrink();
+
+    return SlideTransition(
+      position: _cardAnimations[0],
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        child: DriverOrderStatusCard(
+          orderData: {
+            'id': _order!.id,
+            'order_status': _tracking?.status.toString().split('.').last ?? _order!.status.toString().split('.').last,
+            'total': _order!.total,
+            'customer': {
+              'name': _customer?.name ?? 'Customer',
+              'avatar': _customer?.avatar,
+              'phone': _customer?.phoneNumber ?? '',
+            },
+            'deliveryAddress': _order!.deliveryAddress,
+          },
+          animation: null, // Animation handled by SlideTransition wrapper
+        ),
+      ),
+    );
+  }
+
   // Build customer info card
   Widget _buildCustomerInfo() {
     if (_customer == null) {
@@ -468,7 +495,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     }
 
     return SlideTransition(
-      position: _cardAnimations[0],
+      position: _cardAnimations[1],
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -614,7 +641,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
         : "Menghitung...";
 
     return SlideTransition(
-      position: _cardAnimations[1],
+      position: _cardAnimations[2],
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -753,7 +780,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
     }
 
     return SlideTransition(
-      position: _cardAnimations[2],
+      position: _cardAnimations[3],
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -1010,9 +1037,9 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
 
         // Bottom Sheet
         DraggableScrollableSheet(
-          initialChildSize: 0.25,
+          initialChildSize: 0.3,
           minChildSize: 0.15,
-          maxChildSize: 0.8,
+          maxChildSize: 0.85,
           controller: dragController,
           builder: (context, scrollController) {
             return Container(
@@ -1030,7 +1057,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
               child: NotificationListener<DraggableScrollableNotification>(
                 onNotification: (notification) {
                   setState(() {
-                    isExpanded = notification.extent > 0.25;
+                    isExpanded = notification.extent > 0.3;
                   });
                   return true;
                 },
@@ -1051,10 +1078,13 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> with TickerProvider
                       ),
                     ),
 
+                    // Order Status Card - Always show as first item
+                    _buildOrderStatusCard(),
+
                     // Customer Info (Compact)
                     if (!isExpanded && _customer != null)
                       SlideTransition(
-                        position: _cardAnimations[0],
+                        position: _cardAnimations[1],
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           child: Row(

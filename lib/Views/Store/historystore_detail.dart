@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:lottie/lottie.dart';
-import 'package:del_pick/Views/Component/order_status_card.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/store.dart';
@@ -21,6 +20,7 @@ import 'dart:math';
 import 'package:intl/intl.dart';
 
 import '../../Models/order_enum.dart';
+import '../Component/store_order_status.dart';
 
 class HistoryStoreDetailPage extends StatefulWidget {
   static const String route = '/Store/HistoryStoreDetail';
@@ -768,36 +768,28 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   // Updated to use the new OrderStatusCard implementation
+  // Di dalam _buildOrderStatusCard(), ganti dengan:
   Widget _buildOrderStatusCard() {
-    final orderId = _orderObject?.id ?? _orderData['id']?.toString() ?? '';
-
-    // Ensure we have an order ID to display
-    if (orderId.isEmpty) {
-      return _buildCard(
-        index: 0,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Center(
-            child: Text(
-              'Order ID tidak tersedia',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
     return _buildCard(
       index: 0,
-      child: OrderStatusCard(
-        orderId: orderId,
-        userRole: 'store', // Set user role to 'store'
+      child: StoreOrderStatusCard(
+        orderData: {
+          'id': _orderObject?.id ?? _orderData['id']?.toString() ?? '',
+          'order_status': _getOrderStatus().toString().split('.').last,
+          'total': _orderObject?.total ?? double.tryParse(_orderData['total']?.toString() ?? '0') ?? 0,
+          'customer': {
+            'name': _customer?.name ?? _orderData['customer']?['name'] ?? 'Customer',
+            'avatar': _customer?.avatar ?? _orderData['customer']?['avatar'],
+            'phone': _customer?.phoneNumber ?? _orderData['customer']?['phone'] ?? '',
+          },
+          'items': _getOrderItems().map((item) => {
+            'id': item.id,
+            'name': item.name,
+            'price': item.price,
+            'quantity': item.quantity,
+          }).toList(),
+        },
         animation: _cardAnimations[0],
-        onStatusUpdate: _refreshOrderData, // Refresh data when status updates
       ),
     );
   }

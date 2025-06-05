@@ -4,12 +4,12 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/driver.dart';
-import 'package:del_pick/Views/Component/order_status_card.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
 import '../../Models/order_enum.dart';
+import '../Component/cust_order_status.dart';
 import 'cart_screen.dart';
 import 'home_cust.dart';
 import 'rating_cust.dart';
@@ -320,11 +320,20 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               // Order Status Card - Updated to use orderId and userRole
               Container(
                 margin: const EdgeInsets.only(bottom: 16),
-                child: OrderStatusCard(
-                  orderId: widget.order.id,
-                  userRole: 'customer',
-                  animation: _cardAnimations[0],
-                  onStatusUpdate: _refreshOrderDetails,
+                child: // Di dalam build method, ganti yang ada dengan:
+                CustomerOrderStatusCard(
+                  orderData: {
+                    'id': widget.order.id,
+                    'order_status': widget.order.status.toString().split('.').last,
+                    'total': widget.order.total,
+                    'customer': {
+                      'name': 'Customer Name', // Bisa didapat dari user data
+                      'avatar': null,
+                      'phone': 'Customer Phone'
+                    },
+                    'estimatedDeliveryTime': DateTime.now().add(Duration(minutes: 15)).toIso8601String(),
+                  },
+                  animation: _cardAnimations[0], // Menggunakan animasi yang sudah ada
                 ),
               ),
 

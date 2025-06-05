@@ -4,7 +4,6 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Driver/track_order.dart';
 import 'package:lottie/lottie.dart';
-import 'package:del_pick/Views/Component/order_status_card.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -25,6 +24,7 @@ import 'package:del_pick/Services/store_service.dart';
 import 'dart:convert';
 
 import '../../Models/order_enum.dart';
+import '../Component/driver_order_status.dart';
 
 class HistoryDriverDetailPage extends StatefulWidget {
   static const String route = '/Driver/HistoryDriverDetail';
@@ -929,15 +929,21 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   }
 
   // Updated to use the new OrderStatusCard implementation
+// Di dalam _buildOrderStatusCard(), ganti dengan:
   Widget _buildOrderStatusCard() {
-    return OrderStatusCard(
-      orderId: _orderId,
-      userRole: 'driver',  // Specify role as 'driver'
-      animation: _cardAnimations[0],
-      onStatusUpdate: () {
-        // Refresh order data when status is updated
-        _fetchOrderData();
+    return DriverOrderStatusCard(
+      orderData: {
+        'id': _orderId,
+        'order_status': _currentStatus,
+        'total': _orderData?['total'] ?? widget.orderDetail['amount'] ?? 0,
+        'customer': {
+          'name': _orderData?['user']?['name'] ?? widget.orderDetail['customerName'] ?? 'Customer',
+          'avatar': _orderData?['user']?['avatar'] ?? '',
+          'phone': _orderData?['user']?['phone'] ?? widget.orderDetail['customerPhone'] ?? '',
+        },
+        'deliveryAddress': _orderData?['delivery_address'] ?? widget.orderDetail['customerAddress'] ?? '',
       },
+      animation: _cardAnimations[0],
     );
   }
 
