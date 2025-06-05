@@ -23,7 +23,7 @@ class StoreDetail extends StatefulWidget {
   State<StoreDetail> createState() => _StoreDetailState();
 }
 
-class _StoreDetailState extends State<StoreDetail> {
+class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStateMixin {
   late List<MenuItem> menuItems = [];
   late List<MenuItem> filteredItems = [];
   // Map to track original item stock
@@ -40,6 +40,13 @@ class _StoreDetailState extends State<StoreDetail> {
   bool _isLoadingLocation = true; // Loading state for location
   Position? _currentPosition; // User's current position
   double? _storeDistance; // Calculated distance to store
+
+  // Animation controller for cart summary
+  late AnimationController _cartAnimationController;
+  late Animation<double> _cartAnimation;
+
+  // Recently added item to show in cart summary
+  MenuItem? _lastAddedItem;
 
   late Store _storeDetail = Store(
     id: 0,
@@ -201,6 +208,17 @@ class _StoreDetailState extends State<StoreDetail> {
     _pageController = PageController(viewportFraction: 0.8, initialPage: 0);
     _startAutoScroll();
 
+    // Initialize cart animation
+    _cartAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+
+    _cartAnimation = CurvedAnimation(
+      parent: _cartAnimationController,
+      curve: Curves.easeInOut,
+    );
+
     // Add listener for search text changes - this is the key improvement for real-time search
     _searchController.addListener(() {
       _performSearch();
@@ -256,6 +274,7 @@ class _StoreDetailState extends State<StoreDetail> {
     _searchController.dispose();
     _searchFocusNode.dispose();
     _audioPlayer.dispose(); // Dispose the audio player
+    _cartAnimationController.dispose(); // Dispose the animation controller
     super.dispose();
   }
 
@@ -478,6 +497,20 @@ class _StoreDetailState extends State<StoreDetail> {
     );
   }
 
+  // Show success animation when adding item to cart
+  void _showSuccessAnimation(MenuItem item) {
+    setState(() {
+      _lastAddedItem = item;
+    });
+
+    // Play success sound
+    _audioPlayer.play(AssetSource('audio/kring.mp3'));
+
+    // Start animation
+    _cartAnimationController.reset();
+    _cartAnimationController.forward();
+  }
+
   // Add item directly to cart from list
   void _addItemToCart(MenuItem item) {
     if (!item.isAvailable) {
@@ -495,6 +528,9 @@ class _StoreDetailState extends State<StoreDetail> {
     setState(() {
       item.quantity += 1;
     });
+
+    // Show success animation
+    _showSuccessAnimation(item);
   }
 
   // Decrement item quantity in cart
@@ -502,6 +538,11 @@ class _StoreDetailState extends State<StoreDetail> {
     setState(() {
       if (item.quantity > 0) {
         item.quantity--;
+
+        // If the quantity is now zero, clear the last added item if it matches
+        if (item.quantity == 0 && _lastAddedItem?.id == item.id) {
+          _lastAddedItem = null;
+        }
       }
     });
   }
@@ -522,6 +563,9 @@ class _StoreDetailState extends State<StoreDetail> {
     setState(() {
       item.quantity++;
     });
+
+    // Show success animation
+    _showSuccessAnimation(item);
   }
 
   void _showItemDetail(MenuItem item) {
@@ -529,6 +573,9 @@ class _StoreDetailState extends State<StoreDetail> {
       _showItemUnavailableDialog();
       return;
     }
+
+    // Store the initial quantity to check if it changes after closing the modal
+    final initialQuantity = item.quantity;
 
     showModalBottomSheet(
       context: context,
@@ -539,7 +586,11 @@ class _StoreDetailState extends State<StoreDetail> {
         availableStock: _getRemainingStock(item),
         onQuantityChanged: (int quantity) {
           setState(() {
-            item.quantity = quantity;
+            // Only update if there's a change in quantity
+            if (quantity != initialQuantity) {
+              item.quantity = quantity;
+              _showSuccessAnimation(item);
+            }
           });
         },
         onZeroQuantity: _showZeroQuantityDialog,
@@ -567,7 +618,7 @@ class _StoreDetailState extends State<StoreDetail> {
                 _buildStoreInfo(),
                 if (filteredItems.isNotEmpty) _buildCarouselMenu(),
                 _buildListMenu(),
-                if (hasItemsInCart) const SizedBox(height: 100),
+                if (hasItemsInCart) const SizedBox(height: 120), // Increased space for cart summary
               ],
             ),
           ),
@@ -1287,6 +1338,61 @@ class _StoreDetailState extends State<StoreDetail> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Item added notification with animation
+            if (_lastAddedItem != null)
+              FadeTransition(
+                opacity: _cartAnimation,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        color: Colors.green[700],
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _lastAddedItem!.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              GlobalStyle.formatRupiah(_lastAddedItem!.price),
+                              style: TextStyle(
+                                color: GlobalStyle.primaryColor,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        "x${_lastAddedItem!.quantity}",
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1521,12 +1627,16 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                             },
                             icon: const Icon(Icons.remove_circle_outline),
                             color: GlobalStyle.primaryColor,
+                            iconSize: 32, // Larger button for better UX
                           ),
-                          Text(
-                            '$_quantity',
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
+                          Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              '$_quantity',
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           IconButton(
@@ -1541,6 +1651,7 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                             },
                             icon: const Icon(Icons.add_circle_outline),
                             color: GlobalStyle.primaryColor,
+                            iconSize: 32, // Larger button for better UX
                           ),
                         ],
                       ),
@@ -1551,19 +1662,20 @@ class _DraggableItemDetailState extends State<DraggableItemDetail> {
                             child: ElevatedButton(
                               onPressed: () {
                                 if (_quantity > 0) {
+                                  // Update the item quantity and call the callback
                                   widget.onQuantityChanged(_quantity);
+
+                                  // Close the bottom sheet
                                   Navigator.pop(context);
                                 } else {
                                   // Show zero quantity dialog instead of text warning
-                                  Navigator.pop(
-                                      context); // Close the bottom sheet first
+                                  Navigator.pop(context); // Close the bottom sheet first
                                   widget.onZeroQuantity(); // Show the dialog
                                 }
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: GlobalStyle.primaryColor,
-                                padding:
-                                const EdgeInsets.symmetric(vertical: 16),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),

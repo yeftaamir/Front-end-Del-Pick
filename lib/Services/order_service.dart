@@ -74,7 +74,6 @@ class OrderService {
       };
     }
   }
-
   /// Get orders for customer (user)
   static Future<Map<String, dynamic>> getOrdersByUser({
     int page = 1,
@@ -122,13 +121,13 @@ class OrderService {
           // Process orders list if it exists
           if (data['orders'] != null && data['orders'] is List) {
             for (var order in data['orders']) {
-              _processOrderImages(order);
+              _processCompleteOrderData(order);
             }
           }
 
           return data;
         }
-        return {};
+        return {'orders': [], 'totalItems': 0, 'totalPages': 0, 'currentPage': 1};
       } else {
         _handleErrorResponse(response);
       }
@@ -136,66 +135,50 @@ class OrderService {
       print('Error fetching customer orders: $e');
       throw Exception('Failed to load customer orders: $e');
     }
-    return {};
+    return {'orders': [], 'totalItems': 0, 'totalPages': 0, 'currentPage': 1};
   }
 
-  /// Place a new order
+  /// Place a new order - simplified implementation
   static Future<Map<String, dynamic>> placeOrder(Map<String, dynamic> orderData) async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
+    // Get token
+    final token = await TokenService.getToken();
 
-      // Validate required fields according to backend validator
-      if (!orderData.containsKey('storeId')) {
-        throw Exception('storeId is required');
-      }
+    // Prepare request body with basic required fields
+    final requestBody = {
+      'storeId': orderData['storeId'],
+      'items': _prepareOrderItems(orderData['items']),
+      'deliveryAddress': orderData['deliveryAddress'],
+      'latitude': orderData['latitude'],
+      'longitude': orderData['longitude'],
+      'serviceCharge': orderData['serviceCharge'],
+      'notes': orderData['notes'] ?? '',
+    };
 
-      if (!orderData.containsKey('items') ||
-          !orderData['items'] is List ||
-          (orderData['items'] as List).isEmpty) {
-        throw Exception('items array is required');
-      }
+    // Log the request for debugging
+    print('Sending order request: ${jsonEncode(requestBody)}');
 
-      // Transform items to match backend expectation: {itemId, quantity}
-      final List<Map<String, dynamic>> transformedItems = [];
-      for (var item in orderData['items']) {
-        transformedItems.add({
-          'itemId': item['id'] ?? item['itemId'],
-          'quantity': item['quantity'] ?? 1,
-        });
-      }
+    // Make API call
+    final response = await http.post(
+      Uri.parse('${ApiConstants.baseUrl}/orders'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(requestBody),
+    );
 
-      final requestBody = {
-        'storeId': orderData['storeId'],
-        'items': transformedItems,
-        'notes': orderData['notes'],
-        'deliveryAddress': orderData['deliveryAddress'] ?? "Institut Teknologi Del",
-      };
-
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/orders'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(requestBody),
-      );
-
-      if (response.statusCode == 201) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
-    } catch (e) {
-      print('Error placing order: $e');
-      throw Exception('Failed to place order: $e');
-    }
-    return {};
+    // Parse and return response
+    final jsonData = json.decode(response.body);
+    return jsonData['data'] ?? {};
   }
 
+  /// Helper method to transform cart items into the expected API format
+  static List<Map<String, dynamic>> _prepareOrderItems(List<dynamic> items) {
+    return items.map((item) => {
+      'itemId': item['id'] ?? item['itemId'],
+      'quantity': item['quantity'] ?? 1,
+    }).toList();
+  }
   /// Cancel an order (customer)
   static Future<Map<String, dynamic>> cancelOrderRequest(String orderId) async {
     try {
@@ -326,13 +309,13 @@ class OrderService {
           // Process orders list if it exists
           if (data['orders'] != null && data['orders'] is List) {
             for (var order in data['orders']) {
-              _processOrderImages(order);
+              _processCompleteOrderData(order);
             }
           }
 
           return data;
         }
-        return {};
+        return {'orders': [], 'totalItems': 0, 'totalPages': 0, 'currentPage': 1};
       } else {
         _handleErrorResponse(response);
       }
@@ -340,7 +323,7 @@ class OrderService {
       print('Error fetching store orders: $e');
       throw Exception('Failed to load store orders: $e');
     }
-    return {};
+    return {'orders': [], 'totalItems': 0, 'totalPages': 0, 'currentPage': 1};
   }
 
   /// Process order by store (approve/reject)
@@ -413,7 +396,7 @@ class OrderService {
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonData = json.decode(response.body);
 
-        // Process images and format data
+        // Process and format data consistently
         if (jsonData['data'] != null) {
           final data = jsonData['data'];
 
@@ -425,9 +408,9 @@ class OrderService {
             orders = data['orders'];
           }
 
-          // Process images for each order
+          // Process each order with complete data processing
           for (var order in orders) {
-            _processOrderImages(order);
+            _processCompleteOrderData(order);
           }
 
           // Return consistent structure
@@ -456,7 +439,106 @@ class OrderService {
       print('Error fetching driver orders: $e');
       throw Exception('Failed to load driver orders: $e');
     }
-    return {};
+    return {
+      'orders': [],
+      'totalItems': 0,
+      'totalPages': 0,
+      'currentPage': 1,
+    };
+  }
+
+  /// Enhanced helper method to process complete order data including all nested objects
+  static void _processCompleteOrderData(Map<String, dynamic> order) {
+    // Process store data and its nested user
+    if (order['store'] != null) {
+      final store = order['store'];
+
+      // Process store image
+      if (store['imageUrl'] != null) {
+        store['imageUrl'] = ImageService.getImageUrl(store['imageUrl']);
+      }
+      if (store['image'] != null) {
+        store['image'] = ImageService.getImageUrl(store['image']);
+      }
+
+      // Process store owner/user data
+      if (store['user'] != null && store['user']['avatar'] != null) {
+        store['user']['avatar'] = ImageService.getImageUrl(store['user']['avatar']);
+      }
+    }
+
+    // Process customer data
+    if (order['customer'] != null && order['customer']['avatar'] != null) {
+      order['customer']['avatar'] = ImageService.getImageUrl(order['customer']['avatar']);
+    }
+
+    // Process driver data
+    if (order['driver'] != null && order['driver']['avatar'] != null) {
+      order['driver']['avatar'] = ImageService.getImageUrl(order['driver']['avatar']);
+    }
+
+    // Process order items
+    if (order['items'] != null && order['items'] is List) {
+      for (var item in order['items']) {
+        if (item['imageUrl'] != null) {
+          item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
+        }
+      }
+    }
+
+    // Process order reviews if present
+    if (order['orderReviews'] != null && order['orderReviews'] is List) {
+      for (var review in order['orderReviews']) {
+        if (review['user'] != null && review['user']['avatar'] != null) {
+          review['user']['avatar'] = ImageService.getImageUrl(review['user']['avatar']);
+        }
+      }
+    }
+
+    // Process driver reviews if present
+    if (order['driverReviews'] != null && order['driverReviews'] is List) {
+      for (var review in order['driverReviews']) {
+        if (review['user'] != null && review['user']['avatar'] != null) {
+          review['user']['avatar'] = ImageService.getImageUrl(review['user']['avatar']);
+        }
+      }
+    }
+
+    // Ensure all date fields are properly formatted
+    if (order['orderDate'] != null && order['orderDate'] is String) {
+      try {
+        // Validate date format
+        DateTime.parse(order['orderDate']);
+      } catch (e) {
+        // If date parsing fails, set to current time
+        order['orderDate'] = DateTime.now().toIso8601String();
+      }
+    }
+
+    if (order['estimatedDeliveryTime'] != null && order['estimatedDeliveryTime'] is String) {
+      try {
+        // Validate date format
+        DateTime.parse(order['estimatedDeliveryTime']);
+      } catch (e) {
+        // If date parsing fails, remove the field
+        order.remove('estimatedDeliveryTime');
+      }
+    }
+
+    // Ensure numeric fields are properly typed
+    if (order['subtotal'] != null) {
+      order['subtotal'] = (order['subtotal'] as num).toDouble();
+    }
+    if (order['serviceCharge'] != null) {
+      order['serviceCharge'] = (order['serviceCharge'] as num).toDouble();
+    }
+    if (order['total'] != null) {
+      order['total'] = (order['total'] as num).toDouble();
+    }
+
+    // Ensure status fields have default values
+    order['order_status'] = order['order_status'] ?? 'pending';
+    order['delivery_status'] = order['delivery_status'] ?? 'waiting';
   }
 
   /// Get order detail

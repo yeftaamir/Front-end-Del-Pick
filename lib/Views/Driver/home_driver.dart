@@ -41,10 +41,8 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
   final LocationService _locationService = LocationService();
   bool _isLocationServiceInitialized = false;
 
-  // Data storage - Enhanced structure
-  List<Map<String, dynamic>> _driverRequests = []; // New driver requests
-  List<Map<String, dynamic>> _activeOrders = []; // Active driver orders
-  List<Map<String, dynamic>> _allDeliveries = []; // Combined deliveries for display
+  // Data storage - Simplified structure
+  List<Map<String, dynamic>> _allOrders = []; // All orders including new requests and active orders
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
@@ -55,14 +53,13 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
   Map<String, dynamic>? _driverData;
   String? _driverId;
 
-  // Track previous requests count for new order detection
-  int _previousRequestsCount = 0;
+  // Track previous orders count for new order detection
+  int _previousOrdersCount = 0;
 
   // Notification badge counter
   int _notificationCount = 0;
 
-  // Timers for periodic updates
-  Timer? _requestsUpdateTimer;
+  // Timer for periodic updates
   Timer? _ordersUpdateTimer;
 
   // Track active dialogs to prevent multiple notifications
@@ -88,9 +85,8 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     // Check if driver is already active
     _fetchDriverInfo();
 
-    // Load driver requests and orders
-    _loadDriverRequests();
-    _loadActiveOrders();
+    // Load orders
+    _loadDriverOrders();
 
     // Setup periodic updates
     _setupPeriodicUpdates();
@@ -126,7 +122,6 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     _locationService.stopTracking();
 
     // Cancel all timers
-    _requestsUpdateTimer?.cancel();
     _ordersUpdateTimer?.cancel();
 
     super.dispose();
@@ -134,22 +129,12 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
 
   // Setup enhanced periodic updates
   void _setupPeriodicUpdates() {
-    _requestsUpdateTimer?.cancel();
     _ordersUpdateTimer?.cancel();
 
-    // Fetch driver requests every 15 seconds if driver is active
-    _requestsUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+    // Fetch orders every 15 seconds if driver is active
+    _ordersUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (mounted && _isDriverActive) {
-        _loadDriverRequests();
-      } else if (!mounted) {
-        timer.cancel();
-      }
-    });
-
-    // Fetch active orders every 20 seconds if driver is active
-    _ordersUpdateTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
-      if (mounted && _isDriverActive) {
-        _loadActiveOrders();
+        _loadDriverOrders();
       } else if (!mounted) {
         timer.cancel();
       }
@@ -197,85 +182,12 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     }
   }
 
-  // Enhanced: Load driver requests (new incoming orders) - FIXED
-  Future<void> _loadDriverRequests() async {
-    if (!mounted) return;
-
-    try {
-      // Get driver requests from OrderService (NOT DriverService)
-      final response = await OrderService.getDriverRequests();
-
-      List<Map<String, dynamic>> newRequests = [];
-
-      // FIXED: Proper handling of response structure
-      if (response is Map<String, dynamic>) {
-        // Check if response has 'requests' key
-        if (response.containsKey('requests') && response['requests'] is List) {
-          final List<dynamic> requestsList = response['requests'];
-          for (var requestItem in requestsList) {
-            if (requestItem is Map<String, dynamic>) {
-              final processedRequest = _processDriverRequest(requestItem);
-              if (processedRequest != null) {
-                newRequests.add(processedRequest);
-              }
-            }
-          }
-        }
-        // Check if response has 'data' key containing requests
-        else if (response.containsKey('data') && response['data'] is Map<String, dynamic>) {
-          final data = response['data'] as Map<String, dynamic>;
-          if (data.containsKey('requests') && data['requests'] is List) {
-            final List<dynamic> requestsList = data['requests'];
-            for (var requestItem in requestsList) {
-              if (requestItem is Map<String, dynamic>) {
-                final processedRequest = _processDriverRequest(requestItem);
-                if (processedRequest != null) {
-                  newRequests.add(processedRequest);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Check for new requests and show notifications
-      if (newRequests.length > _previousRequestsCount &&
-          _isDriverActive &&
-          _previousRequestsCount > 0) {
-        final newIncomingRequests = newRequests.skip(_previousRequestsCount).toList();
-        for (var newRequest in newIncomingRequests) {
-          if (newRequest['status'] == 'pending') {
-            _notificationCount++;
-            await _showNotification(newRequest);
-            await _showNewOrderDialog(newRequest);
-          }
-        }
-      }
-
-      setState(() {
-        _driverRequests = newRequests;
-        _previousRequestsCount = newRequests.length;
-        _combineAllDeliveries();
-      });
-
-    } catch (e) {
-      print('Error loading driver requests: $e');
-      // Don't set error state if we have other data
-      if (_activeOrders.isEmpty && _driverRequests.isEmpty) {
-        setState(() {
-          _hasError = true;
-          _errorMessage = 'Failed to load driver requests: $e';
-        });
-      }
-    }
-  }
-
-  // Enhanced: Load active driver orders - FIXED
-  Future<void> _loadActiveOrders() async {
+  // Enhanced: Load driver orders - both new requests and active orders
+  Future<void> _loadDriverOrders() async {
     if (!mounted) return;
 
     setState(() {
-      if (_driverRequests.isEmpty && _activeOrders.isEmpty) {
+      if (_allOrders.isEmpty) {
         _isLoading = true;
       }
       _hasError = false;
@@ -287,7 +199,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
 
       List<Map<String, dynamic>> processedOrders = [];
 
-      // FIXED: Proper handling of response structure
+      // Handle response structure
       if (response is Map<String, dynamic>) {
         // Check if response has 'orders' key
         if (response.containsKey('orders') && response['orders'] is List) {
@@ -301,80 +213,42 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
             }
           }
         }
-        // Check if response has 'data' key containing orders
-        else if (response.containsKey('data') && response['data'] is Map<String, dynamic>) {
-          final data = response['data'] as Map<String, dynamic>;
-          if (data.containsKey('orders') && data['orders'] is List) {
-            final List<dynamic> ordersList = data['orders'];
-            for (var orderItem in ordersList) {
-              if (orderItem is Map<String, dynamic>) {
-                final processedOrder = _processDriverOrder(orderItem);
-                if (processedOrder != null) {
-                  processedOrders.add(processedOrder);
-                }
-              }
-            }
-          }
+      }
+
+      // Check for new orders and show notifications
+      if (processedOrders.length > _previousOrdersCount &&
+          _isDriverActive &&
+          _previousOrdersCount > 0) {
+
+        // Find new orders (pending orders that weren't in the previous list)
+        final newIncomingOrders = processedOrders
+            .where((order) => order['status'] == 'pending')
+            .toList();
+
+        for (var newOrder in newIncomingOrders) {
+          _notificationCount++;
+          await _showNotification(newOrder);
+          await _showNewOrderDialog(newOrder);
         }
       }
 
       setState(() {
-        _activeOrders = processedOrders;
+        _allOrders = processedOrders;
+        _previousOrdersCount = processedOrders.length;
         _isLoading = false;
-        _combineAllDeliveries();
-      });
 
+        // Sort orders by priority
+        _sortOrdersByPriority();
+      });
     } catch (e) {
-      print('Error loading active orders: $e');
+      print('Error loading driver orders: $e');
       setState(() {
         _isLoading = false;
-        if (_driverRequests.isEmpty && _activeOrders.isEmpty) {
+        if (_allOrders.isEmpty) {
           _hasError = true;
           _errorMessage = 'Failed to load orders: $e';
         }
       });
-    }
-  }
-
-  // Process driver request data
-  Map<String, dynamic>? _processDriverRequest(Map<String, dynamic> request) {
-    try {
-      final orderData = request['order'] ?? {};
-      final customerData = orderData['user'] ?? orderData['customer'] ?? {};
-      final storeData = orderData['store'] ?? {};
-      final orderItems = orderData['orderItems'] ?? orderData['items'] ?? [];
-
-      // Get customer avatar
-      String customerAvatar = '';
-      if (customerData['avatar'] != null && customerData['avatar'].toString().isNotEmpty) {
-        customerAvatar = ImageService.getImageUrl(customerData['avatar']);
-      }
-
-      return {
-        'id': orderData['id']?.toString() ?? '',
-        'requestId': request['id']?.toString() ?? '',
-        'code': orderData['code']?.toString() ?? '',
-        'customerName': customerData['name'] ?? 'Unknown Customer',
-        'customerAvatar': customerAvatar,
-        'customerPhone': customerData['phone'] ?? customerData['phoneNumber'] ?? '',
-        'orderTime': _parseDateTime(orderData['created_at'] ?? orderData['createdAt']),
-        'totalPrice': _parseDouble(orderData['total'] ?? 0),
-        'status': 'pending', // Driver requests are always pending
-        'requestStatus': request['status'] ?? 'pending',
-        'items': orderItems,
-        'deliveryFee': _parseDouble(orderData['service_charge'] ?? orderData['serviceCharge'] ?? 0),
-        'amount': _parseDouble(orderData['total'] ?? 0),
-        'storeAddress': storeData['address'] ?? 'No Address',
-        'storeName': storeData['name'] ?? 'Unknown Store',
-        'storePhone': storeData['phone'] ?? storeData['phoneNumber'] ?? '',
-        'customerAddress': orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? 'No Address',
-        'orderDetail': orderData,
-        'requestDetail': request,
-        'type': 'request', // Mark as request
-      };
-    } catch (e) {
-      print('Error processing driver request: $e');
-      return null;
     }
   }
 
@@ -384,6 +258,11 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       final customerData = orderData['user'] ?? orderData['customer'] ?? {};
       final storeData = orderData['store'] ?? {};
       final orderItems = orderData['orderItems'] ?? orderData['items'] ?? [];
+
+      // Determine if this is a new incoming order (request) or an active order
+      final bool isPendingRequest = (orderData['order_status'] == 'pending' ||
+          orderData['status'] == 'pending') &&
+          orderData['driver_status'] == null;
 
       // Get customer avatar
       String customerAvatar = '';
@@ -400,9 +279,10 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
         'orderTime': _parseDateTime(orderData['created_at'] ?? orderData['createdAt']),
         'totalPrice': _parseDouble(orderData['total'] ?? 0),
         'status': _mapOrderStatusToDeliveryStatus(
-            orderData['order_status'] ?? orderData['orderStatus'],
+            orderData['order_status'] ?? orderData['status'],
             orderData['delivery_status'] ?? orderData['deliveryStatus']
         ),
+        'isPendingRequest': isPendingRequest, // Flag to identify new incoming orders
         'items': orderItems,
         'deliveryFee': _parseDouble(orderData['service_charge'] ?? orderData['serviceCharge'] ?? 0),
         'amount': _parseDouble(orderData['total'] ?? 0),
@@ -411,7 +291,6 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
         'storePhone': storeData['phone'] ?? storeData['phoneNumber'] ?? '',
         'customerAddress': orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? 'No Address',
         'orderDetail': orderData,
-        'type': 'order', // Mark as active order
       };
     } catch (e) {
       print('Error processing driver order: $e');
@@ -419,57 +298,45 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     }
   }
 
-  // Combine all deliveries for display
-  void _combineAllDeliveries() {
-    List<Map<String, dynamic>> combinedDeliveries = [];
-
-    // Add pending driver requests first (highest priority)
-    combinedDeliveries.addAll(_driverRequests.where((request) =>
-    request['requestStatus'] == 'pending'
-    ).toList());
-
-    // Add active orders
-    combinedDeliveries.addAll(_activeOrders.where((order) =>
-    !['delivered', 'completed', 'cancelled'].contains(order['status'])
-    ).toList());
-
-    // Sort by priority: pending requests -> picking_up -> delivering -> delivered
-    combinedDeliveries.sort((a, b) {
+  // Sort orders by priority
+  void _sortOrdersByPriority() {
+    // Sort orders: pending requests -> picking_up -> delivering -> delivered
+    _allOrders.sort((a, b) {
       final statusPriority = {
         'pending': 0,
-        'picking_up': 1,
-        'delivering': 2,
-        'delivered': 3,
+        'assigned': 1,
+        'picking_up': 2,
+        'delivering': 3,
+        'delivered': 4,
+        'cancelled': 5,
       };
 
       final aStatus = a['status'];
       final bStatus = b['status'];
 
-      return (statusPriority[aStatus] ?? 4).compareTo(statusPriority[bStatus] ?? 4);
+      // Prioritize pending requests
+      if (a['isPendingRequest'] && !b['isPendingRequest']) return -1;
+      if (!a['isPendingRequest'] && b['isPendingRequest']) return 1;
+
+      return (statusPriority[aStatus] ?? 6).compareTo(statusPriority[bStatus] ?? 6);
     });
 
-    setState(() {
-      _allDeliveries = combinedDeliveries;
-      // Initialize animations for each card
-      _initializeAnimations();
-    });
+    // Initialize animations for each card
+    _initializeAnimations();
   }
 
-  // Enhanced: Respond to driver request (accept/reject)
-  Future<void> _respondToDriverRequest(String requestId, String action) async {
+  // Respond to driver request (accept/reject)
+  Future<void> _respondToDriverRequest(String orderId, String action) async {
     try {
       setState(() {
         _isLoading = true;
       });
 
       // Use OrderService to respond to driver request
-      final response = await OrderService.respondToDriverRequest(requestId, action);
+      await OrderService.respondToDriverRequest(orderId, action);
 
-      // Reload both requests and orders after response
-      await Future.wait([
-        _loadDriverRequests(),
-        _loadActiveOrders(),
-      ]);
+      // Reload orders after response
+      await _loadDriverOrders();
 
       // Show success message
       if (mounted) {
@@ -511,17 +378,6 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
           ),
         );
       }
-    }
-  }
-
-  // Enhanced: Get driver request detail
-  Future<Map<String, dynamic>?> _getDriverRequestDetail(String requestId) async {
-    try {
-      final response = await OrderService.getDriverRequestDetail(requestId);
-      return response;
-    } catch (e) {
-      print('Error getting driver request detail: $e');
-      return null;
     }
   }
 
@@ -567,7 +423,9 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     }
 
     // Then check order status
-    if (orderStatus == 'pending_driver' || orderStatus == 'approved') {
+    if (orderStatus == 'pending') {
+      return 'pending';
+    } else if (orderStatus == 'pending_driver' || orderStatus == 'approved') {
       return 'assigned';
     } else if (orderStatus == 'preparing') {
       return 'picking_up';
@@ -580,7 +438,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
     }
 
     // Default fallback
-    return 'assigned';
+    return 'pending';
   }
 
   void _initializeAnimations() {
@@ -589,11 +447,11 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       controller.dispose();
     }
 
-    if (_allDeliveries.isEmpty) return;
+    if (_allOrders.isEmpty) return;
 
     // Initialize new controllers for each card
     _cardControllers = List.generate(
-      _allDeliveries.length,
+      _allOrders.length,
           (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
@@ -638,8 +496,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       onDidReceiveNotificationResponse: (NotificationResponse details) {
         // Handle notification tap
         if (details.payload != null) {
-          _loadDriverRequests(); // Refresh requests when notification is tapped
-          _loadActiveOrders();
+          _loadDriverOrders(); // Refresh orders when notification is tapped
         }
       },
     );
@@ -708,7 +565,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
         'Pesanan Baru Masuk! 🚗',
         'Dari: ${orderDetails['storeName'] ?? 'Toko'} → ${orderDetails['customerName']} - ${GlobalStyle.formatRupiah(orderDetails['totalPrice'])}',
         platformChannelSpecifics,
-        payload: orderDetails['requestId'],
+        payload: orderDetails['id'],
       );
     } catch (e) {
       print('Error showing notification: $e');
@@ -861,8 +718,8 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       _isShowingNewOrderDialog = false;
 
       // Handle the response
-      if (result != null && orderDetails['requestId'] != null) {
-        await _respondToDriverRequest(orderDetails['requestId'], result);
+      if (result != null && orderDetails['id'] != null) {
+        await _respondToDriverRequest(orderDetails['id'], result);
       }
     }
   }
@@ -915,11 +772,8 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       // Use OrderService to update order status
       await OrderService.updateOrderStatus(orderId, newStatus);
 
-      // Refresh both requests and orders
-      await Future.wait([
-        _loadDriverRequests(),
-        _loadActiveOrders(),
-      ]);
+      // Refresh orders
+      await _loadDriverOrders();
 
       // Show success message
       if (mounted) {
@@ -1012,10 +866,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
       // If driver is now active, start location tracking and update orders
       if (_isDriverActive) {
         await _startLocationTracking();
-        await Future.wait([
-          _loadDriverRequests(),
-          _loadActiveOrders(),
-        ]);
+        await _loadDriverOrders();
       } else {
         await _stopLocationTracking();
       }
@@ -1284,9 +1135,9 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
   }
 
   // Enhanced: Build delivery card with better handling for requests vs orders
-  Widget _buildDeliveryCard(Map<String, dynamic> delivery, int index) {
-    String status = delivery['status'] as String;
-    bool isRequest = delivery['type'] == 'request';
+  Widget _buildDeliveryCard(Map<String, dynamic> order, int index) {
+    String status = order['status'] as String;
+    bool isPendingRequest = order['isPendingRequest'] == true;
     final animationIndex = index < _cardAnimations.length ? index : 0;
 
     return SlideTransition(
@@ -1296,7 +1147,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: isRequest && status == 'pending'
+          border: isPendingRequest
               ? Border.all(color: Colors.orange, width: 2)
               : null,
           boxShadow: [
@@ -1322,10 +1173,10 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                         Row(
                           children: [
                             // Customer avatar
-                            if (delivery['customerAvatar'] != null &&
-                                delivery['customerAvatar'].toString().isNotEmpty)
+                            if (order['customerAvatar'] != null &&
+                                order['customerAvatar'].toString().isNotEmpty)
                               ImageService.displayImage(
-                                imageSource: delivery['customerAvatar'],
+                                imageSource: order['customerAvatar'],
                                 width: 36,
                                 height: 36,
                                 borderRadius: BorderRadius.circular(18),
@@ -1350,7 +1201,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    delivery['customerName'] ?? 'Customer',
+                                    order['customerName'] ?? 'Customer',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 16,
@@ -1358,9 +1209,9 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  if (delivery['storeName'] != null)
+                                  if (order['storeName'] != null)
                                     Text(
-                                      'dari ${delivery['storeName']}',
+                                      'dari ${order['storeName']}',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: GlobalStyle.fontColor.withOpacity(0.7),
@@ -1381,7 +1232,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                             const SizedBox(width: 4),
                             Text(
                               DateFormat('dd MMM yyyy HH:mm')
-                                  .format(delivery['orderTime']),
+                                  .format(order['orderTime']),
                               style: TextStyle(
                                 color: GlobalStyle.fontColor,
                                 fontFamily: GlobalStyle.fontFamily,
@@ -1397,7 +1248,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                                 color: GlobalStyle.primaryColor, size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              GlobalStyle.formatRupiah(delivery['totalPrice']),
+                              GlobalStyle.formatRupiah(order['totalPrice']),
                               style: TextStyle(
                                 color: GlobalStyle.primaryColor,
                                 fontWeight: FontWeight.bold,
@@ -1426,7 +1277,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                           ),
                         ),
                       ),
-                      if (isRequest && status == 'pending')
+                      if (isPendingRequest)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Container(
@@ -1488,7 +1339,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                                 ),
                               ),
                               Text(
-                                delivery['storeAddress'] ?? 'Alamat Toko',
+                                order['storeAddress'] ?? 'Alamat Toko',
                                 style: TextStyle(
                                   color: GlobalStyle.fontColor,
                                   fontSize: 12,
@@ -1544,7 +1395,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                                 ),
                               ),
                               Text(
-                                delivery['customerAddress'] ?? 'Alamat Pelanggan',
+                                order['customerAddress'] ?? 'Alamat Pelanggan',
                                 style: TextStyle(
                                   color: GlobalStyle.fontColor,
                                   fontSize: 12,
@@ -1564,14 +1415,14 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
               const SizedBox(height: 12),
 
               // Action buttons
-              if (isRequest && status == 'pending') ...[
+              if (isPendingRequest) ...[
                 // For new requests - Accept/Reject buttons
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () async {
-                          await _respondToDriverRequest(delivery['requestId'], 'reject');
+                          await _respondToDriverRequest(order['id'], 'reject');
                         },
                         icon: const Icon(Icons.close, color: Colors.red, size: 18),
                         label: Text(
@@ -1593,7 +1444,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () async {
-                          await _respondToDriverRequest(delivery['requestId'], 'accept');
+                          await _respondToDriverRequest(order['id'], 'accept');
                         },
                         icon: const Icon(Icons.check, color: Colors.white, size: 18),
                         label: Text(
@@ -1617,13 +1468,13 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                 // For active orders - Phone and Detail buttons
                 Row(
                   children: [
-                    if (delivery['customerPhone'] != null &&
-                        delivery['customerPhone'].toString().isNotEmpty)
+                    if (order['customerPhone'] != null &&
+                        order['customerPhone'].toString().isNotEmpty)
                       Expanded(
                         flex: 1,
                         child: ElevatedButton(
                           onPressed: () async {
-                            final phoneNumber = delivery['customerPhone'].toString();
+                            final phoneNumber = order['customerPhone'].toString();
                             await _makePhoneCall(phoneNumber);
                           },
                           style: ElevatedButton.styleFrom(
@@ -1639,8 +1490,8 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                           ),
                         ),
                       ),
-                    if (delivery['customerPhone'] != null &&
-                        delivery['customerPhone'].toString().isNotEmpty)
+                    if (order['customerPhone'] != null &&
+                        order['customerPhone'].toString().isNotEmpty)
                       const SizedBox(width: 8),
                     Expanded(
                       flex: 4,
@@ -1650,13 +1501,12 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                             context,
                             MaterialPageRoute(
                               builder: (context) => HistoryDriverDetailPage(
-                                orderDetail: delivery,
+                                orderDetail: order,
                               ),
                             ),
                           ).then((_) {
                             // Refresh orders when returning from detail page
-                            _loadDriverRequests();
-                            _loadActiveOrders();
+                            _loadDriverOrders();
                           });
                         },
                         style: ElevatedButton.styleFrom(
@@ -1680,7 +1530,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                 ),
 
                 // Status update button for active orders
-                if (status != 'delivered' && status != 'cancelled')
+                if (status != 'delivered' && status != 'cancelled' && status != 'pending')
                   Padding(
                     padding: const EdgeInsets.only(top: 8.0),
                     child: SizedBox(
@@ -1689,7 +1539,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                         onPressed: () {
                           String nextStatus = _getNextStatus(status);
                           if (nextStatus.isNotEmpty) {
-                            _updateOrderStatus(delivery['id'], nextStatus);
+                            _updateOrderStatus(order['id'], nextStatus);
                           }
                         },
                         style: ElevatedButton.styleFrom(
@@ -1843,8 +1693,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
           ElevatedButton(
             onPressed: () {
               _fetchDriverInfo();
-              _loadDriverRequests();
-              _loadActiveOrders();
+              _loadDriverOrders();
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: GlobalStyle.primaryColor,
@@ -1877,6 +1726,13 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
         ),
       );
     }
+
+    // Calculate summary counts
+    final int pendingOrdersCount = _allOrders.where((order) => order['isPendingRequest'] == true).length;
+    final int activeOrdersCount = _allOrders.where((order) =>
+    !order['isPendingRequest'] &&
+        ['picking_up', 'delivering', 'assigned'].contains(order['status'])
+    ).length;
 
     return Scaffold(
       backgroundColor: const Color(0xffF8F9FA),
@@ -2046,7 +1902,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
               const SizedBox(height: 20),
 
               // Enhanced deliveries summary
-              if (!_isLoading && !_hasError && _allDeliveries.isNotEmpty)
+              if (!_isLoading && !_hasError && _allOrders.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -2065,7 +1921,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                     children: [
                       _buildSummaryItem(
                         'Total',
-                        _allDeliveries.length.toString(),
+                        _allOrders.length.toString(),
                       ),
                       Container(
                         height: 40,
@@ -2074,10 +1930,7 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                       ),
                       _buildSummaryItem(
                         'Baru',
-                        _driverRequests
-                            .where((request) => request['requestStatus'] == 'pending')
-                            .length
-                            .toString(),
+                        pendingOrdersCount.toString(),
                         color: Colors.orange,
                       ),
                       Container(
@@ -2087,16 +1940,13 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                       ),
                       _buildSummaryItem(
                         'Aktif',
-                        _activeOrders
-                            .where((order) => ['picking_up', 'delivering'].contains(order['status']))
-                            .length
-                            .toString(),
+                        activeOrdersCount.toString(),
                         color: Colors.purple,
                       ),
                     ],
                   ),
                 ),
-              if (!_isLoading && !_hasError && _allDeliveries.isNotEmpty)
+              if (!_isLoading && !_hasError && _allOrders.isNotEmpty)
                 const SizedBox(height: 20),
 
               // Deliveries list
@@ -2105,20 +1955,17 @@ class _HomeDriverPageState extends State<HomeDriverPage> with TickerProviderStat
                     ? _buildLoadingState()
                     : _hasError
                     ? _buildErrorState()
-                    : _allDeliveries.isEmpty
+                    : _allOrders.isEmpty
                     ? _buildEmptyState()
                     : RefreshIndicator(
                   onRefresh: () async {
-                    await Future.wait([
-                      _loadDriverRequests(),
-                      _loadActiveOrders(),
-                    ]);
+                    await _loadDriverOrders();
                   },
                   color: GlobalStyle.primaryColor,
                   child: ListView.builder(
-                    itemCount: _allDeliveries.length,
+                    itemCount: _allOrders.length,
                     itemBuilder: (context, index) =>
-                        _buildDeliveryCard(_allDeliveries[index], index),
+                        _buildDeliveryCard(_allOrders[index], index),
                   ),
                 ),
               ),

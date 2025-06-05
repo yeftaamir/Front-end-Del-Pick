@@ -15,13 +15,14 @@ import 'package:del_pick/Models/order_enum.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/customer.dart';
-import 'package:del_pick/Views/Component/order_status_card.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/core/token_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Views/Customers/history_detail.dart';
+
+import '../Component/cust_order_status.dart';
 
 // Custom Position class to avoid conflicts with geotypes.Position
 class PositionCustom {
@@ -887,9 +888,14 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                     // Order Status using OrderStatusCard
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: OrderStatusCard(
-                        orderId: _order!.id,
-                        userRole: _userRole,
+                      child: CustomerOrderStatusCard(
+                        orderData: {
+                          'id': _order?.id ?? '',
+                          'order_status': _tracking?.status.toString().split('.').last ?? 'pending',
+                          'total': _order?.total ?? 0,
+                          'estimatedDeliveryTime': _tracking?.estimatedArrival?.toIso8601String(),
+                        },
+                        animation: null, // Atau bisa menggunakan animasi sesuai kebutuhan
                       ),
                     ),
 
