@@ -48,7 +48,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   double? _latitude; // Added to store latitude
   double? _longitude; // Added to store longitude
   double? _storeLatitude; // Store latitude
-  double? _storeLongitude; // Store longitude
+  double? _storeLongitude;
+  double? _storeDistance;// Store longitude
   String? _errorMessage;
   bool _isLoading = false;
   bool _orderCreated = false;
@@ -212,10 +213,24 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     return distanceInMeters / 1000;
   }
 
-  // Calculate delivery fee based on distance
   double calculateDeliveryFee(double distance) {
-    // Calculate fee by multiplying distance by 2500
-    return distance * 2500;
+    // Kalikan jarak dengan 2500 dan bulatkan ke atas untuk mempermudah pembayaran
+    double fee = distance * 2500;
+    return fee.ceilToDouble(); // Bulatkan ke atas
+  }
+
+  String _getFormattedDistance() {
+    if (_storeDistance == null) {
+      return "-- KM"; // Placeholder ketika jarak tidak tersedia
+    }
+
+    if (_storeDistance! < 1) {
+      // Jika kurang dari 1 km, tampilkan dalam meter
+      return "${(_storeDistance! * 1000).toInt()} m";
+    } else {
+      // Jika lebih dari 1 km, tampilkan dalam km dengan 1 desimal
+      return "${_storeDistance!.toStringAsFixed(1)} km";
+    }
   }
 
   // Load initial data using OrderService.getOrdersByUser() or use default values
@@ -249,15 +264,15 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         print('Could not load recent orders for store info: $e');
       }
 
-      // Set default service charge
-      _serviceCharge = 30000;
+      // Set default service charge dengan pembulatan yang baik (misalnya 15.000 untuk jarak ~6km)
+      _serviceCharge = 15000; // Default dibulatkan ke ribuan
 
       // Update service charge if we have coordinates
       if (_latitude != null && _longitude != null &&
           _storeLatitude != null && _storeLongitude != null) {
-        double distance = calculateDistance(
+        _storeDistance = calculateDistance(
             _latitude!, _longitude!, _storeLatitude!, _storeLongitude!);
-        _serviceCharge = calculateDeliveryFee(distance);
+        _serviceCharge = calculateDeliveryFee(_storeDistance!);
       }
 
       setState(() {
@@ -309,11 +324,17 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   void _updateDeliveryFee() {
     if (_latitude != null && _longitude != null &&
         _storeLatitude != null && _storeLongitude != null) {
-      double distance = calculateDistance(
+      // Hitung jarak dan simpan dalam variabel _storeDistance
+      _storeDistance = calculateDistance(
           _latitude!, _longitude!, _storeLatitude!, _storeLongitude!);
+
+      // Hitung biaya pengiriman dengan pembulatan ke atas
       setState(() {
-        _serviceCharge = calculateDeliveryFee(distance);
+        _serviceCharge = calculateDeliveryFee(_storeDistance!);
       });
+
+      print('Jarak ke toko: ${_getFormattedDistance()}');
+      print('Biaya pengiriman: ${GlobalStyle.formatRupiah(_serviceCharge)}');
     }
   }
 
@@ -1652,55 +1673,88 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               children: [
                 _buildPaymentRow('Subtotal', subtotal),
                 const SizedBox(height: 12),
-                _buildPaymentRow('Biaya Pengiriman', _serviceCharge),
-                if (widget.completedOrder == null && !_orderCreated && _latitude != null && _longitude != null &&
-                    _storeLatitude != null && _storeLongitude != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Icon(
-                          Icons.directions_bike,
-                          size: 14,
-                          color: Colors.grey[600],
+
+                // Tampilkan biaya pengiriman dengan info jarak
+                Column(
+                  children: [
+                    _buildPaymentRow('Biaya Pengiriman', _serviceCharge),
+
+                    // Info jarak dan perhitungan (hanya tampil jika sudah ada koordinat)
+                    if (_storeDistance != null &&
+                        !_orderCreated)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Icon(
+                              Icons.directions_bike,
+                              size: 14,
+                              color: Colors.grey[600],
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Jarak: ${_getFormattedDistance()} × Rp 2.500/km',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Jarak: ${calculateDistance(_latitude!, _longitude!, _storeLatitude!, _storeLongitude!).toStringAsFixed(2)} km',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+                  ],
+                ),
+
                 const Divider(thickness: 1, height: 24),
                 _buildPaymentRow('Total', total, isTotal: true),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Icon(
-                Icons.info_outline,
-                size: 16,
-                color: Colors.blue[700],
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Pembayaran hanya menerima tunai saat ini',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.blue[700],
-                    fontStyle: FontStyle.italic,
+
+          // Info pembayaran
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue[200]!),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Colors.blue[700],
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Pembayaran tunai saat pesanan tiba',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue[700],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (_storeDistance != null && !_orderCreated)
+                        Text(
+                          'Biaya dihitung: ${_getFormattedDistance()} × Rp 2.500 = ${GlobalStyle.formatRupiah(_serviceCharge)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.blue[600],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),

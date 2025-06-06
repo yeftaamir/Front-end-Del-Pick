@@ -52,7 +52,10 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   // Animation controllers
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
+  late List<Animation<double>> _cardScaleAnimations;
   late AnimationController _successAnimationController;
+  late AnimationController _headerAnimationController;
+  late Animation<double> _headerAnimation;
 
   // Audio player
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -70,18 +73,43 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       4, // Number of card sections
           (index) => AnimationController(
         vsync: this,
-        duration: Duration(milliseconds: 600 + (index * 200)),
+        duration: Duration(milliseconds: 800 + (index * 100)),
       ),
     );
+
+    // Header animation controller
+    _headerAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+
+    _headerAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _headerAnimationController,
+      curve: Curves.easeOutCubic,
+    ));
 
     // Create slide animations for each card
     _cardAnimations = _cardControllers.map((controller) {
       return Tween<Offset>(
-        begin: const Offset(0, -0.5),
+        begin: const Offset(0, 0.3),
         end: Offset.zero,
       ).animate(CurvedAnimation(
         parent: controller,
         curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+
+    // Create scale animations for each card
+    _cardScaleAnimations = _cardControllers.map((controller) {
+      return Tween<double>(
+        begin: 0.8,
+        end: 1.0,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutBack,
       ));
     }).toList();
 
@@ -91,12 +119,17 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       duration: const Duration(milliseconds: 2000),
     );
 
-    // Start animations sequentially
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (var controller in _cardControllers) {
-        controller.forward();
-      }
-    });
+    // Start header animation
+    _headerAnimationController.forward();
+
+    // Start card animations sequentially
+    for (int i = 0; i < _cardControllers.length; i++) {
+      Future.delayed(Duration(milliseconds: 200 + (i * 150)), () {
+        if (mounted) {
+          _cardControllers[i].forward();
+        }
+      });
+    }
 
     // Initialize with existing item data if available
     if (widget.menuItem != null) {
@@ -151,6 +184,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       controller.dispose();
     }
 
+    _headerAnimationController.dispose();
     _successAnimationController.dispose();
     _audioPlayer.dispose();
 
@@ -200,16 +234,12 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   Future<void> _showConfirmationDialog() async {
     // Validate inputs first
     if (_nameController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nama item harus diisi')),
-      );
+      _showErrorSnackBar('Nama item harus diisi');
       return;
     }
 
     if (_priceController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Harga harus diisi')),
-      );
+      _showErrorSnackBar('Harga harus diisi');
       return;
     }
 
@@ -218,64 +248,151 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       builder: (BuildContext context) {
         return Dialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
           ),
-          backgroundColor: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
+          backgroundColor: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              gradient: const LinearGradient(
+                colors: [Colors.white, Color(0xFFFAFBFC)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(28.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.save_outlined,
-                  size: 48,
-                  color: GlobalStyle.primaryColor,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Simpan Item',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        GlobalStyle.primaryColor,
+                        GlobalStyle.primaryColor.withOpacity(0.8),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: GlobalStyle.primaryColor.withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.save_rounded,
+                    size: 32,
+                    color: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 20),
+                Text(
+                  'Simpan Item',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1A1D29),
+                    letterSpacing: -0.5,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Text(
                   'Apakah Anda yakin ingin menyimpan item ${_nameController.text}?',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.grey[700],
+                    color: Colors.grey[600],
+                    height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          side: BorderSide(color: Colors.grey[300]!),
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.grey.withOpacity(0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => Navigator.pop(context, false),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text(
+                                'Batal',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                      child: const Text('Batal'),
                     ),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: GlobalStyle.primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              GlobalStyle.primaryColor,
+                              GlobalStyle.primaryColor.withOpacity(0.8),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: GlobalStyle.primaryColor.withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => Navigator.pop(context, true),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text(
+                                'Simpan',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                      child: const Text('Simpan'),
                     ),
                   ],
                 ),
@@ -289,6 +406,24 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     if (result == true) {
       await _saveItemToDatabase();
     }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
   }
 
   Future<void> _saveItemToDatabase() async {
@@ -351,9 +486,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
         _errorMessage = 'Failed to save item: $e';
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving item: $e')),
-      );
+      _showErrorSnackBar('Error saving item: $e');
     }
   }
 
@@ -367,12 +500,24 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       barrierDismissible: false,
       builder: (BuildContext context) {
         return Dialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
+          backgroundColor: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              gradient: const LinearGradient(
+                colors: [Colors.white, Color(0xFFFAFBFC)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(32.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -387,12 +532,15 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                   width: 150,
                   height: 150,
                 ),
-                const SizedBox(height: 16),
-                const Text(
+                const SizedBox(height: 20),
+                Text(
                   'Item Berhasil Disimpan!',
                   style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1A1D29),
+                    letterSpacing: -0.5,
+                    fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),
               ],
@@ -428,43 +576,233 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     // Show confirmation dialog if there are unsaved changes
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Discard changes?'),
-        content: const Text(
-            'You have unsaved changes. Are you sure you want to discard them?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('CANCEL'),
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.transparent,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: const LinearGradient(
+              colors: [Colors.white, Color(0xFFFAFBFC)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('DISCARD'),
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFFB74D), Color(0xFFFF9800)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.orange.withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.warning_rounded,
+                  size: 32,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Buang Perubahan?',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF1A1D29),
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Anda memiliki perubahan yang belum disimpan. Yakin ingin membuangnya?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.grey.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => Navigator.pop(context, false),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Text(
+                              'BATAL',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFEF5350), Color(0xFFE57373)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.red.withOpacity(0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => Navigator.pop(context, true),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Text(
+                              'BUANG',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
 
     return result ?? false;
   }
 
-  Widget _buildCard({required Widget child, required int index}) {
+  Widget _buildModernCard({required Widget child, required int index, required IconData icon, required String title}) {
     return SlideTransition(
-      position: _cardAnimations[index],
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+      position: index < _cardAnimations.length ? _cardAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
+      child: ScaleTransition(
+        scale: index < _cardScaleAnimations.length ? _cardScaleAnimations[index] : const AlwaysStoppedAnimation(1.0),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: const LinearGradient(
+              colors: [Colors.white, Color(0xFFFAFBFC)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-          ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+                spreadRadius: 0,
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+                spreadRadius: 0,
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            GlobalStyle.primaryColor.withOpacity(0.15),
+                            GlobalStyle.primaryColor.withOpacity(0.05),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        icon,
+                        color: GlobalStyle.primaryColor,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1A1D29),
+                        letterSpacing: -0.3,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
+                child: child,
+              ),
+            ],
+          ),
         ),
-        child: child,
       ),
     );
   }
@@ -520,7 +858,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
                     onPressed: _toggleFullImage,
                   ),
                 ),
@@ -534,554 +872,360 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
-        appBar: AppBar(
-          leading: IconButton(
-            icon: Container(
-              padding: const EdgeInsets.all(5.0),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
-              ),
-              child: Icon(Icons.arrow_back_ios_new,
-                  color: GlobalStyle.primaryColor, size: 18),
-            ),
-            onPressed: () => _onWillPop().then((canPop) {
-              if (canPop) Navigator.pop(context);
-            }),
-          ),
-          title: Text(
-            _originalItemId != null ? 'Edit Item' : 'Tambah Item',
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.black,
-            ),
-          ),
-          backgroundColor: Colors.white,
-          elevation: 0.5,
-          actions: [
-            IconButton(
-              icon: Icon(Icons.save_outlined, color: GlobalStyle.primaryColor),
-              onPressed: _isSaving ? null : _saveItem,
-            ),
-          ],
-        ),
-        body: _isLoading
-            ? Center(
-          child: CircularProgressIndicator(color: GlobalStyle.primaryColor),
-        )
-            : SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Basic Information Card
-                _buildCard(
-                  index: 0,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.info_outline,
-                                color: GlobalStyle.primaryColor),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Informasi Dasar',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        _buildInputField(
-                          label: 'Nama Item',
-                          controller: _nameController,
-                          icon: Icons.shopping_bag_outlined,
-                        ),
-                        const SizedBox(height: 16),
-                        _buildInputField(
-                          label: 'Deskripsi',
-                          controller: _descriptionController,
-                          maxLines: 3,
-                          icon: Icons.description_outlined,
-                        ),
-                      ],
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: CustomScrollView(
+          slivers: [
+            // Modern App Bar
+            SliverAppBar(
+              expandedHeight: 120,
+              floating: false,
+              pinned: true,
+              elevation: 0,
+              backgroundColor: Colors.transparent,
+              flexibleSpace: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      GlobalStyle.primaryColor,
+                      GlobalStyle.primaryColor.withOpacity(0.8),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: FlexibleSpaceBar(
+                  titlePadding: const EdgeInsets.only(left: 72, bottom: 16),
+                  title: FadeTransition(
+                    opacity: _headerAnimation,
+                    child: Text(
+                      _originalItemId != null ? 'Edit Item' : 'Tambah Item',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ),
+                  background: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          GlobalStyle.primaryColor,
+                          GlobalStyle.primaryColor.withOpacity(0.8),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                     ),
                   ),
                 ),
+              ),
+              leading: Container(
+                margin: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withOpacity(0.3)),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  onPressed: () => _onWillPop().then((canPop) {
+                    if (canPop) Navigator.pop(context);
+                  }),
+                ),
+              ),
+              actions: [
+                Container(
+                  margin: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  ),
+                  child: IconButton(
+                    icon: const Icon(
+                      Icons.save_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                    onPressed: _isSaving ? null : _saveItem,
+                  ),
+                ),
+              ],
+            ),
 
-                // Pricing and Stock Card
-                _buildCard(
-                  index: 1,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.attach_money,
-                                color: GlobalStyle.primaryColor),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Harga & Ketersediaan',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+            // Content
+            SliverToBoxAdapter(
+              child: _isLoading
+                  ? Container(
+                height: MediaQuery.of(context).size.height * 0.6,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(color: GlobalStyle.primaryColor),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Memuat data...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey[600],
+                          fontFamily: GlobalStyle.fontFamily,
                         ),
-                        const SizedBox(height: 16),
-                        _buildInputField(
-                          label: 'Harga',
-                          controller: _priceController,
-                          keyboardType: TextInputType.number,
-                          prefix: 'Rp ',
-                          icon: Icons.monetization_on_outlined,
-                          onChanged: (value) {
-                            final cleanValue = value.replaceAll(RegExp(r'[^\d]'), '');
-                            if (cleanValue.isNotEmpty) {
-                              final double amount = double.tryParse(cleanValue) ?? 0;
-                              final formatted = GlobalStyle.formatRupiah(amount);
+                      ),
+                    ],
+                  ),
+                ),
+              )
+                  : Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Basic Information Card
+                    _buildModernCard(
+                      index: 0,
+                      icon: Icons.info_outline_rounded,
+                      title: 'Informasi Dasar',
+                      child: Column(
+                        children: [
+                          _buildModernInputField(
+                            label: 'Nama Item',
+                            controller: _nameController,
+                            icon: Icons.shopping_bag_outlined,
+                            hint: 'Masukkan nama item',
+                          ),
+                          const SizedBox(height: 20),
+                          _buildModernInputField(
+                            label: 'Deskripsi',
+                            controller: _descriptionController,
+                            maxLines: 3,
+                            icon: Icons.description_outlined,
+                            hint: 'Deskripsikan item Anda',
+                          ),
+                        ],
+                      ),
+                    ),
 
-                              // Only update if the formatting actually changed something
-                              if (formatted != value) {
-                                // Keep cursor position relative to the end
-                                final cursorPosition = _priceController.text.length - _priceController.selection.extentOffset;
-                                _priceController.value = TextEditingValue(
-                                  text: formatted.replaceAll('Rp ', ''),
-                                  selection: TextSelection.collapsed(
-                                    offset: formatted.replaceAll('Rp ', '').length - cursorPosition,
-                                  ),
-                                );
+                    // Pricing and Stock Card
+                    _buildModernCard(
+                      index: 1,
+                      icon: Icons.attach_money_rounded,
+                      title: 'Harga & Ketersediaan',
+                      child: Column(
+                        children: [
+                          _buildModernInputField(
+                            label: 'Harga',
+                            controller: _priceController,
+                            keyboardType: TextInputType.number,
+                            prefix: 'Rp ',
+                            icon: Icons.monetization_on_outlined,
+                            hint: '0',
+                            onChanged: (value) {
+                              final cleanValue = value.replaceAll(RegExp(r'[^\d]'), '');
+                              if (cleanValue.isNotEmpty) {
+                                final double amount = double.tryParse(cleanValue) ?? 0;
+                                final formatted = GlobalStyle.formatRupiah(amount);
+
+                                if (formatted != value) {
+                                  final cursorPosition = _priceController.text.length - _priceController.selection.extentOffset;
+                                  _priceController.value = TextEditingValue(
+                                    text: formatted.replaceAll('Rp ', ''),
+                                    selection: TextSelection.collapsed(
+                                      offset: formatted.replaceAll('Rp ', '').length - cursorPosition,
+                                    ),
+                                  );
+                                }
                               }
-                            }
-                          },
+                            },
+                          ),
+                          const SizedBox(height: 20),
+                          _buildModernInputField(
+                            label: 'Stok',
+                            controller: _stockController,
+                            keyboardType: TextInputType.number,
+                            hint: '0',
+                            icon: Icons.inventory_2_outlined,
+                          ),
+                          const SizedBox(height: 20),
+                          _buildModernDropdown(),
+                        ],
+                      ),
+                    ),
+
+                    // Image Upload Card
+                    _buildModernCard(
+                      index: 2,
+                      icon: Icons.image_rounded,
+                      title: 'Gambar Item',
+                      child: _buildImageSection(),
+                    ),
+
+                    // Tips Card
+                    _buildModernCard(
+                      index: 3,
+                      icon: Icons.lightbulb_outline_rounded,
+                      title: 'Tips & Panduan',
+                      child: Column(
+                        children: [
+                          _buildModernTipItem(
+                            icon: Icons.photo_size_select_actual_outlined,
+                            text: 'Gambar dengan rasio 1:1 akan ditampilkan dengan optimal',
+                            color: Colors.blue,
+                          ),
+                          _buildModernTipItem(
+                            icon: Icons.description_outlined,
+                            text: 'Deskripsi yang detail akan membantu pelanggan memahami produk Anda',
+                            color: Colors.green,
+                          ),
+                          _buildModernTipItem(
+                            icon: Icons.price_change_outlined,
+                            text: 'Tetapkan harga yang kompetitif untuk meningkatkan penjualan',
+                            color: Colors.orange,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Error message if exists
+                    if (_hasError)
+                      Container(
+                        margin: const EdgeInsets.only(top: 16),
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.red[50],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.red[200]!),
                         ),
-                        const SizedBox(height: 16),
-                        _buildInputField(
-                          label: 'Stok',
-                          controller: _stockController,
-                          keyboardType: TextInputType.number,
-                          hint: '0',
-                          icon: Icons.inventory_2_outlined,
-                        ),
-                        const SizedBox(height: 16),
-                        Column(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                Icon(Icons.circle,
-                                    size: 16, color: GlobalStyle.primaryColor),
-                                const SizedBox(width: 8),
+                                Icon(Icons.error_outline_rounded, color: Colors.red[700]),
+                                const SizedBox(width: 12),
                                 Text(
-                                  'Status Item',
+                                  'Error',
                                   style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.grey[700],
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.red[700],
+                                    fontSize: 16,
                                   ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 8),
-                            Container(
-                              padding:
-                              const EdgeInsets.symmetric(horizontal: 16),
-                              decoration: BoxDecoration(
-                                color: GlobalStyle.lightColor.withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: GlobalStyle.lightColor,
-                                  width: 1,
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  isExpanded: true,
-                                  value: _selectedStatus,
-                                  icon: Icon(Icons.arrow_drop_down,
-                                      color: GlobalStyle.primaryColor),
-                                  items: _statusOptions.map((String status) {
-                                    String displayStatus = status.split('_').map((s) =>
-                                    s[0].toUpperCase() + s.substring(1)).join(' ');
-
-                                    return DropdownMenuItem<String>(
-                                      value: status,
-                                      child: Row(
-                                        children: [
-                                          Container(
-                                            width: 12,
-                                            height: 12,
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: status == 'available'
-                                                  ? Colors.green
-                                                  : status == 'out_of_stock'
-                                                  ? Colors.red
-                                                  : Colors.orange,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(displayStatus),
-                                        ],
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (String? newValue) {
-                                    if (newValue != null) {
-                                      setState(() {
-                                        _selectedStatus = newValue;
-                                        _hasChanges = true;
-                                      });
-                                    }
-                                  },
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Image Upload Card
-                _buildCard(
-                  index: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.image, color: GlobalStyle.primaryColor),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Gambar Item',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        _isUploading
-                            ? Center(
-                          child: Column(
-                            children: [
-                              CircularProgressIndicator(color: GlobalStyle.primaryColor),
-                              const SizedBox(height: 16),
-                              const Text('Memuat gambar...'),
-                            ],
-                          ),
-                        )
-                            : _selectedImageUrl != null
-                            ? Column(
-                          children: [
-                            GestureDetector(
-                              onTap: _toggleFullImage,
-                              child: Hero(
-                                tag: 'itemImage',
-                                child: Container(
-                                  height: 250,
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.1),
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: ImageService.displayImage(
-                                      imageSource: _selectedImageUrl!,
-                                      width: double.infinity,
-                                      height: 250,
-                                      fit: BoxFit.cover,
-                                      placeholder: Container(
-                                        width: double.infinity,
-                                        height: 250,
-                                        color: Colors.grey[300],
-                                        child: const Icon(Icons.image, size: 64, color: Colors.grey),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                ElevatedButton.icon(
-                                  onPressed: _pickImage,
-                                  icon: const Icon(Icons.edit),
-                                  label: const Text('Ganti Gambar'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor:
-                                    GlobalStyle.primaryColor,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                      BorderRadius.circular(30),
-                                      side: BorderSide(
-                                          color:
-                                          GlobalStyle.primaryColor),
-                                    ),
-                                    elevation: 0,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                ElevatedButton.icon(
-                                  onPressed: _toggleFullImage,
-                                  icon: const Icon(Icons.fullscreen),
-                                  label: const Text('Lihat Full'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor:
-                                    GlobalStyle.lightColor,
-                                    foregroundColor:
-                                    GlobalStyle.primaryColor,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                      BorderRadius.circular(30),
-                                    ),
-                                    elevation: 0,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        )
-                            : DottedBorder(
-                          borderType: BorderType.RRect,
-                          radius: const Radius.circular(12),
-                          color: Colors.grey[300]!,
-                          strokeWidth: 2,
-                          dashPattern: const [8, 4],
-                          child: Container(
-                            padding: const EdgeInsets.all(24),
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[50],
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.cloud_upload_outlined,
-                                  size: 48,
-                                  color: Colors.grey[400],
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Pilih gambar untuk diunggah',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Format: JPG, PNG (Max 1MB)',
-                                  style: TextStyle(
-                                    color: Colors.grey[500],
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                const SizedBox(height: 24),
-                                ElevatedButton.icon(
-                                  onPressed: _pickImage,
-                                  icon: const Icon(Icons.upload_file),
-                                  label: const Text('Telusuri Gambar'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor:
-                                    GlobalStyle.lightColor,
-                                    foregroundColor:
-                                    GlobalStyle.primaryColor,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 24,
-                                      vertical: 12,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                      BorderRadius.circular(30),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Tips Card
-                _buildCard(
-                  index: 3,
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.lightbulb_outline,
-                                color: Colors.amber[700]),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Tips',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _buildTipItem(
-                          icon: Icons.photo_size_select_actual_outlined,
-                          text:
-                          'Gambar dengan rasio 1:1 akan ditampilkan dengan optimal',
-                        ),
-                        _buildTipItem(
-                          icon: Icons.description_outlined,
-                          text:
-                          'Deskripsi yang detail akan membantu pelanggan memahami produk Anda',
-                        ),
-                        _buildTipItem(
-                          icon: Icons.price_change_outlined,
-                          text:
-                          'Tetapkan harga yang kompetitif untuk meningkatkan penjualan',
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Error message if exists
-                if (_hasError)
-                  Container(
-                    margin: const EdgeInsets.only(top: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red[50],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.red[300]!),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.error_outline, color: Colors.red[700]),
-                            const SizedBox(width: 8),
                             Text(
-                              'Error',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.red[700],
-                              ),
+                              _errorMessage,
+                              style: TextStyle(color: Colors.red[700]),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _errorMessage,
-                          style: TextStyle(color: Colors.red[700]),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
+                      ),
+
+                    const SizedBox(height: 100), // Space for bottom bar
+                  ],
+                ),
+              ),
             ),
-          ),
+          ],
         ),
         bottomNavigationBar: Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            bottom: MediaQuery.of(context).padding.bottom + 20,
+            top: 20,
+          ),
           decoration: BoxDecoration(
             color: Colors.white,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, -5),
+                blurRadius: 20,
+                offset: const Offset(0, -8),
               ),
             ],
           ),
-          child: ElevatedButton(
-            onPressed: _isSaving ? null : _saveItem,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: GlobalStyle.primaryColor,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: _isSaving
+                    ? [Colors.grey, Colors.grey.shade400]
+                    : [
+                  GlobalStyle.primaryColor,
+                  GlobalStyle.primaryColor.withOpacity(0.8),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              elevation: 2,
-              disabledBackgroundColor: Colors.grey,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: (_isSaving ? Colors.grey : GlobalStyle.primaryColor).withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            child: _isSaving
-                ? Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: _isSaving ? null : _saveItem,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  child: _isSaving
+                      ? Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Menyimpan...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
+                  )
+                      : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.save_rounded, color: Colors.white, size: 20),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Simpan Item',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Menyimpan...',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            )
-                : Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.save_outlined),
-                const SizedBox(width: 8),
-                const Text(
-                  'Simpan Item',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1089,7 +1233,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     );
   }
 
-  Widget _buildInputField({
+  Widget _buildModernInputField({
     required String label,
     required TextEditingController controller,
     TextInputType? keyboardType,
@@ -1105,40 +1249,59 @@ class _AddEditItemFormState extends State<AddEditItemForm>
         Row(
           children: [
             if (icon != null)
-              Icon(icon, size: 16, color: GlobalStyle.primaryColor),
+              Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: GlobalStyle.primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(icon, size: 14, color: GlobalStyle.primaryColor),
+              ),
             if (icon != null) const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey[700],
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF1A1D29),
+                letterSpacing: -0.2,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          maxLines: maxLines,
-          onChanged: onChanged,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: GlobalStyle.lightColor.withOpacity(0.3),
-            prefixText: prefix,
-            hintText: hint,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: GlobalStyle.primaryColor.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: GlobalStyle.primaryColor.withOpacity(0.1),
+              width: 1,
             ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: GlobalStyle.primaryColor, width: 1),
+          ),
+          child: TextField(
+            controller: controller,
+            keyboardType: keyboardType,
+            maxLines: maxLines,
+            onChanged: onChanged,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF1A1D29),
             ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
+            decoration: InputDecoration(
+              prefixText: prefix,
+              hintText: hint,
+              hintStyle: TextStyle(
+                color: Colors.grey[400],
+                fontWeight: FontWeight.w400,
+              ),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 16,
+              ),
             ),
           ),
         ),
@@ -1146,24 +1309,386 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     );
   }
 
-  Widget _buildTipItem({required IconData icon, required String text}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
+  Widget _buildModernDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: GlobalStyle.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(Icons.circle, size: 14, color: GlobalStyle.primaryColor),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Status Item',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF1A1D29),
+                letterSpacing: -0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: GlobalStyle.primaryColor.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: GlobalStyle.primaryColor.withOpacity(0.1),
+              width: 1,
+            ),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _selectedStatus,
+              icon: Icon(Icons.keyboard_arrow_down_rounded, color: GlobalStyle.primaryColor),
+              items: _statusOptions.map((String status) {
+                String displayStatus = status.split('_').map((s) =>
+                s[0].toUpperCase() + s.substring(1)).join(' ');
+
+                return DropdownMenuItem<String>(
+                  value: status,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: status == 'available'
+                              ? Colors.green
+                              : status == 'out_of_stock'
+                              ? Colors.red
+                              : Colors.orange,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        displayStatus,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF1A1D29),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+              onChanged: (String? newValue) {
+                if (newValue != null) {
+                  setState(() {
+                    _selectedStatus = newValue;
+                    _hasChanges = true;
+                  });
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageSection() {
+    if (_isUploading) {
+      return Container(
+        height: 200,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: GlobalStyle.primaryColor.withOpacity(0.04),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: GlobalStyle.primaryColor),
+              const SizedBox(height: 16),
+              Text(
+                'Memuat gambar...',
+                style: TextStyle(
+                  color: GlobalStyle.primaryColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_selectedImageUrl != null) {
+      return Column(
+        children: [
+          GestureDetector(
+            onTap: _toggleFullImage,
+            child: Hero(
+              tag: 'itemImage',
+              child: Container(
+                height: 250,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: ImageService.displayImage(
+                    imageSource: _selectedImageUrl!,
+                    width: double.infinity,
+                    height: 250,
+                    fit: BoxFit.cover,
+                    placeholder: Container(
+                      width: double.infinity,
+                      height: 250,
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.image, size: 64, color: Colors.grey),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: GlobalStyle.primaryColor.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: _pickImage,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.edit_rounded, color: GlobalStyle.primaryColor, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Ganti Gambar',
+                              style: TextStyle(
+                                color: GlobalStyle.primaryColor,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        GlobalStyle.primaryColor.withOpacity(0.1),
+                        GlobalStyle.primaryColor.withOpacity(0.05),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: _toggleFullImage,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.fullscreen_rounded, color: GlobalStyle.primaryColor, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Lihat Full',
+                              style: TextStyle(
+                                color: GlobalStyle.primaryColor,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+
+    return DottedBorder(
+      borderType: BorderType.RRect,
+      radius: const Radius.circular(20),
+      color: GlobalStyle.primaryColor.withOpacity(0.3),
+      strokeWidth: 2,
+      dashPattern: const [12, 6],
+      child: Container(
+        padding: const EdgeInsets.all(32),
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: GlobalStyle.primaryColor.withOpacity(0.02),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    GlobalStyle.primaryColor.withOpacity(0.1),
+                    GlobalStyle.primaryColor.withOpacity(0.05),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.cloud_upload_rounded,
+                size: 40,
+                color: GlobalStyle.primaryColor.withOpacity(0.7),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Pilih gambar untuk diunggah',
+              style: TextStyle(
+                color: const Color(0xFF1A1D29),
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Format: JPG, PNG (Max 1MB)',
+              style: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    GlobalStyle.primaryColor,
+                    GlobalStyle.primaryColor.withOpacity(0.8),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: GlobalStyle.primaryColor.withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: _pickImage,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.upload_file_rounded, color: Colors.white, size: 18),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Telusuri Gambar',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernTipItem({required IconData icon, required String text, required Color color}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            icon,
-            size: 18,
-            color: Colors.amber[700],
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: color,
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               text,
               style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey[700],
+                fontSize: 14,
+                color: color.withOpacity(0.8),
+                fontWeight: FontWeight.w500,
+                height: 1.4,
               ),
             ),
           ),
