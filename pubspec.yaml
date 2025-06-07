@@ -31,6 +31,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  get: ^4.6.6
+  dio: ^5.3.2
   intl: ^0.18.0
   jwt_decoder: ^2.0.1
   flutter_lints: ^4.0.0
@@ -42,6 +44,7 @@ dependencies:
   font_awesome_flutter: ^10.5.0
   mapbox_maps_flutter: ^2.5.2
   flutter_dotenv: ^5.2.1
+  image: ^4.1.7  # Add this for image processing
   lottie: ^2.3.2
   geocoding: ^2.1.0
   image_picker: ^1.1.2
@@ -61,6 +64,9 @@ dependencies:
   lucide_icons: ^0.257.0
   firebase_core: ^3.12.1
   firebase_database: ^11.3.4
+  get_storage: ^2.1.1  # Tambahkan ini
+  socket_io_client: ^2.0.3+1
+#  socket_io_client: ^3.1.2
 
 dev_dependencies:
   flutter_test:
