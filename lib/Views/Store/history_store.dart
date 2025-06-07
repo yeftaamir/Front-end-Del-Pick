@@ -26,8 +26,6 @@ class HistoryStorePage extends StatefulWidget {
 class _HistoryStorePageState extends State<HistoryStorePage> with TickerProviderStateMixin {
   int _currentIndex = 2; // History tab selected
   late TabController _tabController;
-  late AnimationController _headerAnimationController;
-  late Animation<double> _headerAnimation;
 
   // State management variables
   bool _isLoading = true;
@@ -35,13 +33,21 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   String _errorMessage = '';
   List<Order> _orders = [];
 
-  // Animation controllers for cards
+  // Animation controllers
   late List<AnimationController> _cardControllers;
-  late List<Animation<Offset>> _cardAnimations;
-  late List<Animation<double>> _cardScaleAnimations;
+  late List<Animation<double>> _fadeAnimations;
+  late List<Animation<Offset>> _slideAnimations;
+  late AnimationController _headerController;
+  late Animation<double> _headerAnimation;
 
   // Tab categories
   final List<String> _tabs = ['Semua', 'Diproses', 'Selesai', 'Dibatalkan'];
+
+  // Colors - standardized with global_style
+  final Color _primaryGradientStart = GlobalStyle.primaryColor;
+  final Color _primaryGradientEnd = GlobalStyle.primaryColor.withOpacity(0.8);
+  final Color _cardBackground = Colors.white;
+  final Color _scaffoldBg = const Color(0xFFF7F8FC);
 
   @override
   void initState() {
@@ -49,27 +55,21 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
 
     _tabController = TabController(length: _tabs.length, vsync: this);
 
-    // Header animation controller
-    _headerAnimationController = AnimationController(
+    // Header animation
+    _headerController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
-
-    _headerAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _headerAnimationController,
+    _headerAnimation = CurvedAnimation(
+      parent: _headerController,
       curve: Curves.easeOutCubic,
-    ));
+    );
+    _headerController.forward();
 
     // Initialize with empty controllers and animations
     _cardControllers = [];
-    _cardAnimations = [];
-    _cardScaleAnimations = [];
-
-    // Start header animation
-    _headerAnimationController.forward();
+    _fadeAnimations = [];
+    _slideAnimations = [];
 
     // Fetch order data
     _fetchOrderHistory();
@@ -83,30 +83,23 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     });
 
     try {
-      // Use OrderService.getOrdersByStore() from the updated services
       final orderData = await OrderService.getOrdersByStore();
-
-      // Adapt to the structure returned by the updated API
       final List<dynamic> ordersList = orderData['orders'] ?? [];
 
-      // Convert raw order data to Order objects
       List<Order> orders = [];
 
       for (var orderJson in ordersList) {
         try {
-          // Process images in order data using ImageService if needed
           if (orderJson['store'] != null && orderJson['store']['image'] != null) {
             orderJson['store']['image'] =
                 ImageService.getImageUrl(orderJson['store']['image']);
           }
 
-          // Process customer avatar if present
           if (orderJson['customer'] != null && orderJson['customer']['avatar'] != null) {
             orderJson['customer']['avatar'] =
                 ImageService.getImageUrl(orderJson['customer']['avatar']);
           }
 
-          // Process items images if present
           if (orderJson['items'] != null && orderJson['items'] is List) {
             for (var item in orderJson['items']) {
               if (item['imageUrl'] != null) {
@@ -119,19 +112,26 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
           orders.add(order);
         } catch (e) {
           print('Error parsing order: $e');
-          // Continue with next order if one fails to parse
         }
       }
 
-      // Sort orders by date (newest first)
       orders.sort((a, b) => b.orderDate.compareTo(a.orderDate));
+
+      _setupAnimations(orders.length);
 
       setState(() {
         _orders = orders;
         _isLoading = false;
-        // Initialize animations after data is fetched
-        _setupAnimations();
       });
+
+      // Start animations with stagger
+      for (int i = 0; i < _cardControllers.length; i++) {
+        Future.delayed(Duration(milliseconds: 100 * i), () {
+          if (mounted && i < _cardControllers.length) {
+            _cardControllers[i].forward();
+          }
+        });
+      }
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -142,65 +142,50 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     }
   }
 
-  // Setup animations based on number of items
-  void _setupAnimations() {
-    // Clean up existing controllers if any
+  void _setupAnimations(int totalCards) {
     for (var controller in _cardControllers) {
       controller.dispose();
     }
 
-    // Create new controllers
     _cardControllers = List.generate(
-      _orders.length,
+      totalCards,
           (index) => AnimationController(
         vsync: this,
-        duration: Duration(milliseconds: 800 + (index * 50)),
+        duration: const Duration(milliseconds: 800),
       ),
     );
 
-    // Create slide animations for each card
-    _cardAnimations = _cardControllers.map((controller) {
+    _fadeAnimations = _cardControllers.map((controller) {
+      return Tween<double>(
+        begin: 0.0,
+        end: 1.0,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOut,
+      ));
+    }).toList();
+
+    _slideAnimations = _cardControllers.map((controller) {
       return Tween<Offset>(
-        begin: const Offset(0.3, 0),
+        begin: const Offset(0.0, 0.3),
         end: Offset.zero,
       ).animate(CurvedAnimation(
         parent: controller,
         curve: Curves.easeOutCubic,
       ));
     }).toList();
-
-    // Create scale animations for each card
-    _cardScaleAnimations = _cardControllers.map((controller) {
-      return Tween<double>(
-        begin: 0.8,
-        end: 1.0,
-      ).animate(CurvedAnimation(
-        parent: controller,
-        curve: Curves.easeOutBack,
-      ));
-    }).toList();
-
-    // Start animations with staggered delay
-    for (int i = 0; i < _cardControllers.length; i++) {
-      Future.delayed(Duration(milliseconds: 150 + (i * 100)), () {
-        if (mounted) {
-          _cardControllers[i].forward();
-        }
-      });
-    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _headerAnimationController.dispose();
+    _headerController.dispose();
     for (var controller in _cardControllers) {
       controller.dispose();
     }
     super.dispose();
   }
 
-  // Get filtered orders based on tab index
   List<Order> getFilteredOrders(int tabIndex) {
     switch (tabIndex) {
       case 0: // All orders
@@ -223,41 +208,36 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     }
   }
 
-  // Get status color based on order status
   Color getStatusColor(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.completed:
-      case OrderStatus.delivered:
-        return const Color(0xFF4CAF50);
-      case OrderStatus.cancelled:
-        return const Color(0xFFE57373);
-      case OrderStatus.approved:
-        return const Color(0xFF26A69A);
-      case OrderStatus.preparing:
-        return const Color(0xFFFF9800);
-      case OrderStatus.on_delivery:
-        return const Color(0xFF42A5F5);
-      default:
-        return const Color(0xFF64B5F6);
+    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
+      return const Color(0xFF10B981);
+    } else if (status == OrderStatus.cancelled) {
+      return const Color(0xFFEF4444);
+    } else if (status == OrderStatus.on_delivery ||
+        status == OrderStatus.driverHeadingToCustomer) {
+      return const Color(0xFF3B82F6);
+    } else if (status == OrderStatus.preparing ||
+        status == OrderStatus.approved) {
+      return const Color(0xFFF59E0B);
+    } else {
+      return GlobalStyle.primaryColor;
     }
   }
 
-  // Get gradient colors for status
-  List<Color> getStatusGradient(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.completed:
-      case OrderStatus.delivered:
-        return [const Color(0xFF66BB6A), const Color(0xFF4CAF50)];
-      case OrderStatus.cancelled:
-        return [const Color(0xFFEF5350), const Color(0xFFE57373)];
-      case OrderStatus.approved:
-        return [const Color(0xFF4DB6AC), const Color(0xFF26A69A)];
-      case OrderStatus.preparing:
-        return [const Color(0xFFFFB74D), const Color(0xFFFF9800)];
-      case OrderStatus.on_delivery:
-        return [const Color(0xFF42A5F5), const Color(0xFF1E88E5)];
-      default:
-        return [const Color(0xFF64B5F6), const Color(0xFF42A5F5)];
+  IconData getStatusIcon(OrderStatus status) {
+    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
+      return Icons.check_circle;
+    } else if (status == OrderStatus.cancelled) {
+      return Icons.cancel;
+    } else if (status == OrderStatus.on_delivery ||
+        status == OrderStatus.driverHeadingToCustomer) {
+      return Icons.delivery_dining;
+    } else if (status == OrderStatus.preparing) {
+      return Icons.restaurant_menu;
+    } else if (status == OrderStatus.approved) {
+      return Icons.thumb_up;
+    } else {
+      return Icons.schedule;
     }
   }
 
@@ -312,22 +292,20 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     }
   }
 
-  Widget _buildModernStatusChip(String text, OrderStatus status) {
-    final colors = getStatusGradient(status);
-
+  Widget _buildAnimatedStatusBadge(String text, Color color, IconData icon) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [colors[0].withOpacity(0.2), colors[1].withOpacity(0.1)],
+          colors: [color.withOpacity(0.2), color.withOpacity(0.1)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(25),
-        border: Border.all(color: colors[0].withOpacity(0.3), width: 1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
         boxShadow: [
           BoxShadow(
-            color: colors[0].withOpacity(0.15),
+            color: color.withOpacity(0.2),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -336,29 +314,14 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: colors[0],
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: colors[0].withOpacity(0.5),
-                  blurRadius: 4,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
           Text(
             text,
             style: TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: colors[0],
-              letterSpacing: 0.5,
+              fontWeight: FontWeight.w600,
+              color: color,
             ),
           ),
         ],
@@ -367,342 +330,303 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   }
 
   void _navigateToOrderDetail(Order order) {
-    // Navigate to order detail page with orderId using updated services
     Navigator.push(
       context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            HistoryStoreDetailPage(orderId: order.id),
-        transitionDuration: const Duration(milliseconds: 300),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(1.0, 0.0),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-            )),
-            child: child,
-          );
-        },
+      MaterialPageRoute(
+        builder: (context) => HistoryStoreDetailPage(orderId: order.id),
       ),
     ).then((_) {
-      // Refresh the list when returning from detail page
       _fetchOrderHistory();
     });
   }
 
-  Widget _buildModernOrderCard(Order order, int index) {
+  Widget _buildOrderCard(Order order, int index) {
     final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
+    final statusColor = getStatusColor(order.status);
+    final statusIcon = getStatusIcon(order.status);
     final statusText = getStatusText(order.status);
     final itemsText = getOrderItemsText(order);
     final orderTotal = order.total;
 
     return SlideTransition(
-      position: index < _cardAnimations.length ? _cardAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
-      child: ScaleTransition(
-        scale: index < _cardScaleAnimations.length ? _cardScaleAnimations[index] : const AlwaysStoppedAnimation(1.0),
+      position: index < _slideAnimations.length ? _slideAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
+      child: FadeTransition(
+        opacity: index < _fadeAnimations.length ? _fadeAnimations[index] : const AlwaysStoppedAnimation(1.0),
         child: Container(
           margin: const EdgeInsets.only(bottom: 20),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(
-              colors: [Colors.white, Color(0xFFFAFBFC)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-                spreadRadius: 0,
-              ),
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-                spreadRadius: 0,
-              ),
-            ],
-          ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(24),
               onTap: () {
                 _navigateToOrderDetail(order);
               },
+              borderRadius: BorderRadius.circular(20),
               child: Container(
-                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: _cardBackground,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 20,
+                      offset: const Offset(0, 4),
+                    ),
+                    BoxShadow(
+                      color: _primaryGradientStart.withOpacity(0.05),
+                      blurRadius: 20,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header with order ID and status
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Order #${order.id.substring(0, order.id.length > 8 ? 8 : order.id.length)}',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: const Color(0xFF1A1D29),
-                                  letterSpacing: -0.5,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                order.code != null && order.code!.isNotEmpty
-                                    ? 'Kode: ${order.code}'
-                                    : 'ID: ${order.id}',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: GlobalStyle.primaryColor.withOpacity(0.8),
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.3,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _buildModernStatusChip(statusText, order.status),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Main content
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Customer icon with modern styling
-                        Hero(
-                          tag: 'order_customer_${order.id}',
-                          child: Container(
-                            width: 75,
-                            height: 75,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(18),
-                              gradient: LinearGradient(
-                                colors: [
-                                  GlobalStyle.primaryColor.withOpacity(0.15),
-                                  GlobalStyle.primaryColor.withOpacity(0.05),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: GlobalStyle.primaryColor.withOpacity(0.2),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Icon(
-                              Icons.person_rounded,
-                              color: GlobalStyle.primaryColor,
-                              size: 36,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-
-                        // Order details
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.access_time_rounded,
-                                    size: 16,
-                                    color: Colors.grey[600],
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    formattedDate,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey[700],
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: GlobalStyle.primaryColor.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: GlobalStyle.primaryColor.withOpacity(0.2),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Text(
-                                  itemsText,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: const Color(0xFF1A1D29),
-                                    fontWeight: FontWeight.w600,
-                                    fontFamily: GlobalStyle.fontFamily,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              // Delivery address chip if available
-                              if (order.deliveryAddress.isNotEmpty)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: Colors.grey.withOpacity(0.3),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.location_on_rounded,
-                                        size: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Flexible(
-                                        child: Text(
-                                          order.deliveryAddress,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey[700],
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // Bottom section with total and button
+                    // Header section with gradient
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            GlobalStyle.primaryColor.withOpacity(0.03),
-                            GlobalStyle.primaryColor.withOpacity(0.01),
+                            statusColor.withOpacity(0.1),
+                            statusColor.withOpacity(0.05),
                           ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: GlobalStyle.primaryColor.withOpacity(0.1),
-                          width: 1,
-                        ),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                       ),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Total Pesanan',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.w500,
-                                  letterSpacing: 0.3,
+                          // Store icon with hero animation potential
+                          Hero(
+                            tag: 'store-order-${order.id}',
+                            child: Container(
+                              width: 80,
+                              height: 80,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    _primaryGradientStart.withOpacity(0.1),
+                                    _primaryGradientEnd.withOpacity(0.1),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                GlobalStyle.formatRupiah(orderTotal),
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: GlobalStyle.primaryColor,
-                                  letterSpacing: -0.5,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  GlobalStyle.primaryColor,
-                                  GlobalStyle.primaryColor.withOpacity(0.8),
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: _primaryGradientStart.withOpacity(0.1),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
                                 ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
                               ),
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: GlobalStyle.primaryColor.withOpacity(0.3),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
+                              child: Icon(
+                                Icons.storefront_outlined,
+                                color: _primaryGradientStart,
+                                size: 40,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Order #${order.id.substring(0, order.id.length < 8 ? order.id.length : 8)}',
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF1F2937),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Icon(Icons.receipt_outlined, size: 14,
+                                        color: Colors.grey[600]),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      order.code != null && order.code!.isNotEmpty
+                                          ? order.code!
+                                          : '#${order.id}',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[700],
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(Icons.calendar_today_outlined, size: 14,
+                                        color: Colors.grey[600]),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      formattedDate,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(16),
-                                onTap: () {
-                                  _navigateToOrderDetail(order);
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text(
-                                        'Lihat Detail',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 14,
-                                          letterSpacing: 0.3,
-                                        ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Content section
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Status badge
+                          _buildAnimatedStatusBadge(statusText, statusColor, statusIcon),
+                          const SizedBox(height: 16),
+                          // Items preview
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[50],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey[200]!),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.shopping_bag_outlined,
+                                    color: _primaryGradientStart, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    itemsText,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey[800],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          // Customer info preview
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.purple[50],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.purple[200]!),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.person_outline,
+                                    color: Colors.purple[700], size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Pelanggan: ${order.customerId ?? "Tidak Diketahui"}',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.purple[900],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          // Bottom section with total and action
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Total Pesanan',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    GlobalStyle.formatRupiah(orderTotal),
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w700,
+                                      foreground: Paint()
+                                        ..shader = LinearGradient(
+                                          colors: [_primaryGradientStart, _primaryGradientEnd],
+                                        ).createShader(const Rect.fromLTWH(0, 0, 200, 70)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [_primaryGradientStart, _primaryGradientEnd],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: _primaryGradientStart.withOpacity(0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () {
+                                      _navigateToOrderDetail(order);
+                                    },
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 20, vertical: 12),
+                                      child: Row(
+                                        children: const [
+                                          Text(
+                                            'Lihat Detail',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          SizedBox(width: 4),
+                                          Icon(Icons.arrow_forward_ios,
+                                              color: Colors.white, size: 14),
+                                        ],
                                       ),
-                                      const SizedBox(width: 8),
-                                      const Icon(
-                                        Icons.arrow_forward_ios_rounded,
-                                        color: Colors.white,
-                                        size: 14,
-                                      ),
-                                    ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
                         ],
                       ),
@@ -717,337 +641,273 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     );
   }
 
-  Widget _buildModernEmptyState(String message) {
+  Widget _buildEmptyState(String message) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    GlobalStyle.primaryColor.withOpacity(0.1),
-                    GlobalStyle.primaryColor.withOpacity(0.05),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: GlobalStyle.primaryColor.withOpacity(0.1),
-                    blurRadius: 20,
-                    spreadRadius: 5,
+      child: FadeTransition(
+        opacity: _headerAnimation,
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _primaryGradientStart.withOpacity(0.1),
+                      _primaryGradientEnd.withOpacity(0.1),
+                    ],
                   ),
-                ],
-              ),
-              child: Icon(
-                Icons.receipt_long_rounded,
-                size: 60,
-                color: GlobalStyle.primaryColor.withOpacity(0.7),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              message,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFF1A1D29),
-                letterSpacing: -0.5,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Belum ada riwayat pesanan',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    GlobalStyle.primaryColor,
-                    GlobalStyle.primaryColor.withOpacity(0.8),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+                  shape: BoxShape.circle,
                 ),
-                borderRadius: BorderRadius.circular(25),
-                boxShadow: [
-                  BoxShadow(
-                    color: GlobalStyle.primaryColor.withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
+                child: Icon(
+                  Icons.receipt_long_outlined,
+                  size: 60,
+                  color: _primaryGradientStart,
+                ),
               ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(25),
-                  onTap: _fetchOrderHistory,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.refresh_rounded,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                        SizedBox(width: 12),
-                        Text(
-                          'Refresh',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                            letterSpacing: 0.3,
+              const SizedBox(height: 24),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1F2937),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Belum ada riwayat pesanan untuk ditampilkan',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [_primaryGradientStart, _primaryGradientEnd],
+                  ),
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _primaryGradientStart.withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _fetchOrderHistory,
+                    borderRadius: BorderRadius.circular(30),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.refresh_outlined, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text(
+                            'Refresh',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildModernLoadingState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  GlobalStyle.primaryColor.withOpacity(0.1),
-                  GlobalStyle.primaryColor.withOpacity(0.05),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: GlobalStyle.primaryColor.withOpacity(0.1),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                ),
-              ],
-            ),
-            child: CircularProgressIndicator(
-              color: GlobalStyle.primaryColor,
-              strokeWidth: 3,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Memuat riwayat pesanan...',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF1A1D29),
-              letterSpacing: -0.3,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Mohon tunggu sebentar',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModernErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFFFFEBEE),
-                    Color(0xFFFFF5F5),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.red.withOpacity(0.1),
-                    blurRadius: 20,
-                    spreadRadius: 5,
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.error_outline_rounded,
-                size: 60,
-                color: Color(0xFFE57373),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Oops! Ada Masalah',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFF1A1D29),
-                letterSpacing: -0.5,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              _errorMessage.isNotEmpty ? _errorMessage : 'Terjadi kesalahan saat memuat data',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    GlobalStyle.primaryColor,
-                    GlobalStyle.primaryColor.withOpacity(0.8),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: GlobalStyle.primaryColor.withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  onTap: _fetchOrderHistory,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.refresh_rounded,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                        SizedBox(width: 12),
-                        Text(
-                          'Coba Lagi',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernTabBar() {
+  Widget _buildShimmerCard() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      padding: const EdgeInsets.all(4),
+      margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 15,
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 20,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: TabBar(
-        controller: _tabController,
-        isScrollable: false,
-        labelColor: Colors.white,
-        unselectedLabelColor: Colors.grey[600],
-        labelStyle: const TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: 13,
-          letterSpacing: 0.3,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontWeight: FontWeight.w600,
-          fontSize: 13,
-        ),
-        indicator: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              GlobalStyle.primaryColor,
-              GlobalStyle.primaryColor.withOpacity(0.8),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 180,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 120,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: GlobalStyle.primaryColor.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+          Container(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  width: 100,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                Container(
+                  width: 120,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 3,
+      itemBuilder: (context, index) => _buildShimmerCard(),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.error_outline,
+                size: 50,
+                color: Colors.red[400],
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Oops! Ada Kesalahan',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.red[600],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _errorMessage.isNotEmpty ? _errorMessage : 'Terjadi kesalahan saat memuat data',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 32),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [_primaryGradientStart, _primaryGradientEnd],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primaryGradientStart.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _fetchOrderHistory,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.refresh, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          'Coba Lagi',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
-        indicatorSize: TabBarIndicatorSize.tab,
-        dividerColor: Colors.transparent,
-        tabs: _tabs.map((String tab) => Tab(text: tab)).toList(),
       ),
     );
   }
@@ -1064,10 +924,10 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         return false;
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
+        backgroundColor: _scaffoldBg,
         body: CustomScrollView(
           slivers: [
-            // Modern App Bar
+            // Custom app bar with gradient
             SliverAppBar(
               expandedHeight: 120,
               floating: false,
@@ -1077,117 +937,102 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
               flexibleSpace: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [
-                      GlobalStyle.primaryColor,
-                      GlobalStyle.primaryColor.withOpacity(0.8),
-                    ],
+                    colors: [_primaryGradientStart, _primaryGradientEnd],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                 ),
                 child: FlexibleSpaceBar(
-                  titlePadding: const EdgeInsets.only(left: 72, bottom: 16),
+                  titlePadding: const EdgeInsets.only(left: 16, bottom: 16),
                   title: FadeTransition(
                     opacity: _headerAnimation,
                     child: const Text(
                       'Riwayat Pesanan',
                       style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
                         color: Colors.white,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ),
-                  background: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          GlobalStyle.primaryColor,
-                          GlobalStyle.primaryColor.withOpacity(0.8),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
                       ),
                     ),
                   ),
                 ),
               ),
-              leading: Container(
-                margin: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withOpacity(0.3)),
-                ),
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    color: Colors.white,
-                    size: 20,
+              leading: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
                   ),
-                  onPressed: () {
-                    Navigator.pushNamedAndRemoveUntil(
-                      context,
-                      HomeStore.route,
-                          (route) => false,
-                    );
-                  },
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                    onPressed: () {
+                      Navigator.pushNamedAndRemoveUntil(
+                        context,
+                        HomeStore.route,
+                            (route) => false,
+                      );
+                    },
+                  ),
                 ),
               ),
               actions: [
-                Container(
-                  margin: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withOpacity(0.3)),
-                  ),
-                  child: IconButton(
-                    icon: const Icon(
-                      Icons.refresh_rounded,
-                      color: Colors.white,
-                      size: 22,
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
                     ),
-                    onPressed: _fetchOrderHistory,
+                    child: IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.white),
+                      onPressed: _fetchOrderHistory,
+                    ),
                   ),
                 ),
               ],
             ),
-
-            // Tab Bar
-            SliverToBoxAdapter(
-              child: _buildModernTabBar(),
+            // Tab bar
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _SliverAppBarDelegate(
+                TabBar(
+                  controller: _tabController,
+                  isScrollable: true,
+                  labelColor: _primaryGradientStart,
+                  unselectedLabelColor: Colors.grey[600],
+                  labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+                  indicatorColor: _primaryGradientStart,
+                  indicatorWeight: 3,
+                  tabs: _tabs.map((String tab) => Tab(text: tab)).toList(),
+                ),
+              ),
             ),
-
             // Content
             SliverFillRemaining(
               child: _isLoading
-                  ? _buildModernLoadingState()
+                  ? _buildLoadingState()
                   : _hasError
-                  ? _buildModernErrorState()
+                  ? _buildErrorState()
                   : RefreshIndicator(
                 onRefresh: _fetchOrderHistory,
-                color: GlobalStyle.primaryColor,
-                backgroundColor: Colors.white,
-                strokeWidth: 3,
-                displacement: 40,
+                color: _primaryGradientStart,
                 child: TabBarView(
                   controller: _tabController,
                   children: List.generate(_tabs.length, (tabIndex) {
                     final filteredOrders = getFilteredOrders(tabIndex);
 
                     if (filteredOrders.isEmpty) {
-                      return _buildModernEmptyState(
+                      return _buildEmptyState(
                           'Tidak ada pesanan ${_tabs[tabIndex].toLowerCase()}'
                       );
                     }
 
                     return ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      padding: const EdgeInsets.all(16),
                       itemCount: filteredOrders.length,
                       itemBuilder: (context, index) {
-                        return _buildModernOrderCard(filteredOrders[index], index);
+                        return _buildOrderCard(filteredOrders[index], index);
                       },
                     );
                   }),
@@ -1202,5 +1047,31 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         ),
       ),
     );
+  }
+}
+
+// Custom delegate for tab bar
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  _SliverAppBarDelegate(this._tabBar);
+
+  final TabBar _tabBar;
+
+  @override
+  double get minExtent => _tabBar.preferredSize.height + 16;
+  @override
+  double get maxExtent => _tabBar.preferredSize.height + 16;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: const Color(0xFFF7F8FC),
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      child: _tabBar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
+    return false;
   }
 }
