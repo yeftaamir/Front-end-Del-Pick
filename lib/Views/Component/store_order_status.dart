@@ -421,59 +421,59 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
 // Perbaikan untuk CustomerOrderStatusCard, DriverOrderStatusCard, dan StoreOrderStatusCard
 // Ganti method _buildStatusAnimation dengan kode berikut:
 
-  Widget _buildStatusAnimation(Map<String, dynamic> statusInfo) {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // Background glow effect (opsional untuk efek visual)
-        AnimatedBuilder(
-          animation: _pulseAnimation,
-          builder: (context, child) {
-            return Container(
-              width: 180,
-              height: 180,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    statusInfo['color'].withOpacity(0.1),
-                    statusInfo['color'].withOpacity(0.05),
-                    Colors.transparent,
-                  ],
-                  stops: const [0.0, 0.6, 1.0],
-                ),
-              ),
-            );
-          },
-        ),
-
-        // Clean animation without container
-        Container(
-          width: 140,
-          height: 140,
-          child: Lottie.asset(
-            statusInfo['animation'],
-            fit: BoxFit.contain,
-            repeat: _getCurrentOrderStatus() != OrderStatus.delivered,
-          ),
-        ),
-      ],
-    );
-  }
+  // Widget _buildStatusAnimation(Map<String, dynamic> statusInfo) {
+  //   return Stack(
+  //     alignment: Alignment.center,
+  //     children: [
+  //       // Background glow effect (opsional untuk efek visual)
+  //       AnimatedBuilder(
+  //         animation: _pulseAnimation,
+  //         builder: (context, child) {
+  //           return Container(
+  //             width: 180,
+  //             height: 180,
+  //             decoration: BoxDecoration(
+  //               shape: BoxShape.circle,
+  //               gradient: RadialGradient(
+  //                 colors: [
+  //                   statusInfo['color'].withOpacity(0.1),
+  //                   statusInfo['color'].withOpacity(0.05),
+  //                   Colors.transparent,
+  //                 ],
+  //                 stops: const [0.0, 0.6, 1.0],
+  //               ),
+  //             ),
+  //           );
+  //         },
+  //       ),
+  //
+  //       // Clean animation without container
+  //       Container(
+  //         width: 140,
+  //         height: 140,
+  //         child: Lottie.asset(
+  //           statusInfo['animation'],
+  //           fit: BoxFit.contain,
+  //           repeat: _getCurrentOrderStatus() != OrderStatus.delivered,
+  //         ),
+  //       ),
+  //     ],
+  //   );
+  // }
 
 // ATAU jika ingin benar-benar tanpa efek circle sama sekali:
 
-  // Widget _buildStatusAnimation(Map<String, dynamic> statusInfo) {
-  //   return Container(
-  //     width: 140,
-  //     height: 140,
-  //     child: Lottie.asset(
-  //       statusInfo['animation'],
-  //       fit: BoxFit.contain,
-  //       repeat: _getCurrentOrderStatus() != OrderStatus.delivered,
-  //     ),
-  //   );
-  // }
+  Widget _buildStatusAnimation(Map<String, dynamic> statusInfo) {
+    return Container(
+      width: 140,
+      height: 140,
+      child: Lottie.asset(
+        statusInfo['animation'],
+        fit: BoxFit.contain,
+        repeat: _getCurrentOrderStatus() != OrderStatus.delivered,
+      ),
+    );
+  }
 
   Widget _buildStatusInfo(Map<String, dynamic> statusInfo) {
     return Container(
