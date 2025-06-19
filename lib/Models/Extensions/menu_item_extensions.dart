@@ -29,7 +29,7 @@ extension UserExtensions on User {
       case UserRole.admin:
         return 'Administrator';
       case UserRole.customer:
-        return 'Customer';
+        return 'Customers';
       case UserRole.store:
         return 'Store Owner';
       case UserRole.driver:

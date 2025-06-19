@@ -18,7 +18,7 @@ class OrderService {
     );
   }
 
-  // Get Orders by User (Customer)
+  // Get Orders by User (Customers)
   static Future<ApiResponse<List<Order>>> getOrdersByUser({
     int page = 1,
     int limit = 10,
