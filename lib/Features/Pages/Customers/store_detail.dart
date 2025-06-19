@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import '../../../Common/global_style.dart';
 import '../../../Models/Entities/menu_item.dart';
 import '../../../Models/Entities/store.dart';
+import '../../../Models/Responses/order_responses.dart';
 import '../../../Services/Customer/home_service.dart';
 import '../../../Services/Customer/store_detail_service.dart';
 import '../../../Services/Utils/error_handler.dart';
@@ -14,6 +15,7 @@ import '../../../Services/Utils/error_handler.dart';
 // Import models and services
 
 // Import local services and widgets
+import 'cart_screen.dart';
 import 'widgets/store_detail_widgets.dart';
 import 'widgets/draggable_item_detail.dart';
 
@@ -391,7 +393,20 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
 
     final int storeId = ModalRoute.of(context)!.settings.arguments as int? ?? 0;
 
-
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CartScreen(
+          store: _store!,
+          cartItems: cartItems
+              .map((item) => CartItem(
+            menuItem: item,
+            quantity: _cartQuantities[item.id] ?? 0,
+          ))
+              .toList(),
+        ),
+      ),
+    );
   }
 
   // Calculate cart totals
