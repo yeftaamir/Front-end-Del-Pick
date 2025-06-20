@@ -14,9 +14,11 @@ import 'package:del_pick/Services/menu_item_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/core/token_service.dart';
+import 'package:del_pick/Services/driver_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'dart:async';
 
 class HomePage extends StatefulWidget {
   static const String route = "/Customers/HomePage";
@@ -37,11 +39,13 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _slideController;
   late AnimationController _scaleController;
   late AnimationController _carouselController;
+  late AnimationController _shakeController;
 
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _scaleAnimation;
   late Animation<double> _carouselAnimation;
+  late Animation<double> _shakeAnimation;
 
   final List<String> _promotionalPhrases = [
     "Lapar? Pilih makanan favoritmu sekarang!",
@@ -61,6 +65,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   String? _userName = '';
   Position? _currentPosition;
   bool _isLoadingLocation = false;
+  String? _deliveryAddress;
 
   // Keep track of calculated distances separately
   Map<int, double> _storeDistances = {};
@@ -68,6 +73,13 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // Search state
   bool _isSearchLoading = false;
   List<Store> _searchResults = [];
+
+  // Driver search state
+  bool _isSearchingDriver = false;
+  bool _driverFound = false;
+  String _driverName = "";
+  String _vehicleNumber = "";
+  Timer? _shakeTimer;
 
   List<Store> get _filteredStores {
     if (_searchQuery.isEmpty && !_isSearching) {
@@ -412,6 +424,466 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
+  // NEW: Get available drivers
+  Future<List<Map<String, dynamic>>> _getAvailableDrivers() async {
+    try {
+      if (_currentPosition == null) {
+        throw Exception('Location not available');
+      }
+
+      final drivers = await DriverService.getNearbyDrivers(
+        latitude: _currentPosition!.latitude,
+        longitude: _currentPosition!.longitude,
+        radiusKm: 10.0,
+      );
+
+      // Filter only active drivers
+      return drivers.where((driver) => driver['status'] == 'active').toList();
+    } catch (e) {
+      print('Error getting available drivers: $e');
+      return [];
+    }
+  }
+
+  // NEW: Show driver order confirmation modal
+  void _showDriverOrderModal() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/driver.json',
+                  height: 150,
+                  width: 150,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Pesan Melalui Driver",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "Driver akan membantu Anda membeli barang yang tidak tersedia di toko-toko yang ada.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.grey[600],
+                          side: BorderSide(color: Colors.grey[300]!),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text(
+                          "Batal",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _searchForDriver();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GlobalStyle.primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: 2,
+                        ),
+                        child: const Text(
+                          "Cari Driver",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // NEW: Search for available driver
+  void _searchForDriver() {
+    setState(() {
+      _isSearchingDriver = true;
+      _driverFound = false;
+    });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return WillPopScope(
+          onWillPop: () async => false,
+          child: Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            backgroundColor: Colors.white,
+            elevation: 5,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Lottie.asset(
+                    'assets/animations/loading_animation.json',
+                    width: 180,
+                    height: 180,
+                    repeat: true,
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    "Mencari Driver",
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "Mohon tunggu sementara kami mencarikan driver terdekat untuk Anda...",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      setState(() {
+                        _isSearchingDriver = false;
+                      });
+                    },
+                    child: Text(
+                      "Batalkan Pencarian",
+                      style: TextStyle(
+                        color: Colors.red.shade800,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    // Simulate driver search
+    Timer(const Duration(seconds: 3), () async {
+      try {
+        final availableDrivers = await _getAvailableDrivers();
+
+        Navigator.of(context, rootNavigator: true).pop();
+
+        setState(() {
+          _isSearchingDriver = false;
+        });
+
+        if (availableDrivers.isNotEmpty) {
+          final driver = availableDrivers.first;
+          setState(() {
+            _driverFound = true;
+            _driverName = driver['user']?['name'] ?? 'Driver';
+            _vehicleNumber = driver['vehicle_plate'] ?? 'Unknown';
+          });
+
+          _showDriverFoundDialog();
+        } else {
+          _showNoDriverAvailableDialog();
+        }
+      } catch (e) {
+        Navigator.of(context, rootNavigator: true).pop();
+        setState(() {
+          _isSearchingDriver = false;
+        });
+        _showDriverSearchErrorDialog();
+      }
+    });
+  }
+
+  // NEW: Show driver found dialog
+  void _showDriverFoundDialog() {
+    _audioPlayer.play(AssetSource('audio/kring.mp3'));
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: Colors.white,
+          elevation: 5,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/driver_found.json',
+                  width: 200,
+                  height: 200,
+                  repeat: false,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _driverName,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    "Nomor Kendaraan: $_vehicleNumber",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[800],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Driver ditemukan! Anda dapat menghubungi driver untuk bantuan pembelian.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.call, size: 18),
+                        label: const Text("Hubungi"),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          // Implement phone call functionality
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GlobalStyle.primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: GlobalStyle.primaryColor,
+                          side: BorderSide(color: GlobalStyle.primaryColor),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text("Tutup"),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // NEW: Show no driver available dialog
+  void _showNoDriverAvailableDialog() {
+    _audioPlayer.play(AssetSource('audio/wrong.mp3'));
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/caution.json',
+                  height: 150,
+                  width: 150,
+                ),
+                const Text(
+                  "Driver Tidak Tersedia",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "Maaf, tidak ada driver yang tersedia di area Anda saat ini. Silakan coba lagi nanti.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  ),
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // NEW: Show driver search error dialog
+  void _showDriverSearchErrorDialog() {
+    _audioPlayer.play(AssetSource('audio/wrong.mp3'));
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 60,
+                  color: Colors.red,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Terjadi Kesalahan",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "Gagal mencari driver. Pastikan Anda terhubung ke internet dan coba lagi.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  ),
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // NEW: Handle location access for address scanning
+  Future<void> _handleLocationAccess() async {
+    try {
+      setState(() {
+        _isLoadingLocation = true;
+      });
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      // Use reverse geocoding to get address (simplified version)
+      // In real implementation, you'd use geocoding package
+      String address = "Lokasi terdeteksi: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}";
+
+      setState(() {
+        _currentPosition = position;
+        _deliveryAddress = address;
+        _isLoadingLocation = false;
+      });
+
+      // Update stores with new location
+      await _fetchStoresWithLocation();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Alamat berhasil diperbarui: $address'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _isLoadingLocation = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memindai lokasi: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -436,6 +908,18 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       });
     });
 
+    _initializeAnimations();
+
+    // Start shake animation timer
+    _startShakeTimer();
+
+    // Show dialog once when the page is opened
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showPromoDialog();
+    });
+  }
+
+  void _initializeAnimations() {
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -453,6 +937,11 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     _carouselController = AnimationController(
       duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+
+    _shakeController = AnimationController(
+      duration: const Duration(milliseconds: 500),
       vsync: this,
     );
 
@@ -487,14 +976,25 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
 
+    _shakeAnimation = Tween<double>(begin: -2.0, end: 2.0).animate(
+      CurvedAnimation(
+        parent: _shakeController,
+        curve: Curves.elasticIn,
+      ),
+    );
+
     _fadeController.forward();
     _slideController.forward();
     _scaleController.forward();
     _carouselController.forward();
+  }
 
-    // Show dialog once when the page is opened
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showPromoDialog();
+  void _startShakeTimer() {
+    _shakeTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (mounted) {
+        _shakeController.reset();
+        _shakeController.forward();
+      }
     });
   }
 
@@ -505,7 +1005,9 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _slideController.dispose();
     _scaleController.dispose();
     _carouselController.dispose();
+    _shakeController.dispose();
     _audioPlayer.dispose();
+    _shakeTimer?.cancel();
     super.dispose();
   }
 
@@ -875,9 +1377,19 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       color: GlobalStyle.primaryColor,
       child: CustomScrollView(
         slivers: [
+          // NEW: Address Scanner Section
+          SliverToBoxAdapter(
+            child: _buildAddressScannerSection(),
+          ),
+
           // Welcome Section
           SliverToBoxAdapter(
             child: _buildWelcomeSection(),
+          ),
+
+          // NEW: Driver Order Card
+          SliverToBoxAdapter(
+            child: _buildDriverOrderCard(),
           ),
 
           // Featured Stores Carousel
@@ -934,9 +1446,100 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildWelcomeSection() {
+  // NEW: Build address scanner section
+  Widget _buildAddressScannerSection() {
     return Container(
       margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.blue.shade50,
+            Colors.blue.shade100,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: GlobalStyle.primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.my_location,
+              color: GlobalStyle.primaryColor,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Alamat Pengiriman',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.primaryColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _deliveryAddress ?? 'Pindai lokasi untuk alamat otomatis',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: _isLoadingLocation ? null : _handleLocationAccess,
+            icon: _isLoadingLocation
+                ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+                : const Icon(Icons.qr_code_scanner, size: 16),
+            label: Text(
+              _isLoadingLocation ? 'Memindai...' : 'Pindai',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              elevation: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWelcomeSection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -987,6 +1590,130 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         ],
       ),
+    );
+  }
+
+  // NEW: Build driver order card with shake animation
+  Widget _buildDriverOrderCard() {
+    return AnimatedBuilder(
+      animation: _shakeAnimation,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(_shakeAnimation.value, 0),
+          child: Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.orange.shade50,
+                  Colors.orange.shade100,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.orange.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.orange.withOpacity(0.2),
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.search,
+                                color: Colors.orange.shade700,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Tidak Menemukan?',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange.shade800,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Barang yang kamu cari tidak ada disini? Pesan melalui driver',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.orange.shade700,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: ElevatedButton(
+                              onPressed: _showDriverOrderModal,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange.shade600,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(25),
+                                ),
+                                elevation: 3,
+                              ),
+                              child: const Text(
+                                'Pesan',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    SizedBox(
+                      width: 100,
+                      height: 100,
+                      child: Lottie.asset(
+                        'assets/animations/driver.json',
+                        fit: BoxFit.contain,
+                        repeat: true,
+                      ),
+                    ),
+                  ],
+                ),
+                // Sparkle effect
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Icon(
+                    LucideIcons.sparkles,
+                    color: Colors.orange.shade300,
+                    size: 16,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

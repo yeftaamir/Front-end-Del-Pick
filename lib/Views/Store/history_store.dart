@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lottie/lottie.dart';
-import 'package:del_pick/Models/item_model.dart';
-import 'package:del_pick/Models/store.dart';
-import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
+import 'package:del_pick/Models/order_item.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:del_pick/Views/Store/historystore_detail.dart';
 import 'package:del_pick/Services/order_service.dart';
-import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 
 class HistoryStorePage extends StatefulWidget {
@@ -32,6 +29,11 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   bool _hasError = false;
   String _errorMessage = '';
   List<Order> _orders = [];
+
+  // Pagination
+  int _currentPage = 1;
+  int _totalPages = 1;
+  bool _isLoadingMore = false;
 
   // Animation controllers
   late List<AnimationController> _cardControllers;
@@ -76,73 +78,104 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   }
 
   // Fetch order history from the API
-  Future<void> _fetchOrderHistory() async {
+  Future<void> _fetchOrderHistory({bool isRefresh = false}) async {
+    if (isRefresh) {
+      setState(() {
+        _currentPage = 1;
+        _orders.clear();
+      });
+    }
+
     setState(() {
-      _isLoading = true;
+      _isLoading = isRefresh || _currentPage == 1;
+      _isLoadingMore = !isRefresh && _currentPage > 1;
       _hasError = false;
+      _errorMessage = '';
     });
 
     try {
-      final orderData = await OrderService.getOrdersByStore();
-      final List<dynamic> ordersList = orderData['orders'] ?? [];
+      final response = await OrderService.getOrdersByStore(
+        page: _currentPage,
+        limit: 10,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+      );
 
-      List<Order> orders = [];
+      // Extract orders from response
+      final List<dynamic> ordersList = response['orders'] ?? [];
+      final int totalItems = response['totalItems'] ?? 0;
+      final int totalPages = response['totalPages'] ?? 1;
+      final int currentPage = response['currentPage'] ?? 1;
+
+      List<Order> newOrders = [];
 
       for (var orderJson in ordersList) {
         try {
-          if (orderJson['store'] != null && orderJson['store']['image'] != null) {
-            orderJson['store']['image'] =
-                ImageService.getImageUrl(orderJson['store']['image']);
-          }
-
-          if (orderJson['customer'] != null && orderJson['customer']['avatar'] != null) {
-            orderJson['customer']['avatar'] =
-                ImageService.getImageUrl(orderJson['customer']['avatar']);
-          }
-
-          if (orderJson['items'] != null && orderJson['items'] is List) {
-            for (var item in orderJson['items']) {
-              if (item['imageUrl'] != null) {
-                item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
-              }
-            }
-          }
-
+          // Create Order object from JSON - image processing is handled in fromJson()
           Order order = Order.fromJson(orderJson);
-          orders.add(order);
+          newOrders.add(order);
         } catch (e) {
           print('Error parsing order: $e');
+          // Continue processing other orders
         }
       }
 
-      orders.sort((a, b) => b.orderDate.compareTo(a.orderDate));
+      // Update pagination info
+      _currentPage = currentPage;
+      _totalPages = totalPages;
 
-      _setupAnimations(orders.length);
+      // Setup animations for new orders
+      if (isRefresh || _currentPage == 1) {
+        _setupAnimations(newOrders.length);
+        _orders = newOrders;
+      } else {
+        // Append new orders for pagination
+        _orders.addAll(newOrders);
+        _setupAnimations(_orders.length);
+      }
 
       setState(() {
-        _orders = orders;
         _isLoading = false;
+        _isLoadingMore = false;
       });
 
-      // Start animations with stagger
-      for (int i = 0; i < _cardControllers.length; i++) {
-        Future.delayed(Duration(milliseconds: 100 * i), () {
+      // Start animations with stagger for new orders
+      int startIndex = isRefresh || _currentPage == 1 ? 0 : _orders.length - newOrders.length;
+      for (int i = startIndex; i < _cardControllers.length; i++) {
+        Future.delayed(Duration(milliseconds: 100 * (i - startIndex)), () {
           if (mounted && i < _cardControllers.length) {
             _cardControllers[i].forward();
           }
         });
       }
+
     } catch (e) {
       setState(() {
         _isLoading = false;
+        _isLoadingMore = false;
         _hasError = true;
-        _errorMessage = 'Failed to load order history: $e';
+        _errorMessage = _getErrorMessage(e.toString());
       });
       print('Error in _fetchOrderHistory: $e');
     }
   }
 
+  String _getErrorMessage(String error) {
+    if (error.contains('Authentication token not found')) {
+      return 'Session expired. Please login again.';
+    } else if (error.contains('Failed to load store orders')) {
+      return 'Unable to load order history. Please check your connection.';
+    } else if (error.contains('Request failed with status 403')) {
+      return 'You are not authorized to view store orders.';
+    } else if (error.contains('Request failed with status 404')) {
+      return 'Store not found. Please contact support.';
+    } else {
+      return 'Failed to load order history. Please try again.';
+    }
+  }
+
   void _setupAnimations(int totalCards) {
+    // Dispose existing controllers
     for (var controller in _cardControllers) {
       controller.dispose();
     }
@@ -190,82 +223,83 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     switch (tabIndex) {
       case 0: // All orders
         return _orders;
-      case 1: // In progress
+      case 1: // In progress (pending, confirmed, preparing, ready_for_pickup, on_delivery)
         return _orders.where((order) =>
-        order.status != OrderStatus.completed &&
-            order.status != OrderStatus.cancelled &&
-            order.status != OrderStatus.delivered
+        order.orderStatus == OrderStatus.pending ||
+            order.orderStatus == OrderStatus.confirmed ||
+            order.orderStatus == OrderStatus.preparing ||
+            order.orderStatus == OrderStatus.ready_for_pickup ||
+            order.orderStatus == OrderStatus.on_delivery
         ).toList();
-      case 2: // Completed
+      case 2: // Completed (delivered)
         return _orders.where((order) =>
-        order.status == OrderStatus.completed ||
-            order.status == OrderStatus.delivered
+        order.orderStatus == OrderStatus.delivered
         ).toList();
       case 3: // Cancelled
-        return _orders.where((order) => order.status == OrderStatus.cancelled).toList();
+        return _orders.where((order) =>
+        order.orderStatus == OrderStatus.cancelled
+        ).toList();
       default:
         return _orders;
     }
   }
 
   Color getStatusColor(OrderStatus status) {
-    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
-      return const Color(0xFF10B981);
-    } else if (status == OrderStatus.cancelled) {
-      return const Color(0xFFEF4444);
-    } else if (status == OrderStatus.on_delivery ||
-        status == OrderStatus.driverHeadingToCustomer) {
-      return const Color(0xFF3B82F6);
-    } else if (status == OrderStatus.preparing ||
-        status == OrderStatus.approved) {
-      return const Color(0xFFF59E0B);
-    } else {
-      return GlobalStyle.primaryColor;
+    switch (status) {
+      case OrderStatus.delivered:
+        return const Color(0xFF10B981); // Green
+      case OrderStatus.cancelled:
+        return const Color(0xFFEF4444); // Red
+      case OrderStatus.on_delivery:
+        return const Color(0xFF3B82F6); // Blue
+      case OrderStatus.preparing:
+        return const Color(0xFFF59E0B); // Amber
+      case OrderStatus.confirmed:
+        return const Color(0xFF8B5CF6); // Purple
+      case OrderStatus.ready_for_pickup:
+        return const Color(0xFF06B6D4); // Cyan
+      case OrderStatus.pending:
+      default:
+        return GlobalStyle.primaryColor;
     }
   }
 
   IconData getStatusIcon(OrderStatus status) {
-    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
-      return Icons.check_circle;
-    } else if (status == OrderStatus.cancelled) {
-      return Icons.cancel;
-    } else if (status == OrderStatus.on_delivery ||
-        status == OrderStatus.driverHeadingToCustomer) {
-      return Icons.delivery_dining;
-    } else if (status == OrderStatus.preparing) {
-      return Icons.restaurant_menu;
-    } else if (status == OrderStatus.approved) {
-      return Icons.thumb_up;
-    } else {
-      return Icons.schedule;
+    switch (status) {
+      case OrderStatus.delivered:
+        return Icons.check_circle;
+      case OrderStatus.cancelled:
+        return Icons.cancel;
+      case OrderStatus.on_delivery:
+        return Icons.delivery_dining;
+      case OrderStatus.preparing:
+        return Icons.restaurant_menu;
+      case OrderStatus.confirmed:
+        return Icons.thumb_up;
+      case OrderStatus.ready_for_pickup:
+        return Icons.shopping_bag_outlined;
+      case OrderStatus.pending:
+      default:
+        return Icons.schedule;
     }
   }
 
   String getStatusText(OrderStatus status) {
     switch (status) {
-      case OrderStatus.completed:
+      case OrderStatus.pending:
+        return 'Menunggu';
+      case OrderStatus.confirmed:
+        return 'Dikonfirmasi';
+      case OrderStatus.preparing:
+        return 'Disiapkan';
+      case OrderStatus.ready_for_pickup:
+        return 'Siap Diambil';
+      case OrderStatus.on_delivery:
+        return 'Diantar';
       case OrderStatus.delivered:
         return 'Selesai';
       case OrderStatus.cancelled:
         return 'Dibatalkan';
-      case OrderStatus.pending:
-        return 'Menunggu';
-      case OrderStatus.approved:
-        return 'Disetujui';
-      case OrderStatus.preparing:
-        return 'Disiapkan';
-      case OrderStatus.on_delivery:
-        return 'Diantar';
-      case OrderStatus.driverAssigned:
-        return 'Driver Ditugaskan';
-      case OrderStatus.driverHeadingToStore:
-        return 'Diambil';
-      case OrderStatus.driverAtStore:
-        return 'Di Toko';
-      case OrderStatus.driverHeadingToCustomer:
-        return 'Diantar';
-      case OrderStatus.driverArrived:
-        return 'Driver Tiba';
       default:
         return 'Diproses';
     }
@@ -281,15 +315,22 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   }
 
   String getOrderItemsText(Order order) {
-    if (order.items.isEmpty) {
+    if (order.items == null || order.items!.isEmpty) {
       return "Tidak ada item";
-    } else if (order.items.length == 1) {
-      return order.items[0].name;
+    } else if (order.items!.length == 1) {
+      return order.items![0].name;
     } else {
-      final firstItem = order.items[0].name;
-      final otherItemsCount = order.items.length - 1;
+      final firstItem = order.items![0].name;
+      final otherItemsCount = order.items!.length - 1;
       return '$firstItem, +$otherItemsCount item lainnya';
     }
+  }
+
+  String getCustomerName(Order order) {
+    if (order.customer != null) {
+      return order.customer!.name;
+    }
+    return 'Customer #${order.customerId}';
   }
 
   Widget _buildAnimatedStatusBadge(String text, Color color, IconData icon) {
@@ -333,20 +374,24 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => HistoryStoreDetailPage(orderId: order.id),
+        builder: (context) => HistoryStoreDetailPage(orderId: order.id.toString()),
       ),
     ).then((_) {
-      _fetchOrderHistory();
+      // Refresh the orders when returning from detail page
+      _fetchOrderHistory(isRefresh: true);
     });
   }
 
   Widget _buildOrderCard(Order order, int index) {
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
-    final statusColor = getStatusColor(order.status);
-    final statusIcon = getStatusIcon(order.status);
-    final statusText = getStatusText(order.status);
+    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(
+        order.createdAt ?? DateTime.now()
+    );
+    final statusColor = getStatusColor(order.orderStatus);
+    final statusIcon = getStatusIcon(order.orderStatus);
+    final statusText = getStatusText(order.orderStatus);
     final itemsText = getOrderItemsText(order);
-    final orderTotal = order.total;
+    final customerName = getCustomerName(order);
+    final orderTotal = order.totalAmount;
 
     return SlideTransition(
       position: index < _slideAnimations.length ? _slideAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
@@ -420,7 +465,22 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                                   ),
                                 ],
                               ),
-                              child: Icon(
+                              child: order.store?.imageUrl != null && order.store!.imageUrl!.isNotEmpty
+                                  ? ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: ImageService.displayImage(
+                                  imageSource: order.store!.imageUrl!,
+                                  width: 80,
+                                  height: 80,
+                                  fit: BoxFit.cover,
+                                  errorWidget: Icon(
+                                    Icons.storefront_outlined,
+                                    color: _primaryGradientStart,
+                                    size: 40,
+                                  ),
+                                ),
+                              )
+                                  : Icon(
                                 Icons.storefront_outlined,
                                 color: _primaryGradientStart,
                                 size: 40,
@@ -437,7 +497,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        'Order #${order.id.substring(0, order.id.length < 8 ? order.id.length : 8)}',
+                                        'Order #${order.id.toString().length > 8 ? order.id.toString().substring(0, 8) : order.id}',
                                         style: const TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.w700,
@@ -456,9 +516,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                                         color: Colors.grey[600]),
                                     const SizedBox(width: 4),
                                     Text(
-                                      order.code != null && order.code!.isNotEmpty
-                                          ? order.code!
-                                          : '#${order.id}',
+                                      'ID: ${order.id}',
                                       style: TextStyle(
                                         fontSize: 14,
                                         color: Colors.grey[700],
@@ -541,7 +599,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Pelanggan: ${order.customerId ?? "Tidak Diketahui"}',
+                                    'Pelanggan: $customerName',
                                     style: TextStyle(
                                       fontSize: 13,
                                       color: Colors.purple[900],
@@ -705,7 +763,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                 child: Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: _fetchOrderHistory,
+                    onTap: () => _fetchOrderHistory(isRefresh: true),
                     borderRadius: BorderRadius.circular(30),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
@@ -858,13 +916,16 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
               ),
             ),
             const SizedBox(height: 12),
-            Text(
-              _errorMessage.isNotEmpty ? _errorMessage : 'Terjadi kesalahan saat memuat data',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Text(
+                _errorMessage.isNotEmpty ? _errorMessage : 'Terjadi kesalahan saat memuat data',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
             Container(
@@ -884,7 +945,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: _fetchOrderHistory,
+                  onTap: () => _fetchOrderHistory(isRefresh: true),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -986,7 +1047,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                     ),
                     child: IconButton(
                       icon: const Icon(Icons.refresh, color: Colors.white),
-                      onPressed: _fetchOrderHistory,
+                      onPressed: () => _fetchOrderHistory(isRefresh: true),
                     ),
                   ),
                 ),
@@ -1015,7 +1076,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                   : _hasError
                   ? _buildErrorState()
                   : RefreshIndicator(
-                onRefresh: _fetchOrderHistory,
+                onRefresh: () => _fetchOrderHistory(isRefresh: true),
                 color: _primaryGradientStart,
                 child: TabBarView(
                   controller: _tabController,

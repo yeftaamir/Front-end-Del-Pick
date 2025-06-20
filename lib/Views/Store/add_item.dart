@@ -4,12 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../../Common/global_style.dart';
-import '../../Models/item_model.dart';
-import '../../Models/menu_item.dart';
+import '../../Models/menu_item.dart';  // Changed from item_model.dart to menu_item.dart
 import '../Component/bottom_navigation.dart';
 import 'add_edit_items.dart';
 import 'package:del_pick/Services/core/token_service.dart';
-import 'package:del_pick/Services/menu_service.dart';
+import 'package:del_pick/Services/menu_item_service.dart';  // Changed from menu_service.dart
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 
@@ -36,7 +35,7 @@ class _AddItemPageState extends State<AddItemPage>
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
-  List<Item> _items = [];
+  List<MenuItem> _items = [];  // Changed from List<Item> to List<MenuItem>
 
   // Keep track of items being updated
   Set<String> _updatingItems = {};
@@ -154,26 +153,57 @@ class _AddItemPageState extends State<AddItemPage>
 
       final String storeId = storeData['id'].toString();
 
-      // Fetch items using the MenuService.getMenuItemsByStoreId method
-      final menuItems = await MenuService.getMenuItemsByStoreId(storeId);
+      // Fetch items using the MenuItemService.getMenuItemsByStore method
+      final response = await MenuItemService.getMenuItemsByStore(storeId);
 
-      List<Item> items = [];
+      List<MenuItem> items = [];
+
       // Process items from the response structure
-      if (menuItems['menuItems'] != null && menuItems['menuItems'] is List) {
-        final List<dynamic> menuItemsList = menuItems['menuItems'];
+      if (response['menuItems'] != null && response['menuItems'] is List) {
+        final List<dynamic> menuItemsList = response['menuItems'];
 
         for (var menuItemJson in menuItemsList) {
           try {
-            // Process image URL using ImageService
-            if (menuItemJson['imageUrl'] != null) {
-              menuItemJson['imageUrl'] = ImageService.getImageUrl(menuItemJson['imageUrl']);
-            }
-
-            // Convert to Item model
-            final Item item = Item.fromJson(menuItemJson);
+            // Create MenuItem from JSON (ImageService processing is already handled in MenuItem.fromJson)
+            final MenuItem item = MenuItem.fromJson(menuItemJson);
             items.add(item);
           } catch (e) {
             print('Error parsing menu item: $e');
+          }
+        }
+      } else if (response is List) {
+        // Fallback: if response is directly a list
+        final List<dynamic> menuItemsList = response as List<dynamic>;
+        for (var menuItemJson in menuItemsList) {
+          try {
+            final MenuItem item = MenuItem.fromJson(menuItemJson);
+            items.add(item);
+          } catch (e) {
+            print('Error parsing menu item: $e');
+          }
+        }
+      } else {
+        // Check for other possible data structures
+        print('Unexpected response structure: ${response.keys}');
+
+        // Try to find data in different possible keys
+        List<dynamic>? menuItemsList;
+        if (response['data'] != null) {
+          if (response['data'] is List) {
+            menuItemsList = response['data'] as List<dynamic>;
+          } else if (response['data']['menuItems'] != null && response['data']['menuItems'] is List) {
+            menuItemsList = response['data']['menuItems'] as List<dynamic>;
+          }
+        }
+
+        if (menuItemsList != null) {
+          for (var menuItemJson in menuItemsList) {
+            try {
+              final MenuItem item = MenuItem.fromJson(menuItemJson);
+              items.add(item);
+            } catch (e) {
+              print('Error parsing menu item: $e');
+            }
           }
         }
       }
@@ -210,12 +240,12 @@ class _AddItemPageState extends State<AddItemPage>
   }
 
   // Navigate to add/edit form and refresh on return
-  void _navigateToAddEditForm({Item? item}) async {
+  void _navigateToAddEditForm({MenuItem? item}) async {  // Changed from Item? to MenuItem?
     final result = await Navigator.push(
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            AddEditItemForm(item: item),
+            AddEditItemForm(menuItem: item),
         transitionDuration: const Duration(milliseconds: 300),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return SlideTransition(
@@ -237,9 +267,9 @@ class _AddItemPageState extends State<AddItemPage>
   }
 
   // Toggle item availability status
-  Future<void> _toggleItemStatus(Item item) async {
+  Future<void> _toggleItemStatus(MenuItem item) async {  // Changed from Item to MenuItem
     // Check if this item is already being updated
-    if (_updatingItems.contains(item.id)) {
+    if (_updatingItems.contains(item.id.toString())) {
       return;
     }
 
@@ -278,45 +308,36 @@ class _AddItemPageState extends State<AddItemPage>
   }
 
   // Update item status in the database
-  Future<void> _updateItemStatus(Item item, bool isAvailable) async {
+  Future<void> _updateItemStatus(MenuItem item, bool isAvailable) async {  // Changed from Item to MenuItem
     setState(() {
-      _updatingItems.add(item.id);
+      _updatingItems.add(item.id.toString());
     });
 
     try {
-      final int itemId = int.tryParse(item.id) ?? 0;
-      if (itemId > 0) {
-        // Create data object for update
-        final Map<String, dynamic> itemData = {
-          'isAvailable': isAvailable,
-          'status': isAvailable ? 'available' : 'out_of_stock',
-        };
+      // Use MenuItemService.updateMenuItemStatus method
+      final updatedItem = await MenuItemService.updateMenuItemStatus(
+          item.id.toString(),
+          isAvailable
+      );
 
-        // Use MenuService.updateMenuItem method from the updated service
-        final updatedItem = await MenuService.updateMenuItem(item.id, itemData);
+      if (updatedItem.isNotEmpty) {
+        setState(() {
+          // Update local state
+          final index = _items.indexWhere((element) => element.id == item.id);
+          if (index != -1) {
+            _items[index] = item.copyWith(
+              isAvailable: isAvailable,
+            );
+          }
+        });
 
-        if (updatedItem != null) {
-          setState(() {
-            // Update local state
-            final index = _items.indexWhere((element) => element.id == item.id);
-            if (index != -1) {
-              _items[index] = item.copyWith(
-                  isAvailable: isAvailable,
-                  status: isAvailable ? 'available' : 'out_of_stock'
-              );
-            }
-          });
-
-          _showModernSnackBar(
-            isAvailable ? 'Item berhasil diaktifkan.' : 'Item berhasil dinonaktifkan.',
-            icon: Icons.check_circle_rounded,
-            color: Colors.green,
-          );
-        } else {
-          throw Exception('Failed to update item status');
-        }
+        _showModernSnackBar(
+          isAvailable ? 'Item berhasil diaktifkan.' : 'Item berhasil dinonaktifkan.',
+          icon: Icons.check_circle_rounded,
+          color: Colors.green,
+        );
       } else {
-        throw Exception('Invalid item ID');
+        throw Exception('Failed to update item status');
       }
     } catch (e) {
       _showModernSnackBar(
@@ -326,13 +347,13 @@ class _AddItemPageState extends State<AddItemPage>
       );
     } finally {
       setState(() {
-        _updatingItems.remove(item.id);
+        _updatingItems.remove(item.id.toString());
       });
     }
   }
 
   // Show dialog to confirm closing an item
-  Future<void> _showClosingDialog(Item item) async {
+  Future<void> _showClosingDialog(MenuItem item) async {  // Changed from Item to MenuItem
     await _playSound();
 
     final result = await showDialog<bool>(
@@ -476,7 +497,7 @@ class _AddItemPageState extends State<AddItemPage>
   }
 
   // Show dialog to confirm deleting an item
-  void _showDeleteConfirmation(Item item) async {
+  void _showDeleteConfirmation(MenuItem item) async {  // Changed from Item to MenuItem
     await _playSound();
 
     showDialog(
@@ -618,35 +639,29 @@ class _AddItemPageState extends State<AddItemPage>
   }
 
   // Delete item via API
-  Future<void> _deleteItem(Item item) async {
+  Future<void> _deleteItem(MenuItem item) async {  // Changed from Item to MenuItem
     setState(() {
-      _updatingItems.add(item.id);
+      _updatingItems.add(item.id.toString());
     });
 
     try {
-      final int itemId = int.tryParse(item.id) ?? 0;
+      // Use MenuItemService.deleteMenuItem method
+      final success = await MenuItemService.deleteMenuItem(item.id.toString());
 
-      if (itemId > 0) {
-        // Use MenuService.deleteMenuItem method from the updated service
-        final success = await MenuService.deleteMenuItem(item.id);
+      if (success) {
+        setState(() {
+          // Remove from local list
+          _items.removeWhere((element) => element.id == item.id);
+          _setupAnimations(); // Re-setup animations after removing item
+        });
 
-        if (success) {
-          setState(() {
-            // Remove from local list
-            _items.removeWhere((element) => element.id == item.id);
-            _setupAnimations(); // Re-setup animations after removing item
-          });
-
-          _showModernSnackBar(
-            'Item berhasil dihapus.',
-            icon: Icons.check_circle_rounded,
-            color: Colors.green,
-          );
-        } else {
-          throw Exception('Failed to delete item');
-        }
+        _showModernSnackBar(
+          'Item berhasil dihapus.',
+          icon: Icons.check_circle_rounded,
+          color: Colors.green,
+        );
       } else {
-        throw Exception('Invalid item ID');
+        throw Exception('Failed to delete item');
       }
     } catch (e) {
       _showModernSnackBar(
@@ -656,23 +671,8 @@ class _AddItemPageState extends State<AddItemPage>
       );
     } finally {
       setState(() {
-        _updatingItems.remove(item.id);
+        _updatingItems.remove(item.id.toString());
       });
-    }
-  }
-
-  // Format status for display
-  String formatStatus(String status) {
-    // Convert backend status to display format
-    switch (status.toLowerCase()) {
-      case 'available':
-        return 'Available';
-      case 'out_of_stock':
-        return 'Out of Stock';
-      case 'limited':
-        return 'Limited';
-      default:
-        return status;
     }
   }
 
@@ -940,9 +940,9 @@ class _AddItemPageState extends State<AddItemPage>
     );
   }
 
-  Widget _buildModernItemCard(Item item, int index) {
+  Widget _buildModernItemCard(MenuItem item, int index) {  // Changed from Item to MenuItem
     final bool isOutOfStock = item.quantity <= 0;
-    final bool isUpdating = _updatingItems.contains(item.id);
+    final bool isUpdating = _updatingItems.contains(item.id.toString());
 
     return SlideTransition(
       position: index < _cardAnimations.length ? _cardAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
@@ -1004,7 +1004,7 @@ class _AddItemPageState extends State<AddItemPage>
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(20),
                                 child: ImageService.displayImage(
-                                  imageSource: item.imageUrl,
+                                  imageSource: item.imageUrl ?? '',
                                   width: 100,
                                   height: 100,
                                   fit: BoxFit.cover,
@@ -1123,7 +1123,7 @@ class _AddItemPageState extends State<AddItemPage>
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
-                                        formatStatus(item.status),
+                                        item.isAvailable ? 'Available' : 'Tidak tersedia',
                                         style: TextStyle(
                                           fontSize: 12,
                                           color: item.isAvailable ? Colors.green : Colors.red,

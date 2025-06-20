@@ -6,18 +6,16 @@ import 'dart:convert';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../../Common/global_style.dart';
-import '../../Models/item_model.dart';
 import '../../Models/menu_item.dart';
-import '../../Services/menu_service.dart';
+import '../../Services/menu_item_service.dart';
 import '../../Services/image_service.dart';
 import 'add_item.dart';
 
 class AddEditItemForm extends StatefulWidget {
   static const String route = '/Store/AddEditItems';
-  final Item? item;
   final MenuItem? menuItem;
 
-  const AddEditItemForm({Key? key, this.item, this.menuItem}) : super(key: key);
+  const AddEditItemForm({Key? key, this.menuItem}) : super(key: key);
 
   @override
   State<AddEditItemForm> createState() => _AddEditItemFormState();
@@ -28,11 +26,23 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
-  final _stockController = TextEditingController();
+  final _categoryController = TextEditingController();
 
-  // Status options for order status
-  final List<String> _statusOptions = ['available', 'out_of_stock', 'limited'];
-  String _selectedStatus = 'available';
+  // Status options based on MenuItem model
+  final List<String> _availabilityOptions = ['available', 'unavailable'];
+  String _selectedAvailability = 'available';
+
+  // Category options - you can expand this based on your needs
+  final List<String> _categoryOptions = [
+    'Makanan',
+    'Minuman',
+    'Snack',
+    'Dessert',
+    'Appetizer',
+    'Main Course',
+    'Lainnya'
+  ];
+  String _selectedCategory = 'Makanan';
 
   // Image handling
   final ImagePicker _picker = ImagePicker();
@@ -47,7 +57,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   String _errorMessage = '';
 
   // Save the original item ID
-  String? _originalItemId;
+  int? _originalItemId;
 
   // Animation controllers
   late List<AnimationController> _cardControllers;
@@ -61,7 +71,6 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   bool _hasChanges = false;
-  int _quantity = 1;
   bool _isViewingFullImage = false;
 
   @override
@@ -134,37 +143,51 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     // Initialize with existing item data if available
     if (widget.menuItem != null) {
       _initializeFromMenuItem(widget.menuItem!);
-    } else if (widget.item != null) {
-      _initializeFromItem(widget.item!);
     }
 
     // Add listeners to track changes
     _nameController.addListener(_onChange);
     _descriptionController.addListener(_onChange);
     _priceController.addListener(_onChange);
-    _stockController.addListener(_onChange);
+    _categoryController.addListener(_onChange);
   }
 
   void _initializeFromMenuItem(MenuItem menuItem) {
-    _nameController.text = menuItem.name;
-    _descriptionController.text = menuItem.description ?? '';
-    _priceController.text = menuItem.price.toString();
-    _stockController.text = menuItem.quantity.toString();
-    _quantity = menuItem.quantity;
-    _selectedImageUrl = menuItem.imageUrl;
-    _selectedStatus = menuItem.status.toLowerCase();
-    _originalItemId = menuItem.id.toString();
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      _nameController.text = menuItem.name;
+      _descriptionController.text = menuItem.description ?? '';
+      _priceController.text = _formatPriceForDisplay(menuItem.price);
+      _categoryController.text = menuItem.category;
+      _selectedCategory = _categoryOptions.contains(menuItem.category)
+          ? menuItem.category
+          : 'Lainnya';
+      _selectedImageUrl = menuItem.imageUrl;
+      _selectedAvailability = menuItem.isAvailable ? 'available' : 'unavailable';
+      _originalItemId = menuItem.id;
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error initializing from menu item: $e');
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+        _errorMessage = 'Error loading menu item data: $e';
+      });
+    }
   }
 
-  void _initializeFromItem(Item item) {
-    _nameController.text = item.name;
-    _descriptionController.text = item.description ?? '';
-    _priceController.text = item.price.toString();
-    _stockController.text = item.quantity.toString();
-    _quantity = item.quantity;
-    _selectedImageUrl = item.imageUrl;
-    _selectedStatus = item.status.toLowerCase();
-    _originalItemId = item.id;
+  String _formatPriceForDisplay(double price) {
+    // Convert price to string without decimal if it's a whole number
+    if (price == price.toInt()) {
+      return price.toInt().toString();
+    }
+    return price.toString();
   }
 
   void _onChange() {
@@ -178,7 +201,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _nameController.dispose();
     _descriptionController.dispose();
     _priceController.dispose();
-    _stockController.dispose();
+    _categoryController.dispose();
 
     for (var controller in _cardControllers) {
       controller.dispose();
@@ -231,15 +254,216 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     });
   }
 
-  Future<void> _showConfirmationDialog() async {
+  Future<void> _showDeleteConfirmationDialog() async {
+    if (_originalItemId == null) return;
+
+    final bool? result = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          backgroundColor: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              gradient: const LinearGradient(
+                colors: [Colors.white, Color(0xFFFAFBFC)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(28.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFEF5350), Color(0xFFE57373)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.delete_forever_rounded,
+                    size: 32,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Hapus Item',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1A1D29),
+                    letterSpacing: -0.5,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Apakah Anda yakin ingin menghapus item ${_nameController.text}? Tindakan ini tidak dapat dibatalkan.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.grey.withOpacity(0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => Navigator.pop(context, false),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text(
+                                'Batal',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFEF5350), Color(0xFFE57373)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.red.withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => Navigator.pop(context, true),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text(
+                                'Hapus',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (result == true) {
+      await _deleteItemFromDatabase();
+    }
+  }
+
+  Future<void> _deleteItemFromDatabase() async {
+    if (_originalItemId == null) return;
+
+    setState(() {
+      _isSaving = true;
+      _hasError = false;
+    });
+
+    try {
+      final success = await MenuItemService.deleteMenuItem(_originalItemId.toString());
+
+      if (success) {
+        _showSuccessAnimation(isDelete: true);
+      } else {
+        throw Exception('Failed to delete menu item');
+      }
+    } catch (e) {
+      setState(() {
+        _isSaving = false;
+        _hasError = true;
+        _errorMessage = 'Failed to delete item: $e';
+      });
+
+      _showErrorSnackBar('Error deleting item: $e');
+    }
+  }
+
+  Future<void> _showSaveConfirmationDialog() async {
     // Validate inputs first
-    if (_nameController.text.isEmpty) {
+    if (_nameController.text.trim().isEmpty) {
       _showErrorSnackBar('Nama item harus diisi');
       return;
     }
 
-    if (_priceController.text.isEmpty) {
+    if (_priceController.text.trim().isEmpty) {
       _showErrorSnackBar('Harga harus diisi');
+      return;
+    }
+
+    double price;
+    try {
+      price = double.parse(_priceController.text.replaceAll(RegExp(r'[^\d.]'), ''));
+      if (price <= 0) {
+        _showErrorSnackBar('Harga harus lebih dari 0');
+        return;
+      }
+    } catch (e) {
+      _showErrorSnackBar('Format harga tidak valid');
       return;
     }
 
@@ -311,7 +535,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Apakah Anda yakin ingin menyimpan item ${_nameController.text}?',
+                  'Apakah Anda yakin ingin menyimpan item ${_nameController.text.trim()}?',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 16,
@@ -433,51 +657,44 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     });
 
     try {
-      final String name = _nameController.text;
-      final String description = _descriptionController.text;
-      final double price = double.tryParse(_priceController.text.replaceAll(',', '').replaceAll('.', '')) ?? 0.0;
-      final int stock = int.tryParse(_stockController.text) ?? 0;
-      final bool isAvailable = _selectedStatus == 'available';
+      final String name = _nameController.text.trim();
+      final String description = _descriptionController.text.trim();
+      final double price = double.parse(_priceController.text.replaceAll(RegExp(r'[^\d.]'), ''));
+      final String category = _selectedCategory == 'Lainnya'
+          ? _categoryController.text.trim()
+          : _selectedCategory;
+      final bool isAvailable = _selectedAvailability == 'available';
 
-      // Prepare item data
+      // Prepare menu item data according to backend schema
       Map<String, dynamic> menuItemData = {
         'name': name,
-        'description': description,
+        'description': description.isNotEmpty ? description : null,
         'price': price,
-        'quantity': stock,
+        'category': category,
         'isAvailable': isAvailable,
-        'status': _selectedStatus,
       };
 
+      // Add image if available
+      if (_imageData != null && _imageData!['base64'] != null) {
+        menuItemData['imageUrl'] = _imageData!['base64'];
+      } else if (_selectedImageUrl != null && _selectedImageUrl!.isNotEmpty) {
+        menuItemData['imageUrl'] = _selectedImageUrl;
+      }
+
+      Map<String, dynamic>? result;
+
       if (_originalItemId != null) {
-        // Update existing item using updated MenuService.updateMenuItem method
-        final updatedItem = await MenuService.updateMenuItem(_originalItemId!, menuItemData);
+        // Update existing menu item
+        result = await MenuItemService.updateMenuItem(_originalItemId.toString(), menuItemData);
+      } else {
+        // Create new menu item
+        result = await MenuItemService.createMenuItem(menuItemData);
+      }
 
-        // If we have a new image, upload it separately
-        if (_imageData != null && updatedItem != null) {
-          // Create a new data object just for the image
-          Map<String, dynamic> imageUpdateData = {
-            'imageUrl': _imageData!['base64'],
-          };
-
-          // Update the item with the new image
-          await MenuService.updateMenuItem(_originalItemId!, imageUpdateData);
-        }
-
+      if (result != null && result.isNotEmpty) {
         _showSuccessAnimation();
       } else {
-        // Add new item using updated MenuService.createMenuItem method
-        if (_selectedImageUrl != null && _selectedImageUrl!.isNotEmpty) {
-          menuItemData['imageUrl'] = _selectedImageUrl;
-        }
-
-        final createdItem = await MenuService.createMenuItem(menuItemData);
-
-        if (createdItem != null) {
-          _showSuccessAnimation();
-        } else {
-          throw Exception('Failed to create menu item');
-        }
+        throw Exception('Failed to save menu item - empty response');
       }
     } catch (e) {
       setState(() {
@@ -490,9 +707,13 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     }
   }
 
-  Future<void> _showSuccessAnimation() async {
-    // Play sound from assets/audio/alert.wav
-    await _audioPlayer.play(AssetSource('audio/alert.wav'));
+  Future<void> _showSuccessAnimation({bool isDelete = false}) async {
+    // Play sound
+    try {
+      await _audioPlayer.play(AssetSource('audio/alert.wav'));
+    } catch (e) {
+      print('Error playing sound: $e');
+    }
 
     // Show success animation dialog
     showDialog(
@@ -534,7 +755,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  'Item Berhasil Disimpan!',
+                  isDelete ? 'Item Berhasil Dihapus!' : 'Item Berhasil Disimpan!',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -567,7 +788,11 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   }
 
   void _saveItem() {
-    _showConfirmationDialog();
+    _showSaveConfirmationDialog();
+  }
+
+  void _deleteItem() {
+    _showDeleteConfirmationDialog();
   }
 
   Future<bool> _onWillPop() async {
@@ -807,20 +1032,6 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     );
   }
 
-  // Format currency for display in the price field
-  String _formatCurrency(String value) {
-    if (value.isEmpty) return '';
-
-    // Remove all non-numeric characters
-    String cleanValue = value.replaceAll(RegExp(r'[^\d]'), '');
-
-    // Convert to double
-    double amount = double.tryParse(cleanValue) ?? 0;
-
-    // Format using GlobalStyle
-    return GlobalStyle.formatRupiah(amount);
-  }
-
   @override
   Widget build(BuildContext context) {
     // Return full image view if in full image mode
@@ -940,6 +1151,25 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                 ),
               ),
               actions: [
+                // Delete button (only show for existing items)
+                if (_originalItemId != null)
+                  Container(
+                    margin: const EdgeInsets.only(right: 8, top: 8, bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.withOpacity(0.3)),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                      onPressed: _isSaving ? null : _deleteItem,
+                    ),
+                  ),
+                // Save button
                 Container(
                   margin: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
                   decoration: BoxDecoration(
@@ -1012,13 +1242,15 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                       ),
                     ),
 
-                    // Pricing and Stock Card
+                    // Category and Pricing Card
                     _buildModernCard(
                       index: 1,
-                      icon: Icons.attach_money_rounded,
-                      title: 'Harga & Ketersediaan',
+                      icon: Icons.category_rounded,
+                      title: 'Kategori & Harga',
                       child: Column(
                         children: [
+                          _buildModernCategoryDropdown(),
+                          const SizedBox(height: 20),
                           _buildModernInputField(
                             label: 'Harga',
                             controller: _priceController,
@@ -1026,34 +1258,9 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                             prefix: 'Rp ',
                             icon: Icons.monetization_on_outlined,
                             hint: '0',
-                            onChanged: (value) {
-                              final cleanValue = value.replaceAll(RegExp(r'[^\d]'), '');
-                              if (cleanValue.isNotEmpty) {
-                                final double amount = double.tryParse(cleanValue) ?? 0;
-                                final formatted = GlobalStyle.formatRupiah(amount);
-
-                                if (formatted != value) {
-                                  final cursorPosition = _priceController.text.length - _priceController.selection.extentOffset;
-                                  _priceController.value = TextEditingValue(
-                                    text: formatted.replaceAll('Rp ', ''),
-                                    selection: TextSelection.collapsed(
-                                      offset: formatted.replaceAll('Rp ', '').length - cursorPosition,
-                                    ),
-                                  );
-                                }
-                              }
-                            },
                           ),
                           const SizedBox(height: 20),
-                          _buildModernInputField(
-                            label: 'Stok',
-                            controller: _stockController,
-                            keyboardType: TextInputType.number,
-                            hint: '0',
-                            icon: Icons.inventory_2_outlined,
-                          ),
-                          const SizedBox(height: 20),
-                          _buildModernDropdown(),
+                          _buildModernAvailabilityDropdown(),
                         ],
                       ),
                     ),
@@ -1156,77 +1363,139 @@ class _AddEditItemFormState extends State<AddEditItemForm>
               ),
             ],
           ),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: _isSaving
-                    ? [Colors.grey, Colors.grey.shade400]
-                    : [
-                  GlobalStyle.primaryColor,
-                  GlobalStyle.primaryColor.withOpacity(0.8),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: (_isSaving ? Colors.grey : GlobalStyle.primaryColor).withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+          child: Row(
+            children: [
+              // Delete button (only show for existing items)
+              if (_originalItemId != null) ...[
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: _isSaving
+                            ? [Colors.grey, Colors.grey.shade400]
+                            : [
+                          const Color(0xFFEF5350),
+                          const Color(0xFFE57373),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (_isSaving ? Colors.grey : Colors.red).withOpacity(0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: _isSaving ? null : _deleteItem,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.delete_outline_rounded, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Hapus',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
+                const SizedBox(width: 16),
               ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: _isSaving ? null : _saveItem,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  child: _isSaving
-                      ? Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Menyimpan...',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ],
-                  )
-                      : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.save_rounded, color: Colors.white, size: 20),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Simpan Item',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 0.3,
-                        ),
+              // Save button
+              Expanded(
+                flex: _originalItemId != null ? 2 : 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: _isSaving
+                          ? [Colors.grey, Colors.grey.shade400]
+                          : [
+                        GlobalStyle.primaryColor,
+                        GlobalStyle.primaryColor.withOpacity(0.8),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (_isSaving ? Colors.grey : GlobalStyle.primaryColor).withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
                       ),
                     ],
                   ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: _isSaving ? null : _saveItem,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: _isSaving
+                            ? Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Menyimpan...',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        )
+                            : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.save_rounded, color: Colors.white, size: 20),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Simpan Item',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -1309,7 +1578,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     );
   }
 
-  Widget _buildModernDropdown() {
+  Widget _buildModernCategoryDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1322,11 +1591,11 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                 color: GlobalStyle.primaryColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Icon(Icons.circle, size: 14, color: GlobalStyle.primaryColor),
+              child: Icon(Icons.category, size: 14, color: GlobalStyle.primaryColor),
             ),
             const SizedBox(width: 8),
             Text(
-              'Status Item',
+              'Kategori',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -1350,14 +1619,95 @@ class _AddEditItemFormState extends State<AddEditItemForm>
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               isExpanded: true,
-              value: _selectedStatus,
+              value: _selectedCategory,
               icon: Icon(Icons.keyboard_arrow_down_rounded, color: GlobalStyle.primaryColor),
-              items: _statusOptions.map((String status) {
-                String displayStatus = status.split('_').map((s) =>
-                s[0].toUpperCase() + s.substring(1)).join(' ');
+              items: _categoryOptions.map((String category) {
+                return DropdownMenuItem<String>(
+                  value: category,
+                  child: Text(
+                    category,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF1A1D29),
+                    ),
+                  ),
+                );
+              }).toList(),
+              onChanged: (String? newValue) {
+                if (newValue != null) {
+                  setState(() {
+                    _selectedCategory = newValue;
+                    _hasChanges = true;
+                  });
+                }
+              },
+            ),
+          ),
+        ),
+        // Show custom category input if "Lainnya" is selected
+        if (_selectedCategory == 'Lainnya') ...[
+          const SizedBox(height: 16),
+          _buildModernInputField(
+            label: 'Kategori Khusus',
+            controller: _categoryController,
+            icon: Icons.edit_outlined,
+            hint: 'Masukkan kategori khusus',
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildModernAvailabilityDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: GlobalStyle.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(Icons.circle, size: 14, color: GlobalStyle.primaryColor),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Status Ketersediaan',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF1A1D29),
+                letterSpacing: -0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: GlobalStyle.primaryColor.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: GlobalStyle.primaryColor.withOpacity(0.1),
+              width: 1,
+            ),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _selectedAvailability,
+              icon: Icon(Icons.keyboard_arrow_down_rounded, color: GlobalStyle.primaryColor),
+              items: _availabilityOptions.map((String availability) {
+                String displayText = availability == 'available' ? 'Tersedia' : 'Tidak Tersedia';
+                Color statusColor = availability == 'available' ? Colors.green : Colors.red;
 
                 return DropdownMenuItem<String>(
-                  value: status,
+                  value: availability,
                   child: Row(
                     children: [
                       Container(
@@ -1365,16 +1715,12 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                         height: 12,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: status == 'available'
-                              ? Colors.green
-                              : status == 'out_of_stock'
-                              ? Colors.red
-                              : Colors.orange,
+                          color: statusColor,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Text(
-                        displayStatus,
+                        displayText,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
@@ -1388,7 +1734,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
               onChanged: (String? newValue) {
                 if (newValue != null) {
                   setState(() {
-                    _selectedStatus = newValue;
+                    _selectedAvailability = newValue;
                     _hasChanges = true;
                   });
                 }

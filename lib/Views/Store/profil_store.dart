@@ -18,7 +18,7 @@ class ProfileStorePage extends StatefulWidget {
 }
 
 class _ProfileStorePageState extends State<ProfileStorePage> with TickerProviderStateMixin {
-  StoreModel? store;
+  Store? store;
   bool isLoading = true;
   String? errorMessage;
 
@@ -72,42 +72,85 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     });
 
     try {
+      // First try to get cached user data
       final userData = await AuthService.getUserData();
 
-      if (userData != null && userData.containsKey('store')) {
+      if (userData != null) {
+        // Check if user data contains store information
+        if (userData.containsKey('store') && userData['store'] != null) {
+          setState(() {
+            store = Store.fromJson(userData['store']);
+            isLoading = false;
+          });
+          _fadeController.forward();
+          _slideController.forward();
+          return;
+        }
+
+        // If user is a store owner but store data not in cache, check user data structure
+        if (userData['role'] == 'store' || userData['role'] == 'store_owner') {
+          // Try to get fresh profile data
+          final profileData = await AuthService.getProfile();
+
+          if (profileData.containsKey('store') && profileData['store'] != null) {
+            setState(() {
+              store = Store.fromJson(profileData['store']);
+              isLoading = false;
+            });
+            _fadeController.forward();
+            _slideController.forward();
+            return;
+          }
+        }
+      }
+
+      // If cached data doesn't have store info, fetch fresh profile
+      final profileData = await AuthService.getProfile();
+
+      if (profileData.containsKey('store') && profileData['store'] != null) {
         setState(() {
-          store = StoreModel.fromJson(userData['store']);
+          store = Store.fromJson(profileData['store']);
           isLoading = false;
         });
         _fadeController.forward();
         _slideController.forward();
       } else {
-        final profileData = await AuthService.getProfile();
-
-        if (profileData.containsKey('store')) {
+        // Check if the user is a store owner but store data is missing
+        final userRole = profileData['role'] ?? 'customer';
+        if (userRole == 'store' || userRole == 'store_owner') {
           setState(() {
-            store = StoreModel.fromJson(profileData['store']);
             isLoading = false;
+            errorMessage = 'Store data not found. Please contact support.';
           });
-          _fadeController.forward();
-          _slideController.forward();
         } else {
           setState(() {
             isLoading = false;
-            errorMessage = 'Data toko tidak ditemukan';
+            errorMessage = 'You are not authorized to access store profile.';
           });
         }
       }
     } catch (e) {
       setState(() {
         isLoading = false;
-        errorMessage = 'Gagal memuat data: $e';
+        errorMessage = _getErrorMessage(e.toString());
       });
       print('Error loading store data: $e');
     }
   }
 
-  // Simplified logout implementation
+  String _getErrorMessage(String error) {
+    if (error.contains('Session expired')) {
+      return 'Session expired. Please login again.';
+    } else if (error.contains('Authentication token not found')) {
+      return 'Authentication required. Please login.';
+    } else if (error.contains('Failed to get profile')) {
+      return 'Unable to load profile. Please check your connection.';
+    } else {
+      return 'Failed to load store data. Please try again.';
+    }
+  }
+
+  // Enhanced logout implementation with better error handling
   void _handleLogout() async {
     // Show loading dialog
     showDialog(
@@ -154,19 +197,43 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
 
     try {
       // Call logout service
-      await AuthService.logout();
+      final success = await AuthService.logout();
 
-      // Navigate to login page
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginPage()),
-            (route) => false,
-      );
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      if (success) {
+        // Navigate to login page
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+              (route) => false,
+        );
+      } else {
+        // Show error but still navigate to login
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Logout completed with warnings'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+              (route) => false,
+        );
+      }
     } catch (e) {
       print('Logout error: $e');
-      // Even if logout fails, navigate to login page
+
       if (!mounted) return;
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      // Even if logout fails, navigate to login page for security
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -176,7 +243,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
   }
 
   void _viewStoreImage() {
-    if (store == null || store!.imageUrl.isEmpty) {
+    if (store == null || store!.imageUrl == null || store!.imageUrl!.isEmpty) {
       return;
     }
 
@@ -207,7 +274,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
                   child: ImageService.displayImage(
-                    imageSource: store!.imageUrl,
+                    imageSource: store!.imageUrl!,
                     width: double.infinity,
                     height: double.infinity,
                     fit: BoxFit.contain,
@@ -372,12 +439,12 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                         ),
 
                         // Store Image Background
-                        if (store?.imageUrl != null && store!.imageUrl.isNotEmpty)
+                        if (store?.imageUrl != null && store!.imageUrl!.isNotEmpty)
                           Positioned.fill(
                             child: Opacity(
                               opacity: 0.3,
                               child: ImageService.displayImage(
-                                imageSource: store!.imageUrl,
+                                imageSource: store!.imageUrl!,
                                 width: double.infinity,
                                 height: double.infinity,
                                 fit: BoxFit.cover,
@@ -412,7 +479,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                                       ),
                                     ),
                                     GestureDetector(
-                                      onTap: store?.imageUrl != null && store!.imageUrl.isNotEmpty
+                                      onTap: store?.imageUrl != null && store!.imageUrl!.isNotEmpty
                                           ? _viewStoreImage
                                           : null,
                                       child: Hero(
@@ -436,9 +503,9 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                                           ),
                                           child: ClipRRect(
                                             borderRadius: BorderRadius.circular(16),
-                                            child: store?.imageUrl != null && store!.imageUrl.isNotEmpty
+                                            child: store?.imageUrl != null && store!.imageUrl!.isNotEmpty
                                                 ? ImageService.displayImage(
-                                              imageSource: store!.imageUrl,
+                                              imageSource: store!.imageUrl!,
                                               width: 130,
                                               height: 130,
                                               fit: BoxFit.cover,
@@ -475,7 +542,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                                       ),
                                     ),
                                     // Rating Badge
-                                    if (store?.rating != null && store!.rating > 0)
+                                    if (store?.rating != null && store!.rating! > 0)
                                       Positioned(
                                         bottom: 0,
                                         right: 0,
@@ -581,7 +648,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                                         vertical: 8,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.green.withOpacity(0.2),
+                                        color: _getStatusColor(store?.status ?? 'active').withOpacity(0.2),
                                         borderRadius: BorderRadius.circular(20),
                                         border: Border.all(
                                           color: Colors.white.withOpacity(0.3),
@@ -601,7 +668,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                                           ),
                                           const SizedBox(width: 6),
                                           Text(
-                                            'OPEN',
+                                            _getStatusText(store?.status ?? 'active'),
                                             style: const TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.bold,
@@ -710,7 +777,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                         _buildInfoItem(
                           icon: FontAwesomeIcons.phone,
                           title: 'Phone Number',
-                          value: store?.phoneNumber ?? '-',
+                          value: store?.phone ?? '-',
                           iconColor: Colors.green[600]!,
                         ),
                       ],
@@ -743,7 +810,48 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 32),
+
+                    // Store Statistics Section
+                    if (store?.rating != null || store?.totalProducts != null)
+                      Column(
+                        children: [
+                          _buildSectionHeader(
+                            icon: Icons.analytics,
+                            title: 'Store Statistics',
+                            color: Colors.indigo[700]!,
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              if (store?.rating != null)
+                                Expanded(
+                                  child: _buildStatCard(
+                                    icon: Icons.star,
+                                    title: 'Rating',
+                                    value: store!.rating!.toStringAsFixed(1),
+                                    subtitle: '${store!.reviewCount ?? 0} reviews',
+                                    color: Colors.amber[600]!,
+                                  ),
+                                ),
+                              if (store?.rating != null && store?.totalProducts != null)
+                                const SizedBox(width: 16),
+                              if (store?.totalProducts != null)
+                                Expanded(
+                                  child: _buildStatCard(
+                                    icon: Icons.inventory,
+                                    title: 'Products',
+                                    value: '${store!.totalProducts}',
+                                    subtitle: 'menu items',
+                                    color: Colors.blue[600]!,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 32),
+                        ],
+                      ),
 
                     // Logout Button
                     Container(
@@ -832,6 +940,32 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     );
   }
 
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return Colors.green;
+      case 'inactive':
+        return Colors.red;
+      case 'closed':
+        return Colors.grey;
+      default:
+        return Colors.green;
+    }
+  }
+
+  String _getStatusText(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return 'OPEN';
+      case 'inactive':
+        return 'CLOSED';
+      case 'closed':
+        return 'CLOSED';
+      default:
+        return 'OPEN';
+    }
+  }
+
   Widget _buildErrorView() {
     return Center(
       child: Column(
@@ -852,14 +986,17 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
             ),
           ),
           const SizedBox(height: 12),
-          Text(
-            errorMessage ?? 'Please check your connection',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-              fontFamily: GlobalStyle.fontFamily,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            child: Text(
+              errorMessage ?? 'Please check your connection',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
           ElevatedButton.icon(
@@ -918,23 +1055,6 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
   }
 
   Widget _buildInfoCard({required List<Widget> children}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(children: children),
-    );
-  }
-
-  Widget _buildSettingsCard({required List<Widget> children}) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1075,71 +1195,6 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSettingItem({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  icon,
-                  size: 24,
-                  color: Colors.grey[700],
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: GlobalStyle.fontColor,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.arrow_forward_ios,
-                size: 16,
-                color: Colors.grey[400],
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

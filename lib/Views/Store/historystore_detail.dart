@@ -3,12 +3,13 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:lottie/lottie.dart';
 import 'package:del_pick/Models/order.dart';
-import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/user.dart';
 import 'package:del_pick/Models/driver.dart';
-import 'package:geotypes/geotypes.dart' as geotypes;
+import 'package:del_pick/Models/order_item.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mapbox;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/store_service.dart';
@@ -50,8 +51,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   String _errorMessage = '';
   Map<String, dynamic> _orderData = {};
   Order? _orderObject;
-  Customer? _customer;
+  User? _customer;
   Driver? _driver;
+  Store? _store;
   bool _isRefreshing = false;
   bool _isUpdatingStatus = false;
 
@@ -144,7 +146,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     return (fee / 1000).ceil() * 1000;
   }
 
-  // Load order data using getOrdersByStore() to get the complete order with customer and driver info
+  // Load order data using getOrderById for specific order details
   Future<void> _loadOrderData() async {
     setState(() {
       _isLoading = true;
@@ -152,30 +154,19 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     });
 
     try {
-      // Load orders from the store using getOrdersByStore which includes customer and driver info
-      final ordersData = await OrderService.getOrdersByStore();
+      // Use getOrderById to get complete order details with all relationships
+      final orderData = await OrderService.getOrderById(widget.orderId!);
 
-      // Find the specific order by ID
-      if (ordersData['orders'] != null && ordersData['orders'] is List) {
-        final orders = ordersData['orders'] as List;
-        final targetOrder = orders.firstWhere(
-              (order) => order['id'].toString() == widget.orderId,
-          orElse: () => null,
-        );
+      if (orderData.isNotEmpty) {
+        setState(() {
+          _orderData = Map<String, dynamic>.from(orderData);
+          _isLoading = false;
+        });
 
-        if (targetOrder != null) {
-          setState(() {
-            _orderData = Map<String, dynamic>.from(targetOrder);
-            _isLoading = false;
-          });
-
-          // Process the order data
-          _processOrderData();
-        } else {
-          throw Exception('Order not found');
-        }
+        // Process the order data
+        _processOrderData();
       } else {
-        throw Exception('No orders data received');
+        throw Exception('Order not found or empty response');
       }
     } catch (e) {
       setState(() {
@@ -195,7 +186,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     });
 
     try {
-      // Reload from getOrdersByStore to get updated data
       await _loadOrderData();
       setState(() {
         _hasStatusChanged = true;
@@ -215,20 +205,14 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   void _processOrderData() {
     try {
       // Check if the order data has all the necessary keys
-      if (_orderData == null) {
-        throw Exception("Order data is null");
+      if (_orderData.isEmpty) {
+        throw Exception("Order data is empty");
       }
 
       // Debug logging
       print('Processing order data: ${_orderData.keys.join(', ')}');
 
-      // Extract coordinate data if available
-      _extractCoordinates();
-
-      // Calculate distance if coordinates are available
-      _calculateDistanceAndFee();
-
-      // Create Order object from raw data
+      // Create Order object from raw data using the updated model
       if (_orderData['id'] != null) {
         try {
           _orderObject = Order.fromJson(_orderData);
@@ -239,9 +223,16 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         }
       }
 
-      // Extract customer and driver information from embedded data
+      // Extract nested objects using the updated models
       _extractCustomerInfo();
       _extractDriverInfo();
+      _extractStoreInfo();
+
+      // Extract coordinate data if available
+      _extractCoordinates();
+
+      // Calculate distance if coordinates are available
+      _calculateDistanceAndFee();
 
       // Start animations
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -265,25 +256,21 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   // Extract coordinates from order data
   void _extractCoordinates() {
-    // Store coordinates - check store object first, then fallback to direct properties
-    _storeLatitude = _orderData['store']?['latitude'] ??
-        _orderData['storeLatitude'] ??
-        _orderObject?.store.latitude;
+    // Store coordinates - from store object
+    if (_store != null) {
+      _storeLatitude = _store!.latitude;
+      _storeLongitude = _store!.longitude;
+    } else if (_orderData['store'] != null) {
+      _storeLatitude = (_orderData['store']['latitude'] as num?)?.toDouble();
+      _storeLongitude = (_orderData['store']['longitude'] as num?)?.toDouble();
+    }
 
-    _storeLongitude = _orderData['store']?['longitude'] ??
-        _orderData['storeLongitude'] ??
-        _orderObject?.store.longitude;
-
-    // Customer coordinates - check deliveryAddress for lat/lng, or customer object
-    _customerLatitude = _orderData['latitude'] ??
-        _orderData['customerLatitude'] ??
-        _orderData['customer']?['latitude'] ??
-        (_orderData['tracking']?['customerPosition']?['latitude']);
-
-    _customerLongitude = _orderData['longitude'] ??
-        _orderData['customerLongitude'] ??
-        _orderData['customer']?['longitude'] ??
-        (_orderData['tracking']?['customerPosition']?['longitude']);
+    // Customer coordinates - from delivery address or customer location
+    // Note: This might need adjustment based on how customer location is stored
+    _customerLatitude = (_orderData['delivery_latitude'] as num?)?.toDouble() ??
+        (_orderData['customer']?['latitude'] as num?)?.toDouble();
+    _customerLongitude = (_orderData['delivery_longitude'] as num?)?.toDouble() ??
+        (_orderData['customer']?['longitude'] as num?)?.toDouble();
 
     // Debug coordinates
     print('Store coordinates: $_storeLatitude, $_storeLongitude');
@@ -307,53 +294,54 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       print('Calculated delivery fee: $_calculatedDeliveryFee');
     } else {
       print('Cannot calculate distance: Coordinates missing');
-      // Use the existing service charge from order data if available
-      _calculatedDeliveryFee = _orderObject?.serviceCharge ??
-          double.tryParse(_orderData['serviceCharge']?.toString() ?? '0') ??
-          double.tryParse(_orderData['deliveryFee']?.toString() ?? '0') ?? 0;
+      // Use the existing delivery fee from order data if available
+      _calculatedDeliveryFee = _orderObject?.deliveryFee ??
+          (_orderData['delivery_fee'] as num?)?.toDouble() ?? 0.0;
     }
   }
 
-  // Extract customer information from embedded data
+  // Extract customer information using the User model
   void _extractCustomerInfo() {
     try {
-      // Customer info is now directly embedded in the order response
-      if (_orderData['customer'] != null) {
-        _customer = Customer.fromJson(_orderData['customer']);
+      if (_orderObject?.customer != null) {
+        _customer = _orderObject!.customer;
+        print('Customer extracted from Order object: ${_customer?.name}');
+      } else if (_orderData['customer'] != null) {
+        _customer = User.fromJson(_orderData['customer']);
         print('Customer extracted from embedded data: ${_customer?.name}');
-      } else if (_orderData['customerId'] != null) {
-        // Fallback to create basic customer object if only ID is available
-        final String customerName = _orderData['customerName'] ?? 'Customer';
-        final String phoneNumber = _orderData['customerPhone'] ?? '';
-
-        _customer = Customer(
-          id: _orderData['customerId'].toString(),
-          name: customerName,
-          email: '',
-          phoneNumber: phoneNumber,
-          role: 'customer',
-        );
-        print('Basic customer object created: ${_customer?.name}');
       }
     } catch (e) {
       print('Error extracting customer info: $e');
     }
   }
 
-  // Extract driver information from embedded data
+  // Extract driver information using the Driver model
   void _extractDriverInfo() {
     try {
-      // Driver info is now directly embedded in the order response
-      if (_orderData['driver'] != null) {
+      if (_orderObject?.driver != null) {
+        _driver = _orderObject!.driver;
+        print('Driver extracted from Order object: ${_driver?.name}');
+      } else if (_orderData['driver'] != null) {
         _driver = Driver.fromJson(_orderData['driver']);
         print('Driver extracted from embedded data: ${_driver?.name}');
-      } else if (_orderData['driverId'] != null) {
-        // If we only have driver ID, try to create a basic driver object
-        // Note: with the new structure, driver data should always be embedded
-        print('Only driver ID available: ${_orderData['driverId']}');
       }
     } catch (e) {
       print('Error extracting driver info: $e');
+    }
+  }
+
+  // Extract store information using the Store model
+  void _extractStoreInfo() {
+    try {
+      if (_orderObject?.store != null) {
+        _store = _orderObject!.store;
+        print('Store extracted from Order object: ${_store?.name}');
+      } else if (_orderData['store'] != null) {
+        _store = Store.fromJson(_orderData['store']);
+        print('Store extracted from embedded data: ${_store?.name}');
+      }
+    } catch (e) {
+      print('Error extracting store info: $e');
     }
   }
 
@@ -366,7 +354,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     super.dispose();
   }
 
-  // Update order status with API call
+  // Update order status with API call using the updated service
   Future<void> _updateOrderStatus(String status) async {
     if (_isUpdatingStatus) return;
 
@@ -380,7 +368,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       // Based on the status, we determine what action to take
       String action = '';
       switch (status) {
-        case 'approved':
+        case 'confirmed':
           action = 'approve';
           break;
         case 'cancelled':
@@ -391,7 +379,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       }
 
       print('Updating order status to: $status (action: $action)');
-      await OrderService.processOrderByStore(_orderObject?.id ?? _orderData['id'].toString(), action);
+
+      final orderId = _orderObject?.id?.toString() ?? _orderData['id']?.toString() ?? '';
+      await OrderService.processOrderByStore(orderId, action);
 
       // Update local state to reflect change
       setState(() {
@@ -401,7 +391,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         // If we have an Order object, update it too
         if (_orderObject != null) {
           _orderObject = _orderObject!.copyWith(
-              status: OrderStatus.fromString(status)
+              orderStatus: OrderStatus.fromString(status)
           );
         }
       });
@@ -410,7 +400,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       await _refreshOrderData();
 
       // Play sound based on status
-      if (status == 'approved') {
+      if (status == 'confirmed') {
         _playSound('audio/found.wav');
       } else if (status == 'cancelled') {
         _playSound('audio/alert.wav');
@@ -441,49 +431,21 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-  // Get current order status from data
+  // Get current order status from data using the updated enum
   OrderStatus _getOrderStatus() {
     // First check if we have an Order object with a status
     if (_orderObject != null) {
-      return _orderObject!.status;
+      return _orderObject!.orderStatus;
     }
 
     // Then try to get status from order data
-    String? status = _orderData['order_status'] ?? _orderData['status'] as String?;
+    String? status = _orderData['order_status'] as String?;
     if (status == null) {
       return OrderStatus.pending; // Default if we can't find status
     }
 
-    // Convert string status to OrderStatus enum
-    switch (status.toLowerCase()) {
-      case 'approved':
-        return OrderStatus.approved;
-      case 'preparing':
-        return OrderStatus.preparing;
-      case 'on_delivery':
-        return OrderStatus.on_delivery;
-      case 'delivered':
-        return OrderStatus.delivered;
-      case 'cancelled':
-        return OrderStatus.cancelled;
-      case 'completed':
-        return OrderStatus.completed;
-      case 'driverassigned':
-        return OrderStatus.driverAssigned;
-      case 'driverheadingtostore':
-        return OrderStatus.driverHeadingToStore;
-      case 'driveratstore':
-        return OrderStatus.driverAtStore;
-      case 'driverheadingtocustomer':
-        return OrderStatus.driverHeadingToCustomer;
-      case 'driverarrived':
-        return OrderStatus.driverArrived;
-      case 'ready_for_pickup':
-        return OrderStatus.driverHeadingToStore; // Map to closest status
-      default:
-        print('Unknown status: $status, defaulting to pending');
-        return OrderStatus.pending;
-    }
+    // Convert string status to OrderStatus enum using the updated enum
+    return OrderStatus.fromString(status);
   }
 
   void _showCancelConfirmationDialog() {
@@ -646,7 +608,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     TextButton(
                       onPressed: () {
                         Navigator.of(context).pop();
-                        _updateOrderStatus('approved');
+                        _updateOrderStatus('confirmed');
                       },
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
@@ -674,75 +636,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
-  // Create tracking model to pass to OrderStatusCard
-  Tracking _createTracking() {
-    // If we have driver info, use that for tracking
-    final Driver trackingDriver = _driver ?? Driver.empty();
-
-    // Create positions based on available data
-    final storePosition = geotypes.Position(
-        _storeLongitude ?? 99.10379,
-        _storeLatitude ?? 2.34479
-    );
-
-    final customerPosition = geotypes.Position(
-        _customerLongitude ?? 99.10179,
-        _customerLatitude ?? 2.34279
-    );
-
-    final driverPosition = geotypes.Position(99.10279, 2.34329);
-
-    return Tracking(
-      orderId: _orderObject?.id ?? _orderData['id']?.toString() ?? '',
-      driver: trackingDriver,
-      driverPosition: driverPosition,
-      customerPosition: customerPosition,
-      storePosition: storePosition,
-      routeCoordinates: [
-        storePosition,
-        customerPosition,
-      ],
-      status: _getOrderStatus(),
-      deliveryStatus: _orderObject?.deliveryStatus,
-      estimatedArrival: DateTime.now().add(const Duration(minutes: 15)),
-      customStatusMessage: _getStatusMessage(_getOrderStatus()),
-    );
-  }
-
-  String _getStatusMessage(OrderStatus status) {
-    // If we have an Order object with tracking, use its status message
-    if (_orderObject?.tracking != null) {
-      return _orderObject!.tracking!.statusMessage;
-    }
-
-    switch (status) {
-      case OrderStatus.driverAssigned:
-        return 'Driver telah ditugaskan ke pesanan Anda';
-      case OrderStatus.driverHeadingToStore:
-        return 'Pesanan siap untuk diambil driver';
-      case OrderStatus.driverAtStore:
-        return 'Driver sedang mengambil pesanan Anda';
-      case OrderStatus.driverHeadingToCustomer:
-        return 'Driver sedang dalam perjalanan mengantar pesanan Anda';
-      case OrderStatus.driverArrived:
-        return 'Driver telah tiba di lokasi Anda';
-      case OrderStatus.completed:
-        return 'Pesanan Anda telah selesai';
-      case OrderStatus.cancelled:
-        return 'Pesanan Anda dibatalkan';
-      case OrderStatus.approved:
-        return 'Pesanan telah dikonfirmasi';
-      case OrderStatus.preparing:
-        return 'Pesanan sedang dipersiapkan';
-      case OrderStatus.on_delivery:
-        return 'Pesanan sedang dalam pengiriman';
-      case OrderStatus.delivered:
-        return 'Pesanan telah diterima';
-      default:
-        return 'Pesanan sedang diproses';
-    }
-  }
-
   Widget _buildCard({required Widget child, required int index}) {
     // Ensure index is within bounds
     final animationIndex = index < _cardAnimations.length ? index : 0;
@@ -768,19 +661,18 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   // Updated to use the new OrderStatusCard implementation
-  // Di dalam _buildOrderStatusCard(), ganti dengan:
   Widget _buildOrderStatusCard() {
     return _buildCard(
       index: 0,
       child: StoreOrderStatusCard(
         orderData: {
-          'id': _orderObject?.id ?? _orderData['id']?.toString() ?? '',
+          'id': _orderObject?.id?.toString() ?? _orderData['id']?.toString() ?? '',
           'order_status': _getOrderStatus().toString().split('.').last,
-          'total': _orderObject?.total ?? double.tryParse(_orderData['total']?.toString() ?? '0') ?? 0,
+          'total_amount': _orderObject?.totalAmount ?? (_orderData['total_amount'] as num?)?.toDouble() ?? 0,
           'customer': {
-            'name': _customer?.name ?? _orderData['customer']?['name'] ?? 'Customer',
-            'avatar': _customer?.avatar ?? _orderData['customer']?['avatar'],
-            'phone': _customer?.phoneNumber ?? _orderData['customer']?['phone'] ?? '',
+            'name': _customer?.name ?? 'Customer',
+            'avatar': _customer?.avatar,
+            'phone': _customer?.phone ?? '',
           },
           'items': _getOrderItems().map((item) => {
             'id': item.id,
@@ -796,7 +688,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   Widget _buildDriverInfoCard() {
     // Check if driver info is available
-    if (_driver == null && _orderData['driver'] == null) {
+    if (_driver == null) {
       return const SizedBox.shrink();
     }
 
@@ -805,23 +697,12 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
     // Only show driver info for certain statuses
     if (![
-      OrderStatus.driverAssigned,
-      OrderStatus.driverHeadingToStore,
-      OrderStatus.driverAtStore,
-      OrderStatus.driverHeadingToCustomer,
-      OrderStatus.driverArrived,
+      OrderStatus.ready_for_pickup,
       OrderStatus.on_delivery,
       OrderStatus.delivered,
-      OrderStatus.completed
     ].contains(currentStatus)) {
       return const SizedBox.shrink();
     }
-
-    // Extract driver data from either the Driver object or raw data
-    final String driverName = _driver?.name ?? _orderData['driver']?['name'] ?? 'Driver';
-    final String vehicleNumber = _driver?.vehicleNumber ?? _orderData['driver']?['vehicle_number'] ?? '';
-    final String phoneNumber = _driver?.phoneNumber ?? _orderData['driver']?['phone'] ?? '';
-    final String? profileImageUrl = _driver?.profileImageUrl ?? _orderData['driver']?['avatar'];
 
     return _buildCard(
       index: 1,
@@ -848,11 +729,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             Row(
               children: [
                 // Show driver image if available, otherwise a placeholder
-                if (profileImageUrl != null && profileImageUrl.isNotEmpty)
+                if (_driver!.profileImageUrl != null && _driver!.profileImageUrl!.isNotEmpty)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(25),
                     child: ImageService.displayImage(
-                      imageSource: profileImageUrl,
+                      imageSource: _driver!.profileImageUrl!,
                       width: 50,
                       height: 50,
                       fit: BoxFit.cover,
@@ -895,7 +776,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Driver: $driverName',
+                        'Driver: ${_driver!.name}',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
@@ -905,17 +786,17 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'No. Kendaraan: $vehicleNumber',
+                        'No. Kendaraan: ${_driver!.vehiclePlate}',
                         style: TextStyle(
                           color: Colors.grey[600],
                           fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
-                      if (phoneNumber.isNotEmpty)
+                      if (_driver!.phoneNumber.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
-                            'Telepon: $phoneNumber',
+                            'Telepon: ${_driver!.phoneNumber}',
                             style: TextStyle(
                               color: Colors.grey[600],
                               fontFamily: GlobalStyle.fontFamily,
@@ -928,7 +809,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 IconButton(
                   icon: const Icon(Icons.chat),
                   onPressed: () => _openWhatsApp(
-                    phoneNumber,
+                    _driver!.phoneNumber,
                     isDriver: true,
                   ),
                   style: IconButton.styleFrom(
@@ -938,7 +819,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 ),
                 IconButton(
                   icon: const Icon(Icons.call),
-                  onPressed: () => _callPhoneNumber(phoneNumber),
+                  onPressed: () => _callPhoneNumber(_driver!.phoneNumber),
                   style: IconButton.styleFrom(
                     backgroundColor: Colors.green.shade100,
                     foregroundColor: Colors.green,
@@ -953,17 +834,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   Widget _buildCustomerInfoCard() {
-    // Extract customer data from either the Customer object or raw data
-    final String customerName = _customer?.name ??
-        _orderData['customer']?['name'] ??
-        _orderData['customerName'] ?? 'Customer';
-    final String phoneNumber = _customer?.phoneNumber ??
-        _orderData['customer']?['phone'] ??
-        _orderData['phoneNumber'] ?? '';
-    final String deliveryAddress = _orderData['deliveryAddress'] ??
-        _orderData['customerAddress'] ?? '';
-    final String? profileImageUrl = _customer?.avatar ??
-        _orderData['customer']?['avatar'];
+    if (_customer == null) {
+      return const SizedBox.shrink();
+    }
 
     return _buildCard(
       index: 2,
@@ -991,11 +864,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             Row(
               children: [
                 // Show customer image if available, otherwise a placeholder
-                if (profileImageUrl != null && profileImageUrl.isNotEmpty)
+                if (_customer!.avatar != null && _customer!.avatar!.isNotEmpty)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(30),
                     child: ImageService.displayImage(
-                      imageSource: profileImageUrl,
+                      imageSource: _customer!.avatar!,
                       width: 60,
                       height: 60,
                       fit: BoxFit.cover,
@@ -1042,7 +915,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        customerName,
+                        _customer!.name,
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -1050,7 +923,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                           fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
-                      if (phoneNumber.isNotEmpty)
+                      if (_customer!.phone != null && _customer!.phone!.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Row(
@@ -1058,7 +931,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                               Icon(Icons.phone, color: Colors.grey[600], size: 16),
                               const SizedBox(width: 4),
                               Text(
-                                phoneNumber,
+                                _customer!.phone!,
                                 style: TextStyle(
                                   color: Colors.grey[600],
                                   fontSize: 14,
@@ -1075,7 +948,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              deliveryAddress,
+                              _orderData['delivery_address']?.toString() ?? 'Alamat tidak tersedia',
                               style: TextStyle(
                                 color: Colors.grey[600],
                                 fontSize: 14,
@@ -1109,7 +982,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       ),
                     ),
                     onPressed: () {
-                      _callPhoneNumber(phoneNumber);
+                      _callPhoneNumber(_customer!.phone);
                     },
                   ),
                 ),
@@ -1130,7 +1003,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     ),
                     onPressed: () {
                       _openWhatsApp(
-                        phoneNumber,
+                        _customer!.phone,
                         isDriver: false,
                       );
                     },
@@ -1145,21 +1018,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   Widget _buildStoreInfoCard() {
-    // Extract store data
-    final String storeName = _orderObject?.store.name ??
-        _orderData['store']?['name'] ??
-        _orderData['storeName'] ?? '';
-    final String storeAddress = _orderObject?.store.address ??
-        _orderData['store']?['address'] ??
-        _orderData['storeAddress'] ?? '';
-    final String phoneNumber = _orderObject?.store.phoneNumber ??
-        _orderData['store']?['phone'] ??
-        _orderData['storePhone'] ?? '';
-    final double rating = _orderObject?.store.rating ??
-        double.tryParse(_orderData['store']?['rating']?.toString() ?? '0') ?? 0;
-    final String? imageUrl = _orderData['store']?['image_url'] ??
-        _orderData['store']?['imageUrl'] ??
-        _orderData['store']?['image'];
+    if (_store == null) {
+      return const SizedBox.shrink();
+    }
 
     return _buildCard(
       index: 3,
@@ -1187,11 +1048,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             Row(
               children: [
                 // Show store image if available, otherwise a placeholder
-                if (imageUrl != null && imageUrl.isNotEmpty)
+                if (_store!.imageUrl != null && _store!.imageUrl!.isNotEmpty)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(30),
                     child: ImageService.displayImage(
-                      imageSource: imageUrl,
+                      imageSource: _store!.imageUrl!,
                       width: 60,
                       height: 60,
                       fit: BoxFit.cover,
@@ -1238,7 +1099,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        storeName,
+                        _store!.name,
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -1254,7 +1115,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              storeAddress,
+                              _store!.address,
                               style: TextStyle(
                                 color: Colors.grey[600],
                                 fontSize: 14,
@@ -1271,7 +1132,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                           Icon(Icons.star, color: Colors.amber, size: 16),
                           const SizedBox(width: 4),
                           Text(
-                            rating.toStringAsFixed(1),
+                            _store!.rating?.toStringAsFixed(1) ?? '0.0',
                             style: TextStyle(
                               color: Colors.grey[800],
                               fontWeight: FontWeight.w500,
@@ -1334,9 +1195,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
 
     // Create appropriate message based on who we're messaging
-    String orderNumber = _orderObject?.id ??
-        _orderData['id']?.toString() ??
-        _orderData['code']?.toString() ?? '';
+    String orderNumber = _orderObject?.id?.toString() ??
+        _orderData['id']?.toString() ?? '';
 
     if (orderNumber.length > 8) {
       orderNumber = orderNumber.substring(0, 8);
@@ -1436,24 +1296,26 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     return formatter.format(price);
   }
 
-  // Update the item price display in _buildItemsCard
+  // Updated to use OrderItem model instead of Item
   Widget _buildItemsCard() {
-    final List<Item> items = _getOrderItems();
+    final List<OrderItem> items = _getOrderItems();
 
     if (items.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    // Calculate totals
-    final double subtotal = _orderObject?.subtotal ??
-        double.tryParse(_orderData['subtotal']?.toString() ?? '0') ?? 0;
+    // Calculate totals using the Order object or fallback to data
+    final double subtotal = _orderObject?.totalAmount ??
+        (_orderData['total_amount'] as num?)?.toDouble() ?? 0.0;
+
+    // Subtract delivery fee to get item subtotal
+    final double itemSubtotal = subtotal - (_orderObject?.deliveryFee ?? 0.0);
 
     // Use calculated delivery fee
-    final double deliveryFee = _calculatedDeliveryFee;
+    final double deliveryFee = _calculatedDeliveryFee > 0 ? _calculatedDeliveryFee :
+    (_orderObject?.deliveryFee ?? 0.0);
 
-    final double totalAmount = _orderObject?.total ??
-        double.tryParse(_orderData['total']?.toString() ?? '0') ??
-        double.tryParse(_orderData['amount']?.toString() ?? '0') ?? 0;
+    final double totalAmount = subtotal;
 
     // Create additional info string for delivery fee if we have distance data
     String? deliveryFeeInfo;
@@ -1493,11 +1355,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               child: Row(
                 children: [
                   // Item image
-                  if (item.imageUrl.isNotEmpty)
+                  if (item.imageUrl != null && item.imageUrl!.isNotEmpty)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: ImageService.displayImage(
-                        imageSource: item.imageUrl,
+                        imageSource: item.imageUrl!,
                         width: 60,
                         height: 60,
                         fit: BoxFit.cover,
@@ -1576,7 +1438,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Divider(),
             ),
-            _buildPaymentRow('Subtotal', subtotal),
+            _buildPaymentRow('Subtotal', itemSubtotal),
             const SizedBox(height: 8),
             _buildPaymentRow(
                 'Biaya Layanan',
@@ -1591,170 +1453,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
-  Widget _buildStoreReviewCard() {
-    // Check if review data exists and order is completed
-    final reviewData = _orderData['review'] as Map<String, dynamic>?;
-    final isCompleted = _getOrderStatus() == OrderStatus.completed;
-
-    // Don't show review card if order is not completed or there's no review
-    if (!isCompleted || reviewData == null) {
-      return const SizedBox.shrink();
-    }
-
-    final double rating = (reviewData['rating'] as num?)?.toDouble() ?? 0.0;
-    final String reviewText = reviewData['comment']?.toString() ?? '';
-
-    return _buildCard(
-      index: 5,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: GlobalStyle.borderColor.withOpacity(0.1)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.amber.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.star, color: Colors.amber),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Ulasan Pelanggan',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.amber.shade800,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.amber.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child:
-                  const Icon(Icons.person, color: Colors.amber, size: 30),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _customer?.name ??
-                            _orderData['customer']?['name'] ??
-                            _orderData['customerName'] ?? 'Pelanggan',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Order #${_orderObject?.id.substring(0, 8) ?? _orderData['id']?.toString().substring(0, min(8, (_orderData['id']?.toString().length ?? 0))) ?? ''}',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Rating',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: GlobalStyle.fontColor,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: GlobalStyle.lightColor.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: GlobalStyle.primaryColor.withOpacity(0.1),
-                  width: 1,
-                ),
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(5, (index) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Icon(
-                      index < rating ? Icons.star : Icons.star_border,
-                      color: index < rating ? Colors.amber : Colors.grey[400],
-                      size: 40,
-                    ),
-                  );
-                }),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Komentar',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: GlobalStyle.fontColor,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: GlobalStyle.borderColor.withOpacity(0.3),
-                ),
-              ),
-              child: Text(
-                reviewText.isEmpty ? 'Tidak ada komentar' : reviewText,
-                style: TextStyle(
-                  color: Colors.grey[800],
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildActionButtons() {
     // Get current status
     final OrderStatus status = _getOrderStatus();
 
     // Only show action buttons for pending orders (awaiting store confirmation)
-    // After that, only the driver can update the status
     if (status == OrderStatus.pending) {
       return Row(
         children: [
@@ -1826,8 +1529,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ),
         ],
       );
-    } else if (status == OrderStatus.approved || status == OrderStatus.driverAssigned ||
-        status == OrderStatus.driverHeadingToStore) {
+    } else if (status == OrderStatus.confirmed || status == OrderStatus.preparing) {
       // For approved or in-progress orders, show status message
       return Row(
         children: [
@@ -1854,8 +1556,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ),
         ],
       );
-    } else if (status == OrderStatus.driverAtStore || status == OrderStatus.driverHeadingToCustomer ||
-        status == OrderStatus.on_delivery) {
+    } else if (status == OrderStatus.ready_for_pickup || status == OrderStatus.on_delivery) {
       // For orders being delivered
       return Row(
         children: [
@@ -1882,7 +1583,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ),
         ],
       );
-    } else if (status == OrderStatus.completed || status == OrderStatus.delivered) {
+    } else if (status == OrderStatus.delivered) {
       // For completed orders
       return Row(
         children: [
@@ -1987,42 +1688,18 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
-  // Extract items from order data
-  List<Item> _getOrderItems() {
-    if (_orderObject != null) {
-      return _orderObject!.items;
+  // Extract items from order data using OrderItem model
+  List<OrderItem> _getOrderItems() {
+    if (_orderObject?.items != null) {
+      return _orderObject!.items!;
     }
 
     final itemsData = _orderData['items'] as List?;
     if (itemsData == null || itemsData.isEmpty) {
-      // Fallback - try orderItems
-      final orderItemsData = _orderData['orderItems'] as List?;
-      if (orderItemsData == null || orderItemsData.isEmpty) {
-        return [];
-      }
-
-      return orderItemsData.map((item) => Item(
-        id: item['id']?.toString() ?? '',
-        name: item['name'] ?? '',
-        price: (item['price'] ?? 0).toDouble(),
-        quantity: item['quantity'] ?? 1,
-        imageUrl: item['imageUrl'] ?? item['image'] ?? '',
-        isAvailable: true,
-        status: 'available',
-        description: item['description'] ?? '',
-      )).toList();
+      return [];
     }
 
-    return itemsData.map((item) => Item(
-      id: item['id']?.toString() ?? '',
-      name: item['name'] ?? '',
-      price: (item['price'] ?? 0).toDouble(),
-      quantity: item['quantity'] ?? 1,
-      imageUrl: item['imageUrl'] ?? item['image'] ?? '',
-      isAvailable: true,
-      status: 'available',
-      description: item['description'] ?? '',
-    )).toList();
+    return itemsData.map((item) => OrderItem.fromJson(item)).toList();
   }
 
   @override
@@ -2072,7 +1749,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                   _buildCustomerInfoCard(),
                   _buildStoreInfoCard(),
                   _buildItemsCard(),
-                  _buildStoreReviewCard(),
                   const SizedBox(height: 80), // Space for bottom button
                 ],
               ),

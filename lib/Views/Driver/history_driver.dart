@@ -3,15 +3,15 @@ import 'package:intl/intl.dart';
 import 'package:lottie/lottie.dart';
 import '../../Models/user.dart';
 import '../../Models/driver.dart';
+import '../../Models/order.dart';
+import '../../Models/order_item.dart';
 import '../../Models/order_enum.dart';
+import '../../Models/store.dart';
 import '../Component/driver_bottom_navigation.dart';
-import 'package:del_pick/Models/item_model.dart';
-import 'package:del_pick/Models/store.dart';
-import 'package:del_pick/Models/tracking.dart';
-import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Driver/history_driver_detail.dart';
 import 'package:del_pick/Services/driver_service.dart';
+import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'home_driver.dart';
 
@@ -27,7 +27,7 @@ class HistoryDriverPage extends StatefulWidget {
 class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProviderStateMixin {
   int _selectedIndex = 1; // History tab selected
   late TabController _tabController;
-  Customer? _customer;
+  User? _currentUser;
 
   // Animation controllers
   late List<AnimationController> _cardControllers;
@@ -44,8 +44,10 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
   bool isLoading = true;
   String errorMessage = '';
 
-  // Driver requests data
-  List<Map<String, dynamic>> driverRequests = [];
+  // Pagination
+  int currentPage = 1;
+  bool hasMoreData = true;
+  bool isLoadingMore = false;
 
   // Colors - standardized with global_style
   final Color _primaryGradientStart = GlobalStyle.primaryColor;
@@ -78,8 +80,8 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
     // Load user profile data
     _loadUserProfile();
 
-    // Fetch driver requests from API
-    _fetchDriverRequests();
+    // Fetch driver orders from API
+    _fetchDriverOrders();
   }
 
   Future<void> _loadUserProfile() async {
@@ -88,7 +90,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
 
       if (userData != null) {
         setState(() {
-          _customer = Customer.fromJson(userData);
+          _currentUser = User.fromJson(userData);
         });
         print('User profile loaded successfully');
       } else {
@@ -96,9 +98,9 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
 
         try {
           final profileData = await AuthService.getProfile();
-          if (profileData != null) {
+          if (profileData.isNotEmpty) {
             setState(() {
-              _customer = Customer.fromJson(profileData);
+              _currentUser = User.fromJson(profileData);
             });
             print('User profile loaded from API');
           }
@@ -111,179 +113,118 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
     }
   }
 
-  Future<void> _fetchDriverRequests() async {
+  Future<void> _fetchDriverOrders({bool isRefresh = false}) async {
+    if (isRefresh) {
+      setState(() {
+        currentPage = 1;
+        hasMoreData = true;
+        isLoading = true;
+        errorMessage = '';
+        orders.clear();
+      });
+    } else if (!hasMoreData || isLoadingMore) {
+      return;
+    }
+
     setState(() {
-      isLoading = true;
-      errorMessage = '';
+      if (currentPage == 1) {
+        isLoading = true;
+        errorMessage = '';
+      } else {
+        isLoadingMore = true;
+      }
     });
 
     try {
-      print('Fetching driver requests...');
+      print('Fetching driver orders - Page: $currentPage');
 
-      final Map<String, dynamic> response = await DriverService.getDriverRequests();
-      print('Driver requests response received');
+      final Map<String, dynamic> response = await DriverService.getDriverOrders(
+        page: currentPage,
+        limit: 10,
+      );
 
-      if (response.containsKey('requests') && response['requests'] is List) {
-        driverRequests = List<Map<String, dynamic>>.from(response['requests']);
-        print('Found ${driverRequests.length} driver requests');
+      print('Driver orders response received');
 
-        await _processDriverRequests();
-      } else {
-        print('No requests found in response');
-        setState(() {
-          orders = [];
-          isLoading = false;
-          _setupAnimations(0);
-        });
-      }
-    } catch (e) {
-      print('Error fetching driver requests: $e');
-      setState(() {
-        errorMessage = 'Gagal memuat data permintaan: $e';
-        isLoading = false;
-      });
-    }
-  }
+      final List<Order> fetchedOrders = [];
 
-  Future<void> _processDriverRequests() async {
-    final List<Order> fetchedOrders = [];
+      // Process orders from response
+      if (response.containsKey('orders') && response['orders'] is List) {
+        final List<dynamic> ordersData = response['orders'];
 
-    try {
-      for (var request in driverRequests) {
-        final String requestId = request['id'].toString();
-        print('Processing driver request: $requestId');
-
-        try {
-          final Map<String, dynamic> requestDetail = await DriverService.getDriverRequestDetail(requestId);
-
-          if (requestDetail.containsKey('order')) {
-            Order order = _parseOrderFromJson(requestDetail['order']);
+        for (var orderData in ordersData) {
+          try {
+            final Order order = Order.fromJson(orderData);
             fetchedOrders.add(order);
-            print('Added order ${order.id} to history');
-          } else {
-            print('No order data found in request detail');
+          } catch (e) {
+            print('Error parsing order: $e');
           }
-        } catch (e) {
-          print('Error fetching details for request $requestId: $e');
+        }
+      } else if (response.containsKey('data') && response['data'] is Map) {
+        // Handle nested data structure
+        final Map<String, dynamic> dataMap = response['data'];
+        if (dataMap.containsKey('orders') && dataMap['orders'] is List) {
+          final List<dynamic> ordersData = dataMap['orders'];
+
+          for (var orderData in ordersData) {
+            try {
+              final Order order = Order.fromJson(orderData);
+              fetchedOrders.add(order);
+            } catch (e) {
+              print('Error parsing order: $e');
+            }
+          }
+        }
+      } else if (response.containsKey('data') && response['data'] is List) {
+        // Handle case where data is directly a list
+        final List<dynamic> ordersData = response['data'];
+
+        for (var orderData in ordersData) {
+          try {
+            final Order order = Order.fromJson(orderData);
+            fetchedOrders.add(order);
+          } catch (e) {
+            print('Error parsing order: $e');
+          }
         }
       }
 
-      _setupAnimations(fetchedOrders.length);
+      // Check pagination
+      final int totalPages = response['totalPages'] ?? 1;
+      hasMoreData = currentPage < totalPages;
 
-      setState(() {
+      if (currentPage == 1) {
+        _setupAnimations(fetchedOrders.length);
         orders = fetchedOrders;
-        isLoading = false;
-      });
-
-      // Start animations with stagger
-      for (int i = 0; i < _cardControllers.length; i++) {
-        Future.delayed(Duration(milliseconds: 100 * i), () {
-          if (mounted && i < _cardControllers.length) {
-            _cardControllers[i].forward();
-          }
-        });
+      } else {
+        orders.addAll(fetchedOrders);
+        _setupAnimations(orders.length);
       }
 
-      print('Processed ${fetchedOrders.length} orders successfully');
-    } catch (e) {
-      print('Error processing driver requests: $e');
       setState(() {
-        errorMessage = 'Gagal memproses data permintaan: $e';
         isLoading = false;
+        isLoadingMore = false;
+        currentPage++;
       });
-    }
-  }
 
-  Order _parseOrderFromJson(dynamic json) {
-    // Parse store
-    StoreModel store = StoreModel(
-      id: json['store']?['id'] ?? 0,
-      name: json['store']?['name'] ?? 'Unknown Store',
-      address: json['store']?['address'] ?? 'Address not available',
-      openHours: '${json['store']?['open_time'] ?? ''} - ${json['store']?['close_time'] ?? ''}',
-      phoneNumber: json['store']?['phone'] ?? '',
-      imageUrl: json['store']?['image'] ?? '',
-    );
-
-    // Parse items
-    List<Item> items = [];
-
-    if (json['items'] is List && (json['items'] as List).isNotEmpty) {
-      for (var itemData in json['items']) {
-        items.add(Item(
-          id: itemData['id']?.toString() ?? '',
-          name: itemData['name'] ?? 'Unknown Item',
-          description: itemData['description'] ?? '',
-          price: (itemData['price'] ?? 0).toDouble(),
-          quantity: itemData['quantity'] ?? 1,
-          imageUrl: itemData['imageUrl'] ?? 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-        ));
+      // Start animations with stagger for new cards
+      if (currentPage == 2) { // First load
+        for (int i = 0; i < _cardControllers.length; i++) {
+          Future.delayed(Duration(milliseconds: 100 * i), () {
+            if (mounted && i < _cardControllers.length) {
+              _cardControllers[i].forward();
+            }
+          });
+        }
       }
-    } else if (json['orderItems'] is List && (json['orderItems'] as List).isNotEmpty) {
-      for (var itemData in json['orderItems']) {
-        items.add(Item(
-          id: itemData['id']?.toString() ?? '',
-          name: itemData['name'] ?? 'Unknown Item',
-          description: itemData['description'] ?? '',
-          price: (itemData['price'] ?? 0).toDouble(),
-          quantity: itemData['quantity'] ?? 1,
-          imageUrl: itemData['imageUrl'] ?? 'assets/images/menu_item.jpg',
-          isAvailable: true,
-          status: 'available',
-        ));
-      }
-    }
 
-    // Parse order status
-    OrderStatus status = _parseOrderStatus(json['status']);
-
-    // Parse order date
-    DateTime orderDate;
-    if (json['created_at'] != null) {
-      orderDate = DateTime.parse(json['created_at']);
-    } else if (json['orderDate'] != null) {
-      orderDate = DateTime.parse(json['orderDate']);
-    } else {
-      orderDate = DateTime.now();
-    }
-
-    // Parse delivery status if available
-    DeliveryStatus? deliveryStatus;
-    if (json['delivery_status'] != null) {
-      deliveryStatus = DeliveryStatus.fromString(json['delivery_status']);
-    }
-
-    return Order(
-      id: json['id']?.toString() ?? '',
-      code: json['code'] ?? '',
-      items: items,
-      store: store,
-      deliveryAddress: json['delivery_address'] ?? json['deliveryAddress'] ?? '',
-      subtotal: (json['subtotal'] ?? 0).toDouble(),
-      serviceCharge: (json['delivery_fee'] ?? json['serviceCharge'] ?? 0).toDouble(),
-      total: (json['total'] ?? 0).toDouble(),
-      status: status,
-      deliveryStatus: deliveryStatus,
-      orderDate: orderDate,
-      notes: json['notes'] ?? '',
-      customerId: json['user_id'] ?? json['userId'],
-      driverId: json['driver_id'] ?? json['driverId'],
-      storeId: json['store_id'] ?? json['storeId'],
-    );
-  }
-
-  OrderStatus _parseOrderStatus(String? statusString) {
-    if (statusString == null || statusString.isEmpty) {
-      return OrderStatus.pending;
-    }
-
-    try {
-      return OrderStatus.fromString(statusString);
+      print('Processed ${fetchedOrders.length} orders successfully. Total: ${orders.length}');
     } catch (e) {
-      print('Error parsing order status: $e. Using default status.');
-      return OrderStatus.pending;
+      print('Error fetching driver orders: $e');
+      setState(() {
+        errorMessage = 'Gagal memuat data pesanan: $e';
+        isLoading = false;
+        isLoadingMore = false;
+      });
     }
   }
 
@@ -337,82 +278,76 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
         return orders;
       case 1: // In progress
         return orders.where((order) =>
-        order.status != OrderStatus.completed &&
-            order.status != OrderStatus.cancelled
+        order.orderStatus == OrderStatus.confirmed ||
+            order.orderStatus == OrderStatus.preparing ||
+            order.orderStatus == OrderStatus.ready_for_pickup ||
+            order.orderStatus == OrderStatus.on_delivery
         ).toList();
       case 2: // Completed
         return orders.where((order) =>
-        order.status == OrderStatus.completed ||
-            order.status == OrderStatus.delivered
+        order.orderStatus == OrderStatus.delivered
         ).toList();
       case 3: // Cancelled
-        return orders.where((order) => order.status == OrderStatus.cancelled).toList();
+        return orders.where((order) =>
+        order.orderStatus == OrderStatus.cancelled
+        ).toList();
       default:
         return orders;
     }
   }
 
   Color getStatusColor(OrderStatus status) {
-    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
-      return const Color(0xFF10B981);
-    } else if (status == OrderStatus.cancelled) {
-      return const Color(0xFFEF4444);
-    } else if (status == OrderStatus.on_delivery ||
-        status == OrderStatus.driverHeadingToCustomer ||
-        status == OrderStatus.driverAssigned) {
-      return const Color(0xFF3B82F6);
-    } else if (status == OrderStatus.preparing ||
-        status == OrderStatus.driverAtStore ||
-        status == OrderStatus.driverHeadingToStore) {
-      return const Color(0xFFF59E0B);
-    } else {
-      return GlobalStyle.primaryColor;
+    switch (status) {
+      case OrderStatus.delivered:
+        return const Color(0xFF10B981);
+      case OrderStatus.cancelled:
+        return const Color(0xFFEF4444);
+      case OrderStatus.on_delivery:
+        return const Color(0xFF3B82F6);
+      case OrderStatus.preparing:
+      case OrderStatus.ready_for_pickup:
+        return const Color(0xFFF59E0B);
+      case OrderStatus.confirmed:
+        return GlobalStyle.primaryColor;
+      default:
+        return Colors.grey;
     }
   }
 
   IconData getStatusIcon(OrderStatus status) {
-    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
-      return Icons.check_circle;
-    } else if (status == OrderStatus.cancelled) {
-      return Icons.cancel;
-    } else if (status == OrderStatus.on_delivery ||
-        status == OrderStatus.driverHeadingToCustomer) {
-      return Icons.delivery_dining;
-    } else if (status == OrderStatus.preparing ||
-        status == OrderStatus.driverAtStore ||
-        status == OrderStatus.driverHeadingToStore) {
-      return Icons.restaurant;
-    } else if (status == OrderStatus.driverAssigned) {
-      return Icons.assignment_turned_in;
-    } else {
-      return Icons.schedule;
+    switch (status) {
+      case OrderStatus.delivered:
+        return Icons.check_circle;
+      case OrderStatus.cancelled:
+        return Icons.cancel;
+      case OrderStatus.on_delivery:
+        return Icons.delivery_dining;
+      case OrderStatus.preparing:
+      case OrderStatus.ready_for_pickup:
+        return Icons.restaurant;
+      case OrderStatus.confirmed:
+        return Icons.assignment_turned_in;
+      default:
+        return Icons.schedule;
     }
   }
 
   String getStatusText(OrderStatus status) {
     switch (status) {
-      case OrderStatus.completed:
       case OrderStatus.delivered:
         return 'Selesai';
       case OrderStatus.cancelled:
         return 'Dibatalkan';
       case OrderStatus.pending:
         return 'Menunggu';
-      case OrderStatus.approved:
+      case OrderStatus.confirmed:
         return 'Dikonfirmasi';
       case OrderStatus.preparing:
         return 'Dipersiapkan';
-      case OrderStatus.driverAssigned:
-        return 'Driver Ditugaskan';
-      case OrderStatus.driverHeadingToStore:
-        return 'Diambil';
-      case OrderStatus.driverAtStore:
-        return 'Di Toko';
-      case OrderStatus.driverHeadingToCustomer:
+      case OrderStatus.ready_for_pickup:
+        return 'Siap Diambil';
       case OrderStatus.on_delivery:
-        return 'Diantar';
-      case OrderStatus.driverArrived:
-        return 'Driver Tiba';
+        return 'Sedang Diantar';
       default:
         return 'Diproses';
     }
@@ -428,13 +363,13 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
   }
 
   String getOrderItemsText(Order order) {
-    if (order.items.isEmpty) {
+    if (order.items == null || order.items!.isEmpty) {
       return "Tidak ada item";
-    } else if (order.items.length == 1) {
-      return order.items[0].name;
+    } else if (order.items!.length == 1) {
+      return order.items![0].name;
     } else {
-      final firstItem = order.items[0].name;
-      final otherItemsCount = order.items.length - 1;
+      final firstItem = order.items![0].name;
+      final otherItemsCount = order.items!.length - 1;
       return '$firstItem, +$otherItemsCount item lainnya';
     }
   }
@@ -477,12 +412,12 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
   }
 
   Widget _buildOrderCard(Order order, int index) {
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
-    final statusColor = getStatusColor(order.status);
-    final statusIcon = getStatusIcon(order.status);
-    final statusText = getStatusText(order.status);
+    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt ?? DateTime.now());
+    final statusColor = getStatusColor(order.orderStatus);
+    final statusIcon = getStatusIcon(order.orderStatus);
+    final statusText = getStatusText(order.orderStatus);
     final itemsText = getOrderItemsText(order);
-    final deliveryFee = order.serviceCharge;
+    final deliveryFee = order.deliveryFee;
 
     return SlideTransition(
       position: index < _slideAnimations.length ? _slideAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
@@ -494,7 +429,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
             color: Colors.transparent,
             child: InkWell(
               onTap: () {
-                _navigateToOrderDetail(order, formattedDate, deliveryFee);
+                _navigateToOrderDetail(order);
               },
               borderRadius: BorderRadius.circular(20),
               child: Container(
@@ -573,7 +508,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        order.store.name,
+                                        order.store?.name ?? 'Unknown Store',
                                         style: const TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.w700,
@@ -592,9 +527,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                                         color: Colors.grey[600]),
                                     const SizedBox(width: 4),
                                     Text(
-                                      order.code != null && order.code!.isNotEmpty
-                                          ? order.code!
-                                          : '#${order.id}',
+                                      '#${order.id}',
                                       style: TextStyle(
                                         fontSize: 14,
                                         color: Colors.grey[700],
@@ -662,7 +595,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                             ),
                           ),
                           const SizedBox(height: 12),
-                          // Delivery address preview
+                          // Customer info
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
@@ -672,18 +605,18 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                             ),
                             child: Row(
                               children: [
-                                Icon(Icons.location_on_outlined,
+                                Icon(Icons.person_outline,
                                     color: Colors.blue[700], size: 20),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    order.deliveryAddress,
+                                    order.customer?.name ?? 'Customer',
                                     style: TextStyle(
                                       fontSize: 13,
                                       color: Colors.blue[900],
                                       fontWeight: FontWeight.w500,
                                     ),
-                                    maxLines: 2,
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -707,7 +640,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    GlobalStyle.formatRupiah(deliveryFee.toDouble()),
+                                    GlobalStyle.formatRupiah(deliveryFee),
                                     style: TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.w700,
@@ -737,7 +670,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                                   color: Colors.transparent,
                                   child: InkWell(
                                     onTap: () {
-                                      _navigateToOrderDetail(order, formattedDate, deliveryFee);
+                                      _navigateToOrderDetail(order);
                                     },
                                     borderRadius: BorderRadius.circular(12),
                                     child: Container(
@@ -777,34 +710,72 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
     );
   }
 
-  void _navigateToOrderDetail(Order order, String formattedDate, double deliveryFee) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => HistoryDriverDetailPage(orderDetail: {
-          'customerName': _customer?.name ?? 'Customer',
-          'date': formattedDate,
-          'amount': order.total,
-          'items': order.items.map((item) => {
-            'name': item.name,
-            'quantity': item.quantity,
-            'price': item.price,
-            'image': item.imageUrl
-          }).toList(),
-          'status': order.status.toString().split('.').last,
-          'deliveryFee': deliveryFee,
-          'customerAddress': order.deliveryAddress,
-          'storeAddress': order.store.address,
-          'storePhone': order.store.phoneNumber,
-          'customerPhone': _customer?.phoneNumber,
-          'orderCode': order.code,
-          'storeName': order.store.name,
-          'orderId': order.id,
-        }),
-      ),
-    ).then((_) {
-      _fetchDriverRequests();
-    });
+  void _navigateToOrderDetail(Order order) async {
+    try {
+      // Get detailed order data using OrderService
+      final orderDetail = await OrderService.getOrderById(order.id.toString());
+
+      // Navigate to detail page with processed data
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => HistoryDriverDetailPage(orderDetail: {
+            'customerName': orderDetail['customer']?['name'] ?? order.customer?.name ?? 'Customer',
+            'customerPhone': orderDetail['customer']?['phone'] ?? order.customer?.phone ?? '-',
+            'customerAddress': orderDetail['delivery_address'] ?? '-',
+            'storeName': orderDetail['store']?['name'] ?? order.store?.name ?? 'Store',
+            'storePhone': orderDetail['store']?['phone'] ?? order.store?.phone ?? '-',
+            'storeAddress': orderDetail['store']?['address'] ?? order.store?.address ?? '-',
+            'storeImage': orderDetail['store']?['imageUrl'] ?? order.store?.imageUrl ?? '',
+            'status': orderDetail['order_status'] ?? order.orderStatus.toString().split('.').last,
+            'amount': orderDetail['total_amount'] ?? order.totalAmount,
+            'deliveryFee': orderDetail['delivery_fee'] ?? order.deliveryFee,
+            'items': (orderDetail['items'] as List<dynamic>?)?.map((item) => {
+              'name': item['name'] ?? 'Product',
+              'price': item['price'] ?? 0,
+              'quantity': item['quantity'] ?? 0,
+              'image': item['imageUrl'] ?? '',
+            }).toList() ?? [],
+            'date': DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt ?? DateTime.now()),
+            'orderCode': '#${order.id}',
+            'orderId': order.id.toString(),
+          }),
+        ),
+      ).then((_) {
+        _fetchDriverOrders(isRefresh: true);
+      });
+    } catch (e) {
+      print('Error getting order detail: $e');
+      // Fallback navigation with available data
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => HistoryDriverDetailPage(orderDetail: {
+            'customerName': order.customer?.name ?? 'Customer',
+            'customerPhone': order.customer?.phone ?? '-',
+            'customerAddress': '-',
+            'storeName': order.store?.name ?? 'Store',
+            'storePhone': order.store?.phone ?? '-',
+            'storeAddress': order.store?.address ?? '-',
+            'storeImage': order.store?.imageUrl ?? '',
+            'status': order.orderStatus.toString().split('.').last,
+            'amount': order.totalAmount,
+            'deliveryFee': order.deliveryFee,
+            'items': order.items?.map((item) => {
+              'name': item.name,
+              'price': item.price,
+              'quantity': item.quantity,
+              'image': item.imageUrl ?? '',
+            }).toList() ?? [],
+            'date': DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt ?? DateTime.now()),
+            'orderCode': '#${order.id}',
+            'orderId': order.id.toString(),
+          }),
+        ),
+      ).then((_) {
+        _fetchDriverOrders(isRefresh: true);
+      });
+    }
   }
 
   Widget _buildEmptyState(String message) {
@@ -1052,7 +1023,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: _fetchDriverRequests,
+                  onTap: () => _fetchDriverOrders(isRefresh: true),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -1154,7 +1125,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                     ),
                     child: IconButton(
                       icon: const Icon(Icons.refresh, color: Colors.white),
-                      onPressed: _fetchDriverRequests,
+                      onPressed: () => _fetchDriverOrders(isRefresh: true),
                     ),
                   ),
                 ),
@@ -1183,7 +1154,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                   : errorMessage.isNotEmpty
                   ? _buildErrorState()
                   : RefreshIndicator(
-                onRefresh: _fetchDriverRequests,
+                onRefresh: () => _fetchDriverOrders(isRefresh: true),
                 color: _primaryGradientStart,
                 child: TabBarView(
                   controller: _tabController,
@@ -1196,12 +1167,31 @@ class _HistoryDriverPageState extends State<HistoryDriverPage> with TickerProvid
                       );
                     }
 
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: filteredOrders.length,
-                      itemBuilder: (context, index) {
-                        return _buildOrderCard(filteredOrders[index], index);
+                    return NotificationListener<ScrollNotification>(
+                      onNotification: (ScrollNotification scrollInfo) {
+                        if (scrollInfo.metrics.pixels == scrollInfo.metrics.maxScrollExtent &&
+                            hasMoreData && !isLoadingMore) {
+                          _fetchDriverOrders();
+                        }
+                        return false;
                       },
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: filteredOrders.length + (isLoadingMore ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (index == filteredOrders.length) {
+                            return Container(
+                              padding: const EdgeInsets.all(16),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(_primaryGradientStart),
+                                ),
+                              ),
+                            );
+                          }
+                          return _buildOrderCard(filteredOrders[index], index);
+                        },
+                      ),
                     );
                   }),
                 ),
