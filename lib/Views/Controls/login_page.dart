@@ -1,10 +1,8 @@
 import 'package:del_pick/Common/global_style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:provider/provider.dart';
-import 'package:del_pick/services/auth_service.dart';
-import 'package:del_pick/services/core/token_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
 import 'connectivity_service.dart';
 import 'dart:io';
 
@@ -43,10 +41,6 @@ class LoginPageState extends State<LoginPage> {
           passwordController.text = savedPassword;
           rememberMe = true;
         });
-
-        // Optionally auto-login if credentials are saved
-        // Uncomment the next line if you want auto-login
-        // _login();
       }
     } catch (e) {
       print("Error retrieving saved credentials: $e");
@@ -73,11 +67,17 @@ class LoginPageState extends State<LoginPage> {
     }
   }
 
-  // Login function to handle authentication with improved error handling
+  // Improved login function using AuthService
   void _login() async {
-    // Check if the input fields are not empty
-    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
-      showError("Email dan kata sandi tidak boleh kosong.");
+    // Validate input fields
+    if (emailController.text.trim().isEmpty || passwordController.text.isEmpty) {
+      _showFriendlyError("Mohon lengkapi email dan kata sandi Anda.");
+      return;
+    }
+
+    // Basic email validation
+    if (!_isValidEmail(emailController.text.trim())) {
+      _showFriendlyError("Format email tidak valid. Silakan periksa kembali.");
       return;
     }
 
@@ -86,95 +86,129 @@ class LoginPageState extends State<LoginPage> {
     });
 
     try {
-      // Check internet connectivity first
+      // Check internet connectivity
       bool hasConnection = await _checkInternetConnection();
       if (!hasConnection) {
-        showError("Tidak ada koneksi internet. Silakan periksa koneksi Anda.");
-        setState(() {
-          _isLoading = false;
-        });
+        _showFriendlyError("Tidak ada koneksi internet",
+            "Pastikan perangkat Anda terhubung ke internet dan coba lagi.");
         return;
       }
 
-      // Make the API call to login using AuthService
+      // Use AuthService for login - it handles token saving automatically
       final loginResponse = await AuthService.login(
-          emailController.text, passwordController.text);
+          emailController.text.trim(),
+          passwordController.text
+      );
 
       // Handle Remember Me functionality
       await _handleRememberMe();
 
-      // Check if response is valid
-      if (loginResponse == null || !loginResponse.containsKey('token')) {
-        showError("Gagal login: Data respons tidak valid.");
+      // Check if login was successful
+      if (loginResponse.isEmpty) {
+        _showFriendlyError("Login gagal", "Terjadi kesalahan saat masuk. Silakan coba lagi.");
         return;
       }
 
-      // Get token
-      final String token = loginResponse['token'] ?? '';
-
-      if (token.isEmpty) {
-        showError("Gagal login: Token kosong atau tidak valid.");
+      // Get user data from response
+      final userData = loginResponse['user'];
+      if (userData == null) {
+        _showFriendlyError("Login gagal", "Data pengguna tidak ditemukan. Silakan coba lagi.");
         return;
       }
 
-      print("Login berhasil, token diterima");
+      final String userRole = userData['role'] ?? '';
+      final String userName = userData['name'] ?? 'Pengguna';
 
-      // Save token
-      await TokenService.saveToken(token);
+      print("Login successful for user: $userName (Role: $userRole)");
 
-      // Decode the token
-      if (token.contains('.')) {
-        final Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
-        final String? role = decodedToken['role'];
+      // Show success message
+      _showSuccessMessage("Selamat datang, $userName!");
 
-        if (role == null || role.isEmpty) {
-          showError("Peran tidak ditemukan dalam token.");
-          return;
-        }
+      // Navigate based on user role
+      await Future.delayed(Duration(milliseconds: 500)); // Brief delay for user to see success message
 
-        print("User Role: $role");
-
-        // Save user role
-        await TokenService.saveUserRole(role);
-
-        // Save user data if available
-        if (loginResponse.containsKey('user')) {
-          await _storage.write(
-              key: 'user_profile',
-              value: loginResponse['user'].toString());
-        }
-
-        // Navigate to the correct page based on the user's role
-        if (role == 'customer') {
+      switch (userRole.toLowerCase()) {
+        case 'customer':
           Navigator.pushReplacementNamed(context, '/Customers/HomePage');
-        } else if (role == 'store') {
+          break;
+        case 'store':
           Navigator.pushReplacementNamed(context, '/Store/HomePage');
-        } else if (role == 'driver') {
+          break;
+        case 'driver':
           Navigator.pushReplacementNamed(context, '/Driver/HomePage');
-        } else {
-          // Handle unknown role
-          showError("Peran tidak dikenali");
-        }
-      } else {
-        showError("Token tidak valid");
+          break;
+        case 'admin':
+          Navigator.pushReplacementNamed(context, '/Admin/HomePage');
+          break;
+        default:
+          _showFriendlyError("Akun tidak dikenali",
+              "Tipe akun Anda belum didukung. Silakan hubungi administrator.");
       }
-    } on SocketException catch (e) {
-      print("Socket Error: $e");
-      showError("Gagal terhubung ke server. Silakan periksa koneksi internet Anda.");
-    } on HttpException catch (e) {
-      print("HTTP Error: $e");
-      showError("Terjadi kesalahan pada server. Silakan coba lagi nanti.");
-    } on FormatException catch (e) {
-      print("Format Error: $e");
-      showError("Format respons tidak valid. Silakan hubungi administrator.");
+
+    } on SocketException catch (_) {
+      _showFriendlyError("Koneksi bermasalah",
+          "Tidak dapat terhubung ke server. Periksa koneksi internet Anda.");
+    } on HttpException catch (_) {
+      _showFriendlyError("Server bermasalah",
+          "Server sedang mengalami gangguan. Silakan coba beberapa saat lagi.");
     } catch (e) {
-      print("Error: $e");
-      showError("Terjadi kesalahan: ${e.toString()}");
+      String errorMessage = _getFriendlyErrorMessage(e.toString());
+      _showFriendlyError("Login gagal", errorMessage);
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  // Email validation helper
+  bool _isValidEmail(String email) {
+    return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
+  }
+
+  // Convert technical error messages to user-friendly ones
+  String _getFriendlyErrorMessage(String technicalError) {
+    String lowerError = technicalError.toLowerCase();
+
+    if (lowerError.contains('invalid credentials') ||
+        lowerError.contains('unauthorized') ||
+        lowerError.contains('wrong password') ||
+        lowerError.contains('email not found')) {
+      return "Email atau kata sandi salah. Silakan periksa kembali.";
+    }
+
+    if (lowerError.contains('network') || lowerError.contains('connection')) {
+      return "Gangguan koneksi internet. Pastikan Anda terhubung ke internet.";
+    }
+
+    if (lowerError.contains('timeout')) {
+      return "Koneksi terlalu lambat. Silakan coba lagi.";
+    }
+
+    if (lowerError.contains('server error') || lowerError.contains('500')) {
+      return "Server sedang bermasalah. Silakan coba beberapa saat lagi.";
+    }
+
+    if (lowerError.contains('not found') || lowerError.contains('404')) {
+      return "Layanan tidak tersedia saat ini. Silakan coba lagi nanti.";
+    }
+
+    if (lowerError.contains('validation') || lowerError.contains('format')) {
+      return "Data yang dimasukkan tidak sesuai format. Silakan periksa kembali.";
+    }
+
+    if (lowerError.contains('expired')) {
+      return "Sesi telah berakhir. Silakan masuk kembali.";
+    }
+
+    if (lowerError.contains('blocked') || lowerError.contains('suspended')) {
+      return "Akun Anda diblokir. Hubungi customer service untuk bantuan.";
+    }
+
+    // Default fallback message
+    return "Terjadi kesalahan yang tidak terduga. Silakan coba lagi atau hubungi customer service.";
   }
 
   // Check internet connection
@@ -189,23 +223,85 @@ class LoginPageState extends State<LoginPage> {
     }
   }
 
-  // Error handling function
-  void showError(String message) {
+  // Enhanced error display with better UX
+  void _showFriendlyError(String title, [String? subtitle]) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (subtitle != null) ...[
+              SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(fontSize: 12, color: Colors.white70),
+              ),
+            ],
+          ],
+        ),
+        backgroundColor: Colors.red.shade600,
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: EdgeInsets.all(16),
+        duration: Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'OK',
+          textColor: Colors.white,
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
+        ),
       ),
     );
   }
 
+  // Success message display
+  void _showSuccessMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: EdgeInsets.all(16),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  // Role selection dialog for testing/demo purposes
   void _showRoleSelectionDialog() {
-    // Periksa koneksi dari ConnectivityService
     final connectivityService =
     Provider.of<ConnectivityService>(context, listen: false);
     if (!connectivityService.isConnected) {
-      return; // Tidak perlu menampilkan dialog, karena overlay akan muncul otomatis
+      return;
     }
 
     showDialog(
@@ -213,7 +309,7 @@ class LoginPageState extends State<LoginPage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: Text(
-            'Select Role',
+            'Pilih Role Demo',
             style: TextStyle(
               color: GlobalStyle.primaryColor,
               fontWeight: FontWeight.bold,
@@ -317,7 +413,7 @@ class LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 30.0),
 
-              // Email Label + Field
+              // Email Field
               SizedBox(
                 width: screenWidth * 0.8,
                 child: Column(
@@ -340,6 +436,7 @@ class LoginPageState extends State<LoginPage> {
                           borderRadius: BorderRadius.circular(10.0),
                         ),
                         hintText: 'Masukkan email Anda',
+                        prefixIcon: Icon(Icons.email_outlined),
                       ),
                     ),
                   ],
@@ -347,7 +444,7 @@ class LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 20.0),
 
-              // Password Label + Field
+              // Password Field
               SizedBox(
                 width: screenWidth * 0.8,
                 child: Column(
@@ -370,6 +467,7 @@ class LoginPageState extends State<LoginPage> {
                           borderRadius: BorderRadius.circular(10.0),
                         ),
                         hintText: 'Masukkan kata sandi Anda',
+                        prefixIcon: Icon(Icons.lock_outline),
                         suffixIcon: IconButton(
                           icon: Icon(
                             obscurePassword
@@ -410,6 +508,20 @@ class LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const Spacer(),
+                    TextButton(
+                      onPressed: () {
+                        // TODO: Implement forgot password
+                        _showFriendlyError("Fitur Lupa Password",
+                            "Fitur ini akan tersedia segera. Hubungi customer service untuk bantuan.");
+                      },
+                      child: Text(
+                        'Lupa Password?',
+                        style: TextStyle(
+                          color: GlobalStyle.primaryColor,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -421,7 +533,7 @@ class LoginPageState extends State<LoginPage> {
                 width: screenWidth * 0.5,
                 height: 50.0,
                 decoration: BoxDecoration(
-                  color: GlobalStyle.primaryColor,
+                  color: _isLoading ? Colors.grey : GlobalStyle.primaryColor,
                   borderRadius: BorderRadius.circular(30.0),
                   boxShadow: [
                     BoxShadow(
@@ -436,6 +548,7 @@ class LoginPageState extends State<LoginPage> {
                     ? const Center(
                   child: CircularProgressIndicator(
                     color: Colors.white,
+                    strokeWidth: 2,
                   ),
                 )
                     : TextButton(
@@ -450,6 +563,21 @@ class LoginPageState extends State<LoginPage> {
                   ),
                 ),
               ),
+
+              const SizedBox(height: 20.0),
+
+              // Demo Role Selection Button (for testing)
+              if (false) // Set to true for demo/testing
+                TextButton(
+                  onPressed: _showRoleSelectionDialog,
+                  child: Text(
+                    'Demo Role Selection',
+                    style: TextStyle(
+                      color: GlobalStyle.primaryColor,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

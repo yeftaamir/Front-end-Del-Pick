@@ -182,7 +182,7 @@ class UserService {
     return false;
   }
 
-  /// Mark all notifications as read
+  /// Mark all notifications as read - NEW METHOD
   static Future<bool> markAllNotificationsAsRead() async {
     try {
       final token = await TokenService.getToken();

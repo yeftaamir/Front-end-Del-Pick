@@ -292,7 +292,7 @@ class DriverService {
     return {};
   }
 
-  /// Get driver statistics
+  /// Get driver statistics - NEW METHOD
   static Future<Map<String, dynamic>> getDriverStatistics() async {
     try {
       final token = await TokenService.getToken();

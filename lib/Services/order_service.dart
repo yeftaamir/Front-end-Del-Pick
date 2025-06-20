@@ -499,7 +499,7 @@ class OrderService {
 
   static double _toRadians(double degrees) => degrees * (Math.pi / 180);
 
-  /// Get order statistics
+  /// Get order statistics - NEW METHOD
   static Future<Map<String, dynamic>> getOrderStatistics({
     DateTime? startDate,
     DateTime? endDate,

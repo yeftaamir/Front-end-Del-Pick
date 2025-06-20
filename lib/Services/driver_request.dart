@@ -165,7 +165,7 @@ class DriverRequestService {
     return {};
   }
 
-  /// Get driver request history
+  /// Get driver request history - NEW METHOD
   static Future<Map<String, dynamic>> getDriverRequestHistory({
     int page = 1,
     int limit = 10,
@@ -236,7 +236,7 @@ class DriverRequestService {
     return {};
   }
 
-  /// Get pending driver requests count
+  /// Get pending driver requests count - NEW METHOD
   static Future<int> getPendingRequestsCount() async {
     try {
       final token = await TokenService.getToken();
@@ -265,7 +265,7 @@ class DriverRequestService {
     return 0;
   }
 
-  /// Cancel driver request (if still pending)
+  /// Cancel driver request (if still pending) - NEW METHOD
   static Future<Map<String, dynamic>> cancelDriverRequest(String requestId) async {
     try {
       final token = await TokenService.getToken();
