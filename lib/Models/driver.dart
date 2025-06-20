@@ -1,156 +1,113 @@
 import 'package:del_pick/Services/image_service.dart';
+import 'user.dart';
 
 class Driver {
-  final String id;           // Represents user id from the User model
-  final String name;
+  final int id;
+  final int userId;
+  final String licenseNumber;
+  final String vehiclePlate;
+  final String status; // 'active', 'inactive', 'busy'
   final double rating;
-  final String phoneNumber;
-  final String vehicleNumber;
-  final String email;
-  final String role;
-  final String? profileImageUrl;
   final int reviewsCount;
-  final double? latitude;    // Added to match backend
-  final double? longitude;   // Added to match backend
-  final String status;       // Added to match backend (active/inactive)
+  final double? latitude;
+  final double? longitude;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  // User relationship data
+  final User? user;
 
   Driver({
     required this.id,
-    required this.name,
-    required this.rating,
-    required this.phoneNumber,
-    required this.vehicleNumber,
-    required this.email,
-    required this.role,
-    this.profileImageUrl,
+    required this.userId,
+    required this.licenseNumber,
+    required this.vehiclePlate,
+    this.status = 'inactive',
+    this.rating = 5.00,
     this.reviewsCount = 0,
     this.latitude,
     this.longitude,
-    this.status = 'inactive',
+    this.createdAt,
+    this.updatedAt,
+    this.user,
   });
 
-  // Factory constructor to create a Driver from stored user data
-  factory Driver.fromStoredData(Map<String, dynamic> data) {
-    String? avatarUrl = data['avatar'];
-
-    // Process the avatar URL if it exists
-    if (avatarUrl != null && avatarUrl.isNotEmpty) {
-      avatarUrl = ImageService.getImageUrl(avatarUrl);
-    }
-
-    return Driver(
-      id: data['id']?.toString() ?? '',
-      name: data['name'] ?? '',
-      rating: (data['rating'] as num?)?.toDouble() ?? 0.0,
-      phoneNumber: data['phone'] ?? '',
-      vehicleNumber: data['vehicle_number'] ?? '',
-      email: data['email'] ?? '',
-      role: data['role'] ?? 'driver',
-      profileImageUrl: avatarUrl,
-      reviewsCount: data['reviews_count'] as int? ?? 0,
-      latitude: data['latitude'] != null ? double.tryParse(data['latitude'].toString()) : null,
-      longitude: data['longitude'] != null ? double.tryParse(data['longitude'].toString()) : null,
-      status: data['status'] ?? 'inactive',
-    );
-  }
-
-  // Factory constructor to create a Driver from JSON data from API
   factory Driver.fromJson(Map<String, dynamic> json) {
-    // Handle case where driver info comes directly or nested in 'driver' and 'user' objects
-    final Map<String, dynamic> driverData = json['driver'] ?? json;
-    final Map<String, dynamic> userData = driverData['user'] ?? json;
-
-    // Process avatar URL
-    String? avatarUrl = userData['avatar'];
-    if (avatarUrl != null && avatarUrl.isNotEmpty) {
-      avatarUrl = ImageService.getImageUrl(avatarUrl);
-    }
-
     return Driver(
-      id: userData['id']?.toString() ?? '',
-      name: userData['name'] ?? '',
-      rating: (driverData['rating'] as num?)?.toDouble() ?? 0.0,
-      phoneNumber: userData['phone'] ?? '',
-      vehicleNumber: driverData['vehicle_number'] ?? '',
-      email: userData['email'] ?? '',
-      role: userData['role'] ?? 'driver',
-      profileImageUrl: avatarUrl,
-      reviewsCount: driverData['reviews_count'] as int? ?? 0,
-      latitude: driverData['latitude'] != null ? double.tryParse(driverData['latitude'].toString()) : null,
-      longitude: driverData['longitude'] != null ? double.tryParse(driverData['longitude'].toString()) : null,
-      status: driverData['status'] ?? 'inactive',
+      id: json['id'] ?? 0,
+      userId: json['user_id'] ?? 0,
+      licenseNumber: json['license_number'] ?? '',
+      vehiclePlate: json['vehicle_plate'] ?? '',
+      status: json['status'] ?? 'inactive',
+      rating: (json['rating'] as num?)?.toDouble() ?? 5.00,
+      reviewsCount: json['reviews_count'] ?? 0,
+      latitude: json['latitude'] != null ? double.tryParse(json['latitude'].toString()) : null,
+      longitude: json['longitude'] != null ? double.tryParse(json['longitude'].toString()) : null,
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,
+      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
+      user: json['user'] != null ? User.fromJson(json['user']) : null,
     );
   }
 
-  // Convert Driver instance to JSON
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'name': name,
-      'rating': rating,
-      'phone': phoneNumber,
-      'vehicle_number': vehicleNumber,
-      'email': email,
-      'role': role,
-      'avatar': profileImageUrl,
-      'reviews_count': reviewsCount,
-      'latitude': latitude,
-      'longitude': longitude,
+      'user_id': userId,
+      'license_number': licenseNumber,
+      'vehicle_plate': vehiclePlate,
       'status': status,
+      'rating': rating,
+      'reviews_count': reviewsCount,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+      if (user != null) 'user': user!.toJson(),
     };
   }
 
-  // Create an empty Driver object
-  static Driver empty() {
-    return Driver(
-      id: '',
-      name: '',
-      rating: 0.0,
-      phoneNumber: '',
-      vehicleNumber: '',
-      email: '',
-      role: 'driver',
-      profileImageUrl: '',
-      status: 'inactive',
-    );
-  }
-
-  // Create a copy of this Driver with the given field values changed
   Driver copyWith({
-    String? id,
-    String? name,
+    int? id,
+    int? userId,
+    String? licenseNumber,
+    String? vehiclePlate,
+    String? status,
     double? rating,
-    String? phoneNumber,
-    String? vehicleNumber,
-    String? email,
-    String? role,
-    String? profileImageUrl,
     int? reviewsCount,
     double? latitude,
     double? longitude,
-    String? status,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    User? user,
   }) {
     return Driver(
       id: id ?? this.id,
-      name: name ?? this.name,
+      userId: userId ?? this.userId,
+      licenseNumber: licenseNumber ?? this.licenseNumber,
+      vehiclePlate: vehiclePlate ?? this.vehiclePlate,
+      status: status ?? this.status,
       rating: rating ?? this.rating,
-      phoneNumber: phoneNumber ?? this.phoneNumber,
-      vehicleNumber: vehicleNumber ?? this.vehicleNumber,
-      email: email ?? this.email,
-      role: role ?? this.role,
-      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
       reviewsCount: reviewsCount ?? this.reviewsCount,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
-      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      user: user ?? this.user,
     );
   }
 
-  // Get the processed profile image URL
-  String? getProcessedImageUrl() {
-    if (profileImageUrl == null || profileImageUrl!.isEmpty) {
-      return null;
-    }
-    return ImageService.getImageUrl(profileImageUrl!);
+  // Convenience getters
+  String get name => user?.name ?? '';
+  String get phoneNumber => user?.phone ?? '';
+  String get email => user?.email ?? '';
+  String? get profileImageUrl => user?.getProcessedImageUrl();
+
+  static Driver empty() {
+    return Driver(
+      id: 0,
+      userId: 0,
+      licenseNumber: '',
+      vehiclePlate: '',
+    );
   }
 }

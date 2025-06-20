@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lottie/lottie.dart';
-import '../../Models/customer.dart';
+import '../../Models/user.dart';
 import '../../Models/driver.dart';
 import '../../Models/order_enum.dart';
 import '../Component/driver_bottom_navigation.dart';

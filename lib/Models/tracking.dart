@@ -1,25 +1,25 @@
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'package:geotypes/src/geojson.dart';
 import 'driver.dart';
 import 'order.dart';
 import 'order_enum.dart';
 
 class Tracking {
-  final String orderId;
+  final int orderId;  // ✅ Changed to int to match backend
   final Driver driver;
   final Position driverPosition;
   final Position customerPosition;
   final Position storePosition;
   final List<Position> routeCoordinates;
-  final OrderStatus status;
-  final DeliveryStatus? deliveryStatus; // Added to match backend
+  final OrderStatus orderStatus;  // ✅ Updated to use backend enum
+  final DeliveryStatus deliveryStatus;  // ✅ Updated to use backend enum
   final DateTime estimatedArrival;
   final String? customStatusMessage;
+  final List<TrackingUpdate>? trackingUpdates;  // ✅ Added to match backend
 
-  // Add these getters to access driver properties directly from Tracking
+  // Convenience getters
   String get driverImageUrl => driver.profileImageUrl ?? '';
   String get driverName => driver.name;
-  String get vehicleNumber => driver.vehicleNumber;
+  String get vehicleNumber => driver.vehiclePlate;  // ✅ Updated field name
 
   Tracking({
     required this.orderId,
@@ -28,60 +28,27 @@ class Tracking {
     required this.customerPosition,
     required this.storePosition,
     required this.routeCoordinates,
-    required this.status,
-    this.deliveryStatus,
+    required this.orderStatus,
+    required this.deliveryStatus,
     required this.estimatedArrival,
     this.customStatusMessage,
+    this.trackingUpdates,
   });
 
-  // Corrected copyWith method for Tracking class
-  Tracking copyWith({
-    String? orderId,
-    Driver? driver,
-    Position? driverPosition,
-    Position? customerPosition,
-    Position? storePosition,
-    List<Position>? routeCoordinates,
-    OrderStatus? status,
-    DeliveryStatus? deliveryStatus,
-    DateTime? estimatedArrival,
-    String? customStatusMessage,
-    String? statusMessage,
-  }) {
-    return Tracking(
-      orderId: orderId ?? this.orderId,
-      driver: driver ?? this.driver,
-      driverPosition: driverPosition ?? this.driverPosition,
-      customerPosition: customerPosition ?? this.customerPosition,
-      storePosition: storePosition ?? this.storePosition,
-      routeCoordinates: routeCoordinates ?? this.routeCoordinates,
-      status: status ?? this.status,
-      deliveryStatus: deliveryStatus ?? this.deliveryStatus,
-      estimatedArrival: estimatedArrival ?? this.estimatedArrival,
-      customStatusMessage: customStatusMessage ?? this.customStatusMessage,
-    );
-  }
-
-  // Convert from JSON
   factory Tracking.fromJson(Map<String, dynamic> json) {
-    // Parse order status
-    OrderStatus orderStatus;
+    // Parse dari backend Order model dengan tracking_updates
+    OrderStatus orderStatus = OrderStatus.pending;
     if (json['order_status'] != null) {
       orderStatus = OrderStatus.fromString(json['order_status']);
-    } else if (json['status'] != null) {
-      orderStatus = OrderStatus.fromString(json['status']);
-    } else {
-      orderStatus = OrderStatus.pending;
     }
 
-    // Parse delivery status if available
-    DeliveryStatus? deliveryStatus;
+    DeliveryStatus deliveryStatus = DeliveryStatus.pending;
     if (json['delivery_status'] != null) {
       deliveryStatus = DeliveryStatus.fromString(json['delivery_status']);
     }
 
     return Tracking(
-      orderId: json['orderId'] as String? ?? '',
+      orderId: json['id'] ?? 0,  // ✅ Use order ID from backend
       driver: Driver.fromJson(json['driver'] as Map<String, dynamic>),
       driverPosition: Position(
         json['driverPosition']['longitude'] as double? ?? 0.0,
@@ -100,19 +67,21 @@ class Tracking {
               pos['longitude'] as double? ?? 0.0,
               pos['latitude'] as double? ?? 0.0)
       ).toList(),
-      status: orderStatus,
-      deliveryStatus: deliveryStatus,
-      estimatedArrival: json['estimatedArrival'] != null
-          ? DateTime.parse(json['estimatedArrival'] as String)
+      orderStatus: orderStatus,  // ✅ Use backend enum
+      deliveryStatus: deliveryStatus,  // ✅ Use backend enum
+      estimatedArrival: json['estimated_delivery_time'] != null
+          ? DateTime.parse(json['estimated_delivery_time'] as String)
           : DateTime.now().add(const Duration(minutes: 15)),
       customStatusMessage: json['customStatusMessage'] as String?,
+      trackingUpdates: json['tracking_updates'] != null
+          ? (json['tracking_updates'] as List).map((e) => TrackingUpdate.fromJson(e)).toList()
+          : null,
     );
   }
 
-  // Convert to JSON
   Map<String, dynamic> toJson() {
     return {
-      'orderId': orderId,
+      'id': orderId,  // ✅ Match backend field
       'driver': driver.toJson(),
       'driverPosition': {
         'longitude': driverPosition.lng,
@@ -130,50 +99,39 @@ class Tracking {
         'longitude': pos.lng,
         'latitude': pos.lat,
       }).toList(),
-      'status': status.toString().split('.').last,
-      if (deliveryStatus != null) 'delivery_status': deliveryStatus!.toString().split('.').last,
-      'estimatedArrival': estimatedArrival.toIso8601String(),
+      'order_status': orderStatus.toString().split('.').last,  // ✅ Backend format
+      'delivery_status': deliveryStatus.toString().split('.').last,  // ✅ Backend format
+      'estimated_delivery_time': estimatedArrival.toIso8601String(),  // ✅ Backend field name
       if (customStatusMessage != null) 'customStatusMessage': customStatusMessage,
+      if (trackingUpdates != null) 'tracking_updates': trackingUpdates!.map((e) => e.toJson()).toList(),
     };
   }
 
-  // Get the status message based on current order status
+  // Updated status message to match backend enum
   String get statusMessage {
-    // Return custom status message if it exists
     if (customStatusMessage != null) {
       return customStatusMessage!;
     }
 
-    // Otherwise return the default message based on status
-    switch (status) {
+    switch (orderStatus) {
       case OrderStatus.pending:
         return 'Menunggu konfirmasi pesanan';
-      case OrderStatus.approved:
+      case OrderStatus.confirmed:  // ✅ Updated from 'approved'
         return 'Pesanan telah dikonfirmasi';
       case OrderStatus.preparing:
         return 'Pesanan sedang dipersiapkan';
+      case OrderStatus.ready_for_pickup:  // ✅ New status from backend
+        return 'Pesanan siap diambil';
       case OrderStatus.on_delivery:
         return 'Pesanan sedang dalam pengiriman';
       case OrderStatus.delivered:
         return 'Pesanan telah diterima';
-      case OrderStatus.driverAssigned:
-        return 'Driver telah ditugaskan';
-      case OrderStatus.driverHeadingToStore:
-        return 'Driver sedang menuju ke toko';
-      case OrderStatus.driverAtStore:
-        return 'Driver telah sampai di toko';
-      case OrderStatus.driverHeadingToCustomer:
-        return 'Tunggu ya, Driver akan menuju ke tempatmu';
-      case OrderStatus.driverArrived:
-        return 'Driver telah tiba di lokasimu';
-      case OrderStatus.completed:
-        return 'Pesanan telah selesai';
       case OrderStatus.cancelled:
         return 'Pesanan dibatalkan';
     }
   }
 
-  // Format estimated arrival time as a string
+  // Rest of the methods remain the same...
   String get formattedETA {
     final now = DateTime.now();
     final difference = estimatedArrival.difference(now);
@@ -187,5 +145,71 @@ class Tracking {
       final minutes = difference.inMinutes % 60;
       return '$hours jam ${minutes > 0 ? '$minutes menit' : ''}';
     }
+  }
+
+  Tracking copyWith({
+    int? orderId,
+    Driver? driver,
+    Position? driverPosition,
+    Position? customerPosition,
+    Position? storePosition,
+    List<Position>? routeCoordinates,
+    OrderStatus? orderStatus,
+    DeliveryStatus? deliveryStatus,
+    DateTime? estimatedArrival,
+    String? customStatusMessage,
+    List<TrackingUpdate>? trackingUpdates,
+  }) {
+    return Tracking(
+      orderId: orderId ?? this.orderId,
+      driver: driver ?? this.driver,
+      driverPosition: driverPosition ?? this.driverPosition,
+      customerPosition: customerPosition ?? this.customerPosition,
+      storePosition: storePosition ?? this.storePosition,
+      routeCoordinates: routeCoordinates ?? this.routeCoordinates,
+      orderStatus: orderStatus ?? this.orderStatus,
+      deliveryStatus: deliveryStatus ?? this.deliveryStatus,
+      estimatedArrival: estimatedArrival ?? this.estimatedArrival,
+      customStatusMessage: customStatusMessage ?? this.customStatusMessage,
+      trackingUpdates: trackingUpdates ?? this.trackingUpdates,
+    );
+  }
+}
+
+// Supporting model for tracking_updates JSON field from backend
+class TrackingUpdate {
+  final DateTime timestamp;
+  final String status;
+  final String message;
+  final Position? location;
+
+  TrackingUpdate({
+    required this.timestamp,
+    required this.status,
+    required this.message,
+    this.location,
+  });
+
+  factory TrackingUpdate.fromJson(Map<String, dynamic> json) {
+    return TrackingUpdate(
+      timestamp: DateTime.parse(json['timestamp']),
+      status: json['status'],
+      message: json['message'],
+      location: json['location'] != null
+          ? Position(json['location']['longitude'], json['location']['latitude'])
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'timestamp': timestamp.toIso8601String(),
+      'status': status,
+      'message': message,
+      if (location != null) 'location': {
+        'longitude': location!.lng,
+        'latitude': location!.lat,
+      },
+    };
   }
 }

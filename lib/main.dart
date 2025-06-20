@@ -10,7 +10,7 @@ import 'package:del_pick/Views/Controls/internet_connectivity_wrapper.dart';
 
 // Import models
 import 'package:del_pick/Models/store.dart';
-import 'package:del_pick/Models/customer.dart';
+import 'package:del_pick/Models/user.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/item_model.dart';
