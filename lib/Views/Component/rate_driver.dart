@@ -218,11 +218,11 @@ class _RateDriverState extends State<RateDriver> {
         ? widget.driver.name
         : 'Driver';
 
-    final String vehicleNumber = widget.driver.vehicleNumber.isNotEmpty
-        ? widget.driver.vehicleNumber
+    final String vehicleNumber = widget.driver.vehiclePlate.isNotEmpty
+        ? widget.driver.vehiclePlate
         : 'No Plate';
 
-    final String? profileImageUrl = widget.driver.getProcessedImageUrl();
+    final String? profileImageUrl = widget.driver.profileImageUrl;
 
     return _buildInfoSection(
       title: 'Informasi Driver',

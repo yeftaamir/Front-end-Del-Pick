@@ -17,6 +17,8 @@ import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/user.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
+import 'package:del_pick/Services/driver_service.dart';
+import 'package:del_pick/Services/menu_item_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/core/token_service.dart';
 import 'package:del_pick/Services/image_service.dart';
@@ -54,7 +56,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   MapboxMap? mapboxMap;
   PointAnnotationManager? pointAnnotationManager;
   PolylineAnnotationManager? polylineAnnotationManager;
-  final String _mapboxAccessToken = 'pk.eyJ1IjoiY3lydWJhZWsxMjMiLCJhIjoiY2ttbWMxYTRrMHhxdjJ3cXBmaGFxcjhlbyJ9.ODLNIKuSUu5-RdAceSXZfw'; // Replace with your actual token
+  final String _mapboxAccessToken = 'pk.eyJ1IjoiY3lydWJhZWsxMjMiLCJhIjoiY2ttbWMxYTRrMHhxdjJ3cXBmaGFxcjhlbyJ9.ODLNIKuSUu5-RdAceSXZfw';
 
   // Draggable scroll controller
   DraggableScrollableController dragController = DraggableScrollableController();
@@ -62,14 +64,19 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
 
   // Data variables
   Order? _order;
-  Tracking? _tracking;
+  Map<String, dynamic>? _trackingData;
   bool _isLoading = true;
   String _errorMessage = '';
   bool _isTokenValid = false;
-  Customer? _customer;
+  User? _customer;
   Driver? _driver;
   Store? _store;
-  String _userRole = 'customer'; // Default role
+  String _userRole = 'customer';
+
+  // Driver position data
+  PositionCustom? _driverPosition;
+  PositionCustom? _storePosition;
+  PositionCustom? _customerPosition;
 
   // Track estimated delivery time
   String _estimatedArrival = 'Calculating...';
@@ -168,7 +175,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
         _isTokenValid = true;
         // Create customer data from user data
         if (userData['role'] == 'customer') {
-          _customer = Customer.fromStoredData(userData);
+          _customer = User.fromJson(userData);
         }
       });
 
@@ -192,43 +199,31 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       });
 
       // Determine which order ID to use
-      final String orderId = widget.orderId ?? widget.order?.id ?? '';
+      final String orderId = widget.orderId ?? widget.order?.id.toString() ?? '';
 
       if (orderId.isEmpty) {
         throw Exception('Order ID is required');
       }
 
-      // Get order details if not provided
+      // Get order details if not provided using updated OrderService
       if (widget.order == null) {
-        // Use updated OrderService.getOrderDetail
-        final orderData = await OrderService.getOrderDetail(orderId);
+        final orderData = await OrderService.getOrderById(orderId);
         _order = Order.fromJson(orderData);
       } else {
         _order = widget.order;
       }
 
-      // Get tracking data
-      final trackingData = await TrackingService.getOrderTracking(orderId);
+      // Get tracking data using updated TrackingService
+      _trackingData = await TrackingService.getTrackingData(orderId);
 
-      // Create tracking object with tracking data from API
-      if (trackingData != null) {
-        _tracking = Tracking.fromJson(trackingData);
-
-        // Convert tracking positions to our custom PositionCustom objects
-        _previousDriverPosition = _convertToCustomPosition(_tracking!.driverPosition);
-
-        // Calculate estimated delivery time based on distance
-        double distance = _calculateDistance(
-            _convertToCustomPosition(_tracking!.driverPosition),
-            _convertToCustomPosition(_tracking!.customerPosition)
-        );
-        _estimatedMinutes = _calculateEstimatedDeliveryTime(distance);
-        _updateEstimatedArrival();
+      if (_trackingData != null) {
+        // Process tracking data
+        await _processTrackingData();
       }
 
-      // Get driver details from tracking
-      if (_tracking?.driver != null) {
-        _driver = _tracking?.driver;
+      // Get additional driver details if driver is assigned
+      if (_order?.driverId != null) {
+        await _getDriverDetails(_order!.driverId.toString());
       }
 
       setState(() {
@@ -236,7 +231,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       });
 
       // Set up the map if tracking data is available
-      if (_tracking != null && mapboxMap != null) {
+      if (_trackingData != null && mapboxMap != null) {
         _setupMapAnnotations();
         _fetchRouteDirections();
       }
@@ -249,17 +244,98 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
     }
   }
 
-  // Convert from Tracking.Position to our PositionCustom
-  PositionCustom _convertToCustomPosition(dynamic position) {
-    // Handle different types of position objects
-    if (position is Map<String, dynamic>) {
-      return PositionCustom(
-        position['longitude'] ?? 0.0,
-        position['latitude'] ?? 0.0,
-      );
-    } else {
-      // Assuming it's the Position from Tracking model
-      return PositionCustom(position.lng, position.lat);
+  // Process tracking data from API response
+  Future<void> _processTrackingData() async {
+    if (_trackingData == null) return;
+
+    try {
+      // Extract position data from tracking response
+      if (_trackingData!['driverPosition'] != null) {
+        final driverPos = _trackingData!['driverPosition'];
+        _driverPosition = PositionCustom(
+          driverPos['longitude'] ?? 0.0,
+          driverPos['latitude'] ?? 0.0,
+        );
+        _previousDriverPosition = _driverPosition;
+      }
+
+      if (_trackingData!['storePosition'] != null) {
+        final storePos = _trackingData!['storePosition'];
+        _storePosition = PositionCustom(
+          storePos['longitude'] ?? 0.0,
+          storePos['latitude'] ?? 0.0,
+        );
+      }
+
+      if (_trackingData!['customerPosition'] != null) {
+        final customerPos = _trackingData!['customerPosition'];
+        _customerPosition = PositionCustom(
+          customerPos['longitude'] ?? 0.0,
+          customerPos['latitude'] ?? 0.0,
+        );
+      }
+
+      // Get driver data from tracking response
+      if (_trackingData!['driver'] != null) {
+        _driver = Driver.fromJson(_trackingData!['driver']);
+      }
+
+      // Calculate estimated delivery time if positions are available
+      if (_driverPosition != null && _customerPosition != null) {
+        double distance = _calculateDistance(_driverPosition!, _customerPosition!);
+        _estimatedMinutes = _calculateEstimatedDeliveryTime(distance);
+        _updateEstimatedArrival();
+      }
+
+    } catch (e) {
+      print('Error processing tracking data: $e');
+    }
+  }
+
+  // Get additional driver details using DriverService
+  Future<void> _getDriverDetails(String driverId) async {
+    try {
+      final driverData = await DriverService.getDriverById(driverId);
+      if (driverData.isNotEmpty) {
+        setState(() {
+          _driver = Driver.fromJson(driverData);
+        });
+      }
+    } catch (e) {
+      print('Error getting driver details: $e');
+      // Continue without driver details
+    }
+  }
+
+  // Get driver location using DriverService
+  Future<void> _getDriverLocation(String driverId) async {
+    try {
+      final locationData = await DriverService.getDriverLocation(driverId);
+      if (locationData.isNotEmpty &&
+          locationData['latitude'] != null &&
+          locationData['longitude'] != null) {
+
+        final newDriverPosition = PositionCustom(
+          locationData['longitude'].toDouble(),
+          locationData['latitude'].toDouble(),
+        );
+
+        // Store previous position for animation
+        _previousDriverPosition = _driverPosition;
+
+        setState(() {
+          _driverPosition = newDriverPosition;
+        });
+
+        // Animate if position changed
+        if (_previousDriverPosition != null &&
+            (_previousDriverPosition!.longitude != newDriverPosition.longitude ||
+                _previousDriverPosition!.latitude != newDriverPosition.latitude)) {
+          _animateDriverMarker();
+        }
+      }
+    } catch (e) {
+      print('Error getting driver location: $e');
     }
   }
 
@@ -294,35 +370,33 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
     if (_order == null || !_isTokenValid) return;
 
     try {
-      final trackingData = await TrackingService.getOrderTracking(_order!.id);
-      final newTracking = Tracking.fromJson(trackingData);
+      // Refresh tracking data
+      final newTrackingData = await TrackingService.getTrackingData(_order!.id.toString());
 
-      // Store previous position before updating
-      _previousDriverPosition = _convertToCustomPosition(_tracking?.driverPosition);
+      if (newTrackingData != null) {
+        // Store previous position before updating
+        _previousDriverPosition = _driverPosition;
 
-      setState(() {
-        _tracking = newTracking;
-      });
+        setState(() {
+          _trackingData = newTrackingData;
+        });
 
-      // Recalculate estimated time
-      if (_tracking != null) {
-        double distance = _calculateDistance(
-            _convertToCustomPosition(_tracking!.driverPosition),
-            _convertToCustomPosition(_tracking!.customerPosition)
-        );
-        _estimatedMinutes = _calculateEstimatedDeliveryTime(distance);
-        _updateEstimatedArrival();
+        // Process new tracking data
+        await _processTrackingData();
+
+        // Only animate marker and update route if position changed
+        if (_previousDriverPosition != null && _driverPosition != null) {
+          if (_previousDriverPosition!.longitude != _driverPosition!.longitude ||
+              _previousDriverPosition!.latitude != _driverPosition!.latitude) {
+            _animateDriverMarker();
+            _fetchRouteDirections();
+          }
+        }
       }
 
-      // Only animate marker and update route if position changed
-      if (_previousDriverPosition != null &&
-          _tracking != null) {
-        final currentDriverPos = _convertToCustomPosition(_tracking!.driverPosition);
-        if (_previousDriverPosition!.longitude != currentDriverPos.longitude ||
-            _previousDriverPosition!.latitude != currentDriverPos.latitude) {
-          _animateDriverMarker();
-          _fetchRouteDirections();
-        }
+      // Also refresh driver location if driver is assigned
+      if (_order?.driverId != null) {
+        await _getDriverLocation(_order!.driverId.toString());
       }
 
     } catch (e) {
@@ -333,7 +407,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
 
   // Set up map annotation managers
   Future<void> _setupMapAnnotations() async {
-    if (mapboxMap == null || _tracking == null) return;
+    if (mapboxMap == null || _driverPosition == null) return;
 
     pointAnnotationManager = await mapboxMap!.annotations.createPointAnnotationManager();
     polylineAnnotationManager = await mapboxMap!.annotations.createPolylineAnnotationManager();
@@ -347,55 +421,48 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
 
   // Add markers for driver, store, and customer
   Future<void> _addMapMarkers() async {
-    if (pointAnnotationManager == null || _tracking == null) return;
+    if (pointAnnotationManager == null) return;
 
     // Clear existing markers
     await pointAnnotationManager!.deleteAll();
 
-    // Driver position as PositionCustom
-    final driverPos = _convertToCustomPosition(_tracking!.driverPosition);
-
-    // Store position as PositionCustom
-    final storePos = _convertToCustomPosition(_tracking!.storePosition);
-
-    // Customer position as PositionCustom
-    final customerPos = _convertToCustomPosition(_tracking!.customerPosition);
-
     // Driver marker
-    final driverOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: Position(driverPos.longitude, driverPos.latitude)),
-      iconImage: "assets/images/marker_driver.png",
-      iconSize: 1.2,
-    );
+    if (_driverPosition != null) {
+      final driverOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: Position(_driverPosition!.longitude, _driverPosition!.latitude)),
+        iconImage: "assets/images/marker_driver.png",
+        iconSize: 1.2,
+      );
+      await pointAnnotationManager!.create(driverOptions);
+    }
 
     // Store marker
-    final storeOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: Position(storePos.longitude, storePos.latitude)),
-      iconImage: "assets/images/marker_store.png",
-      iconSize: 1.0,
-    );
+    if (_storePosition != null) {
+      final storeOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: Position(_storePosition!.longitude, _storePosition!.latitude)),
+        iconImage: "assets/images/marker_store.png",
+        iconSize: 1.0,
+      );
+      await pointAnnotationManager!.create(storeOptions);
+    }
 
     // Customer marker
-    final customerOptions = PointAnnotationOptions(
-      geometry: Point(coordinates: Position(customerPos.longitude, customerPos.latitude)),
-      iconImage: "assets/images/marker_customer.png",
-      iconSize: 1.0,
-    );
-
-    await pointAnnotationManager!.create(driverOptions);
-    await pointAnnotationManager!.create(storeOptions);
-    await pointAnnotationManager!.create(customerOptions);
+    if (_customerPosition != null) {
+      final customerOptions = PointAnnotationOptions(
+        geometry: Point(coordinates: Position(_customerPosition!.longitude, _customerPosition!.latitude)),
+        iconImage: "assets/images/marker_customer.png",
+        iconSize: 1.0,
+      );
+      await pointAnnotationManager!.create(customerOptions);
+    }
   }
 
   // Animate driver marker when position changes
   void _animateDriverMarker() {
-    if (_tracking == null || _previousDriverPosition == null) return;
+    if (_driverPosition == null || _previousDriverPosition == null) return;
 
     // Reset animation controller
     _markerAnimationController.reset();
-
-    // Get current driver position
-    final currentDriverPos = _convertToCustomPosition(_tracking!.driverPosition);
 
     // Create animation for driver position
     _markerPositionAnimation = Tween<double>(
@@ -413,9 +480,9 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       // Calculate interpolated position
       final double t = _markerPositionAnimation!.value;
       final double newLng = _previousDriverPosition!.longitude +
-          (currentDriverPos.longitude - _previousDriverPosition!.longitude) * t;
+          (_driverPosition!.longitude - _previousDriverPosition!.longitude) * t;
       final double newLat = _previousDriverPosition!.latitude +
-          (currentDriverPos.latitude - _previousDriverPosition!.latitude) * t;
+          (_driverPosition!.latitude - _previousDriverPosition!.latitude) * t;
 
       // Update driver marker position
       _updateDriverMarkerPosition(PositionCustom(newLng, newLat));
@@ -429,7 +496,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   Future<void> _updateDriverMarkerPosition(PositionCustom position) async {
     if (pointAnnotationManager == null) return;
 
-    // First remove existing annotations
+    // Remove existing annotations
     await pointAnnotationManager!.deleteAll();
 
     // Re-create all markers with updated driver position
@@ -440,29 +507,23 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
       iconSize: 1.2,
     );
 
-    // Add store and customer markers (unchanged)
-    if (_tracking != null) {
-      // Store position as PositionCustom
-      final storePos = _convertToCustomPosition(_tracking!.storePosition);
-
-      // Customer position as PositionCustom
-      final customerPos = _convertToCustomPosition(_tracking!.customerPosition);
-
-      // Store marker
+    // Store marker
+    if (_storePosition != null) {
       final storeOptions = PointAnnotationOptions(
-        geometry: Point(coordinates: Position(storePos.longitude, storePos.latitude)),
+        geometry: Point(coordinates: Position(_storePosition!.longitude, _storePosition!.latitude)),
         iconImage: "assets/images/marker_store.png",
         iconSize: 1.0,
       );
+      await pointAnnotationManager!.create(storeOptions);
+    }
 
-      // Customer marker
+    // Customer marker
+    if (_customerPosition != null) {
       final customerOptions = PointAnnotationOptions(
-        geometry: Point(coordinates: Position(customerPos.longitude, customerPos.latitude)),
+        geometry: Point(coordinates: Position(_customerPosition!.longitude, _customerPosition!.latitude)),
         iconImage: "assets/images/marker_customer.png",
         iconSize: 1.0,
       );
-
-      await pointAnnotationManager!.create(storeOptions);
       await pointAnnotationManager!.create(customerOptions);
     }
 
@@ -477,13 +538,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   void _centerMapOnDriver({PositionCustom? position}) {
     if (mapboxMap == null) return;
 
-    PositionCustom? driverPos;
-    if (position != null) {
-      driverPos = position;
-    } else if (_tracking != null) {
-      driverPos = _convertToCustomPosition(_tracking!.driverPosition);
-    }
-
+    PositionCustom? driverPos = position ?? _driverPosition;
     if (driverPos == null) return;
 
     mapboxMap!.flyTo(
@@ -499,24 +554,24 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
 
   // Fetch route directions using Mapbox Directions API
   Future<void> _fetchRouteDirections() async {
-    if (_tracking == null || mapboxMap == null) return;
+    if (_driverPosition == null || mapboxMap == null) return;
 
     try {
       // Determine origin and destination based on order status
-      PositionCustom origin = _convertToCustomPosition(_tracking!.driverPosition);
-      PositionCustom destination;
+      PositionCustom origin = _driverPosition!;
+      PositionCustom? destination;
 
-      // If driver is heading to store, route should be from driver to store
-      if (_tracking!.status == OrderStatus.driverHeadingToStore ||
-          _tracking!.status == OrderStatus.driverAssigned) {
-        destination = _convertToCustomPosition(_tracking!.storePosition);
-      }
-      // Otherwise, route should be from driver to customer
-      else {
-        destination = _convertToCustomPosition(_tracking!.customerPosition);
+      // Check order status to determine destination
+      if (_order?.orderStatus == OrderStatus.confirmed ||
+          _order?.orderStatus == OrderStatus.preparing) {
+        destination = _storePosition;
+      } else {
+        destination = _customerPosition;
       }
 
-      // Request Mapbox directions
+      if (destination == null) return;
+
+      // Request directions
       final directionsResponse = await _getDirections(origin, destination);
 
       // Process response and draw route
@@ -529,12 +584,9 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
     }
   }
 
-  // Get directions from Mapbox Directions API
+  // Get directions (simplified implementation)
   Future<List<PositionCustom>> _getDirections(PositionCustom origin, PositionCustom destination) async {
-    // This would normally be an API call to Mapbox Directions API
-    // For this implementation, we'll simulate a real route with waypoints
-
-    // Create a simulated route with extra waypoints
+    // Create a simulated route with waypoints
     List<PositionCustom> waypoints = [];
 
     // Add origin
@@ -542,7 +594,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
 
     // Add intermediate points (simulating a curved route)
     final double distance = _calculateDistance(origin, destination);
-    final int numPoints = (distance * 100).round(); // More points for longer distances
+    final int numPoints = (distance * 100).round();
 
     // Generate intermediate waypoints with some randomness for a realistic path
     if (numPoints > 2) {
@@ -637,25 +689,25 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
 
   // Fallback: Draw direct line between points if directions API fails
   Future<void> _drawDirectLine() async {
-    if (polylineAnnotationManager == null || _tracking == null) return;
+    if (polylineAnnotationManager == null || _driverPosition == null) return;
 
     // Clear existing routes
     await polylineAnnotationManager!.deleteAll();
 
     // Determine route points based on order status
     List<PositionCustom> routePoints = [];
-    if (_tracking!.status == OrderStatus.driverHeadingToStore ||
-        _tracking!.status == OrderStatus.driverAssigned) {
-      routePoints = [
-        _convertToCustomPosition(_tracking!.driverPosition),
-        _convertToCustomPosition(_tracking!.storePosition),
-      ];
+    if (_order?.orderStatus == OrderStatus.confirmed ||
+        _order?.orderStatus == OrderStatus.preparing) {
+      if (_storePosition != null) {
+        routePoints = [_driverPosition!, _storePosition!];
+      }
     } else {
-      routePoints = [
-        _convertToCustomPosition(_tracking!.driverPosition),
-        _convertToCustomPosition(_tracking!.customerPosition),
-      ];
+      if (_customerPosition != null) {
+        routePoints = [_driverPosition!, _customerPosition!];
+      }
     }
+
+    if (routePoints.isEmpty) return;
 
     // Convert to mapbox Position
     List<Position> mapboxPositions = routePoints.map((pos) =>
@@ -675,7 +727,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   // Calculate distance between two positions (Haversine formula)
   double _calculateDistance(PositionCustom pos1, PositionCustom pos2) {
     const double earthRadius = 6371.0; // Earth radius in kilometers
-    final double lat1 = pos1.latitude * (math.pi / 180.0); // Convert to radians
+    final double lat1 = pos1.latitude * (math.pi / 180.0);
     final double lat2 = pos2.latitude * (math.pi / 180.0);
     final double lng1 = pos1.longitude * (math.pi / 180.0);
     final double lng2 = pos2.longitude * (math.pi / 180.0);
@@ -748,7 +800,6 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                 padding: const EdgeInsets.only(top: 16.0),
                 child: ElevatedButton(
                   onPressed: () {
-                    // Navigate to login screen
                     Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
                   },
                   style: ElevatedButton.styleFrom(
@@ -766,8 +817,8 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
 
   // Main tracking view
   Widget _buildTrackingView() {
-    if (_order == null || _tracking == null) {
-      return Center(child: Text('No tracking data available'));
+    if (_order == null) {
+      return Center(child: Text('No order data available'));
     }
 
     return Stack(
@@ -779,15 +830,15 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
             key: const ValueKey("mapWidget"),
             onMapCreated: _onMapCreated,
             styleUri: MapboxStyles.MAPBOX_STREETS,
-            cameraOptions: CameraOptions(
+            cameraOptions: _driverPosition != null ? CameraOptions(
               center: Point(coordinates: Position(
-                  _convertToCustomPosition(_tracking!.driverPosition).longitude,
-                  _convertToCustomPosition(_tracking!.driverPosition).latitude
+                  _driverPosition!.longitude,
+                  _driverPosition!.latitude
               )),
               zoom: 14.5,
               bearing: 0,
-              pitch: 45, // Add slight 3D perspective
-            ),
+              pitch: 45,
+            ) : null,
           ),
         ),
 
@@ -826,13 +877,14 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _tracking!.statusMessage,
+                  _getStatusMessage(),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                if (_tracking!.status != OrderStatus.completed && _tracking!.status != OrderStatus.cancelled)
+                if (_order!.orderStatus != OrderStatus.delivered &&
+                    _order!.orderStatus != OrderStatus.cancelled)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
@@ -890,12 +942,12 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: CustomerOrderStatusCard(
                         orderData: {
-                          'id': _order?.id ?? '',
-                          'order_status': _tracking?.status.toString().split('.').last ?? 'pending',
-                          'total': _order?.total ?? 0,
-                          'estimatedDeliveryTime': _tracking?.estimatedArrival?.toIso8601String(),
+                          'id': _order!.id,
+                          'order_status': _order!.orderStatus.toString().split('.').last,
+                          'total_amount': _order!.totalAmount,
+                          'estimated_delivery_time': _order!.estimatedDeliveryTime?.toIso8601String(),
                         },
-                        animation: null, // Atau bisa menggunakan animasi sesuai kebutuhan
+                        animation: null,
                       ),
                     ),
 
@@ -906,7 +958,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                     _buildDeliveryInfo(),
 
                     // Confirmation Button
-                    if (_tracking!.status == OrderStatus.driverArrived)
+                    if (_order!.orderStatus == OrderStatus.delivered)
                       Padding(
                         padding: const EdgeInsets.all(16),
                         child: SizedBox(
@@ -945,11 +997,29 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
     );
   }
 
+  // Get status message based on order status
+  String _getStatusMessage() {
+    switch (_order!.orderStatus) {
+      case OrderStatus.pending:
+        return 'Menunggu konfirmasi pesanan';
+      case OrderStatus.confirmed:
+        return 'Pesanan telah dikonfirmasi';
+      case OrderStatus.preparing:
+        return 'Pesanan sedang dipersiapkan';
+      case OrderStatus.ready_for_pickup:
+        return 'Pesanan siap diambil';
+      case OrderStatus.on_delivery:
+        return 'Pesanan sedang dalam pengiriman';
+      case OrderStatus.delivered:
+        return 'Pesanan telah diterima';
+      case OrderStatus.cancelled:
+        return 'Pesanan dibatalkan';
+    }
+  }
+
   // Build driver info section
   Widget _buildDriverInfo() {
-    final driver = _tracking?.driver;
-
-    if (driver == null) {
+    if (_driver == null) {
       return const SizedBox.shrink();
     }
 
@@ -995,10 +1065,10 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.grey[300]!),
                 ),
-                child: driver.profileImageUrl != null && driver.profileImageUrl!.isNotEmpty
+                child: _driver!.profileImageUrl != null && _driver!.profileImageUrl!.isNotEmpty
                     ? ClipOval(
                   child: ImageService.displayImage(
-                    imageSource: driver.profileImageUrl!,
+                    imageSource: _driver!.profileImageUrl!,
                     width: 60,
                     height: 60,
                     fit: BoxFit.cover,
@@ -1016,7 +1086,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      driver.name,
+                      _driver!.name,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -1030,7 +1100,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                         Icon(Icons.motorcycle, color: Colors.grey[600], size: 16),
                         const SizedBox(width: 4),
                         Text(
-                          driver.vehicleNumber,
+                          _driver!.vehiclePlate,
                           style: TextStyle(
                             color: Colors.grey[600],
                             fontSize: 14,
@@ -1044,7 +1114,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                         Icon(Icons.star, color: Colors.amber, size: 16),
                         const SizedBox(width: 4),
                         Text(
-                          driver.rating.toString(),
+                          _driver!.rating.toString(),
                           style: TextStyle(
                             color: Colors.grey[800],
                             fontWeight: FontWeight.w500,
@@ -1075,7 +1145,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: () => _callDriver(driver.phoneNumber),
+                  onPressed: () => _callDriver(_driver!.phoneNumber),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1093,7 +1163,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: () => _messageDriver(driver.phoneNumber),
+                  onPressed: () => _messageDriver(_driver!.phoneNumber),
                 ),
               ),
             ],
@@ -1151,11 +1221,8 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
 
     // Calculate distance between store and delivery address
     double distance = 0.0;
-    if (_tracking != null) {
-      distance = _calculateDistance(
-          _convertToCustomPosition(_tracking!.storePosition),
-          _convertToCustomPosition(_tracking!.customerPosition)
-      );
+    if (_storePosition != null && _customerPosition != null) {
+      distance = _calculateDistance(_storePosition!, _customerPosition!);
     }
 
     final formattedDistance = distance < 10
@@ -1196,15 +1263,15 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
           const SizedBox(height: 16),
           _buildLocationItem(
             'Alamat Penjemputan',
-            _order!.store.name,
-            _order!.store.address,
+            _order!.store?.name ?? 'Unknown Store',
+            _order!.store?.address ?? 'Address not available',
             Icons.store,
           ),
           const Divider(height: 24),
           _buildLocationItem(
             'Alamat Pengantaran',
             'Alamat Pengiriman',
-            _order!.deliveryAddress,
+            'Customer delivery address', // You may need to add this field to Order model
             Icons.location_on,
           ),
           const SizedBox(height: 16),
@@ -1237,80 +1304,44 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
           ),
 
           // Order Items Summary
-          const SizedBox(height: 16),
-          const Divider(),
-          const SizedBox(height: 8),
-          Text(
-            'Rincian Pesanan (${_order!.items.length} item)',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: GlobalStyle.fontColor,
+          if (_order!.items != null && _order!.items!.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              'Rincian Pesanan (${_order!.items!.length} item)',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: GlobalStyle.fontColor,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          ..._order!.items.map((item) => Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${item.quantity}x ${item.name}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: GlobalStyle.fontColor,
+            const SizedBox(height: 8),
+            ..._order!.items!.map((item) => Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${item.quantity}x ${item.name}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: GlobalStyle.fontColor,
+                    ),
                   ),
-                ),
-                Text(
-                  GlobalStyle.formatRupiah(item.price * item.quantity),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: GlobalStyle.fontColor,
+                  Text(
+                    GlobalStyle.formatRupiah(item.totalPrice),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: GlobalStyle.fontColor,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          )).toList(),
+                ],
+              ),
+            )).toList(),
+          ],
           const Divider(),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Subtotal',
-                style: TextStyle(
-                  fontSize: 14,
-                ),
-              ),
-              Text(
-                GlobalStyle.formatRupiah(_order!.subtotal),
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Biaya Pengiriman',
-                style: TextStyle(
-                  fontSize: 14,
-                ),
-              ),
-              Text(
-                GlobalStyle.formatRupiah(_order!.serviceCharge),
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1323,7 +1354,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                 ),
               ),
               Text(
-                GlobalStyle.formatRupiah(_order!.total),
+                GlobalStyle.formatRupiah(_order!.totalAmount),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -1405,7 +1436,7 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   void _onMapCreated(MapboxMap mapboxMap) {
     this.mapboxMap = mapboxMap;
 
-    if (_tracking != null) {
+    if (_driverPosition != null) {
       _setupMapAnnotations();
       _fetchRouteDirections();
     }
@@ -1473,7 +1504,6 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
                     padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
                   ),
                   onPressed: () {
-                    // Update order status and go to history detail
                     _completeOrder();
                     Navigator.pop(context); // Close dialog
                   },
@@ -1493,15 +1523,17 @@ class _TrackCustOrderScreenState extends State<TrackCustOrderScreen> with Ticker
   // Order completion handler
   void _completeOrder() async {
     try {
-      // Use updated OrderService instead of TrackingService
-      await OrderService.updateOrderStatus(_order!.id, 'completed');
+      // Update order status using OrderService
+      await OrderService.updateOrderStatus(_order!.id.toString(), {
+        'order_status': 'delivered'
+      });
 
       // Navigate to history detail
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => HistoryDetailPage(
-            order: _order!,
+          builder: (context) => HistoryDetailScreen(
+            orderId: _order!.id.toString(),
           ),
         ),
       );

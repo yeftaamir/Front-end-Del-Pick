@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import '../../Models/order_enum.dart';
+import '../../Models/order.dart';
 import '../Component/cust_bottom_navigation.dart';
-import 'package:del_pick/Models/item_model.dart';
-import 'package:del_pick/Models/store.dart';
-import 'package:del_pick/Models/tracking.dart';
-import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Views/Customers/history_detail.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/image_service.dart';
@@ -32,10 +30,22 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   late AnimationController _headerController;
   late Animation<double> _headerAnimation;
 
-  // List for storing orders from API
+  // Data management
   List<Order> orders = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   String? _errorMessage;
+
+  // Pagination
+  int _currentPage = 1;
+  final int _limit = 10;
+  int _totalPages = 1;
+  bool _hasMoreData = true;
+
+  // Filter
+  DateTime? _startDate;
+  DateTime? _endDate;
+  String? _selectedStatus;
 
   // Colors
   final Color _primaryGradientStart = GlobalStyle.primaryColor;
@@ -43,11 +53,14 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   final Color _cardBackground = Colors.white;
   final Color _scaffoldBg = const Color(0xFFF7F8FC);
 
+  final ScrollController _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
 
     _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(_onTabChanged);
 
     // Header animation
     _headerController = AnimationController(
@@ -65,23 +78,69 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     _fadeAnimations = [];
     _slideAnimations = [];
 
+    // Setup scroll listener for pagination
+    _scrollController.addListener(_onScroll);
+
     // Fetch orders on init
-    _fetchOrders();
+    _fetchOrders(isRefresh: true);
   }
 
-  // Fetch orders from API
-  Future<void> _fetchOrders() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) {
+      _updateStatusFilter();
+      _fetchOrders(isRefresh: true);
+    }
+  }
 
-      final orderData = await OrderService.getOrdersByUser();
+  void _updateStatusFilter() {
+    switch (_tabController.index) {
+      case 0: // All
+        _selectedStatus = null;
+        break;
+      case 1: // In Progress
+        _selectedStatus = null; // Will filter locally for non-completed
+        break;
+      case 2: // Completed
+        _selectedStatus = 'delivered';
+        break;
+      case 3: // Cancelled
+        _selectedStatus = 'cancelled';
+        break;
+    }
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent * 0.8) {
+      if (!_isLoadingMore && _hasMoreData && _currentPage < _totalPages) {
+        _loadMoreOrders();
+      }
+    }
+  }
+
+  // Fetch orders from API with improved pagination and filtering
+  Future<void> _fetchOrders({bool isRefresh = false}) async {
+    try {
+      if (isRefresh) {
+        setState(() {
+          _isLoading = true;
+          _errorMessage = null;
+          _currentPage = 1;
+          orders.clear();
+        });
+      }
+
+      final orderData = await OrderService.getOrdersByUser(
+        page: _currentPage,
+        limit: _limit,
+        status: _selectedStatus,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+      );
 
       List<Order> fetchedOrders = [];
 
       if (orderData.isNotEmpty) {
+        // Handle the response structure from OrderService.getOrdersByUser()
         if (orderData['orders'] is List) {
           for (var orderJson in orderData['orders']) {
             try {
@@ -91,48 +150,100 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               print('Error parsing order: $e');
             }
           }
-        } else {
-          try {
-            for (var key in orderData.keys) {
-              if (orderData[key] is List) {
-                for (var orderJson in orderData[key]) {
-                  try {
-                    final order = Order.fromJson(orderJson);
-                    fetchedOrders.add(order);
-                  } catch (e) {
-                    print('Error parsing order in $key: $e');
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            print('Error iterating order data: $e');
-          }
+
+          // Update pagination info
+          _totalPages = orderData['totalPages'] ?? 1;
+          _hasMoreData = _currentPage < _totalPages;
         }
       }
 
-      _setupAnimations(fetchedOrders.length);
+      // Filter locally for in-progress orders if needed
+      if (_tabController.index == 1) {
+        fetchedOrders = fetchedOrders.where((order) => !order.orderStatus.isCompleted).toList();
+      }
+
+      if (isRefresh) {
+        _setupAnimations(fetchedOrders.length);
+      }
 
       setState(() {
-        orders = fetchedOrders;
+        if (isRefresh) {
+          orders = fetchedOrders;
+        } else {
+          orders.addAll(fetchedOrders);
+        }
         _isLoading = false;
+        _isLoadingMore = false;
       });
 
-      // Start animations with stagger
-      for (int i = 0; i < _cardControllers.length; i++) {
-        Future.delayed(Duration(milliseconds: 100 * i), () {
-          if (mounted && i < _cardControllers.length) {
-            _cardControllers[i].forward();
-          }
-        });
+      // Start animations with stagger for new items
+      if (isRefresh) {
+        for (int i = 0; i < _cardControllers.length; i++) {
+          Future.delayed(Duration(milliseconds: 100 * i), () {
+            if (mounted && i < _cardControllers.length) {
+              _cardControllers[i].forward();
+            }
+          });
+        }
       }
     } catch (e) {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Failed to load orders: $e';
+        _isLoadingMore = false;
+        _errorMessage = 'Failed to load orders: ${e.toString()}';
       });
       print('Error fetching orders: $e');
     }
+  }
+
+  Future<void> _loadMoreOrders() async {
+    if (_isLoadingMore || !_hasMoreData) return;
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    _currentPage++;
+    await _fetchOrders(isRefresh: false);
+  }
+
+  // Date range filter
+  Future<void> _showDateRangePicker() async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now(),
+      initialDateRange: _startDate != null && _endDate != null
+          ? DateTimeRange(start: _startDate!, end: _endDate!)
+          : null,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: GlobalStyle.primaryColor,
+              onPrimary: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _startDate = picked.start;
+        _endDate = picked.end;
+      });
+      _fetchOrders(isRefresh: true);
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _startDate = null;
+      _endDate = null;
+    });
+    _fetchOrders(isRefresh: true);
   }
 
   void _setupAnimations(int totalCards) {
@@ -171,86 +282,86 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _headerController.dispose();
+    _scrollController.dispose();
     for (var controller in _cardControllers) {
       controller.dispose();
     }
     super.dispose();
   }
 
-  List<Order> getFilteredOrders(int tabIndex) {
-    switch (tabIndex) {
-      case 0:
-        return orders;
-      case 1:
-        return orders.where((order) => !order.status.isCompleted).toList();
-      case 2:
-        return orders.where((order) =>
-        order.status == OrderStatus.completed ||
-            order.status == OrderStatus.delivered
-        ).toList();
-      case 3:
-        return orders.where((order) => order.status == OrderStatus.cancelled).toList();
-      default:
-        return orders;
+  List<Order> getFilteredOrders() {
+    var filteredOrders = orders;
+
+    // Apply date filter
+    if (_startDate != null && _endDate != null) {
+      filteredOrders = filteredOrders.where((order) {
+        final orderDate = order.createdAt ?? DateTime.now();
+        return orderDate.isAfter(_startDate!.subtract(const Duration(days: 1))) &&
+            orderDate.isBefore(_endDate!.add(const Duration(days: 1)));
+      }).toList();
     }
+
+    return filteredOrders;
   }
 
   Color getStatusColor(OrderStatus status) {
-    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
-      return const Color(0xFF10B981);
-    } else if (status == OrderStatus.cancelled) {
-      return const Color(0xFFEF4444);
-    } else if (status == OrderStatus.on_delivery || status == OrderStatus.driverHeadingToCustomer) {
-      return const Color(0xFF3B82F6);
-    } else if (status == OrderStatus.preparing || status == OrderStatus.driverAtStore) {
-      return const Color(0xFFF59E0B);
-    } else {
-      return GlobalStyle.primaryColor;
+    switch (status) {
+      case OrderStatus.delivered:
+        return const Color(0xFF10B981);
+      case OrderStatus.cancelled:
+        return const Color(0xFFEF4444);
+      case OrderStatus.on_delivery:
+        return const Color(0xFF3B82F6);
+      case OrderStatus.preparing:
+      case OrderStatus.ready_for_pickup:
+        return const Color(0xFFF59E0B);
+      case OrderStatus.confirmed:
+        return const Color(0xFF8B5CF6);
+      case OrderStatus.pending:
+      default:
+        return GlobalStyle.primaryColor;
     }
   }
 
   IconData getStatusIcon(OrderStatus status) {
-    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
-      return Icons.check_circle;
-    } else if (status == OrderStatus.cancelled) {
-      return Icons.cancel;
-    } else if (status == OrderStatus.on_delivery || status == OrderStatus.driverHeadingToCustomer) {
-      return Icons.delivery_dining;
-    } else if (status == OrderStatus.preparing || status == OrderStatus.driverAtStore) {
-      return Icons.restaurant;
-    } else {
-      return Icons.schedule;
+    switch (status) {
+      case OrderStatus.delivered:
+        return LucideIcons.checkCircle;
+      case OrderStatus.cancelled:
+        return LucideIcons.xCircle;
+      case OrderStatus.on_delivery:
+        return LucideIcons.truck;
+      case OrderStatus.preparing:
+        return LucideIcons.package;
+      case OrderStatus.ready_for_pickup:
+        return LucideIcons.packageCheck;
+      case OrderStatus.confirmed:
+        return LucideIcons.checkCheck;
+      case OrderStatus.pending:
+      default:
+        return LucideIcons.clock;
     }
   }
 
   String getStatusText(OrderStatus status) {
     switch (status) {
-      case OrderStatus.completed:
-        return 'Selesai';
+      case OrderStatus.pending:
+        return 'Menunggu Konfirmasi';
+      case OrderStatus.confirmed:
+        return 'Dikonfirmasi';
+      case OrderStatus.preparing:
+        return 'Sedang Diproses';
+      case OrderStatus.ready_for_pickup:
+        return 'Siap Diambil';
+      case OrderStatus.on_delivery:
+        return 'Dalam Pengiriman';
       case OrderStatus.delivered:
-        return 'Terkirim';
+        return 'Selesai';
       case OrderStatus.cancelled:
         return 'Dibatalkan';
-      case OrderStatus.pending:
-        return 'Menunggu';
-      case OrderStatus.approved:
-        return 'Disetujui';
-      case OrderStatus.preparing:
-        return 'Diproses';
-      case OrderStatus.on_delivery:
-        return 'Diantar';
-      case OrderStatus.driverAssigned:
-        return 'Driver Ditugaskan';
-      case OrderStatus.driverHeadingToStore:
-        return 'Driver Menuju Toko';
-      case OrderStatus.driverAtStore:
-        return 'Driver Di Toko';
-      case OrderStatus.driverHeadingToCustomer:
-        return 'Driver Menuju Anda';
-      case OrderStatus.driverArrived:
-        return 'Driver Tiba';
       default:
         return 'Diproses';
     }
@@ -266,14 +377,14 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   }
 
   String getOrderItemsText(Order order) {
-    if (order.items.isEmpty) {
+    if (order.items == null || order.items!.isEmpty) {
       return "Tidak ada item";
     }
-    if (order.items.length == 1) {
-      return order.items[0].name;
+    if (order.items!.length == 1) {
+      return order.items![0].name;
     } else {
-      final firstItem = order.items[0].name;
-      final otherItemsCount = order.items.length - 1;
+      final firstItem = order.items![0].name;
+      final otherItemsCount = order.items!.length - 1;
       return '$firstItem, +$otherItemsCount item lainnya';
     }
   }
@@ -316,10 +427,12 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   }
 
   Widget _buildOrderCard(Order order, int index) {
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
-    final statusColor = getStatusColor(order.status);
-    final statusIcon = getStatusIcon(order.status);
-    final statusText = getStatusText(order.status);
+    final formattedDate = order.createdAt != null
+        ? DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt!)
+        : 'Unknown date';
+    final statusColor = getStatusColor(order.orderStatus);
+    final statusIcon = getStatusIcon(order.orderStatus);
+    final statusText = getStatusText(order.orderStatus);
     final itemsText = getOrderItemsText(order);
 
     return SlideTransition(
@@ -335,9 +448,9 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => HistoryDetailPage(order: order),
+                    builder: (context) => HistoryDetailScreen(orderId: order.id.toString()),
                   ),
-                ).then((_) => _fetchOrders());
+                ).then((_) => _fetchOrders(isRefresh: true));
               },
               borderRadius: BorderRadius.circular(20),
               child: Container(
@@ -393,29 +506,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                               ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(16),
-                                child: order.items.isNotEmpty && order.items.first.imageUrl.isNotEmpty
-                                    ? ImageService.displayImage(
-                                  imageSource: order.items.first.imageUrl,
-                                  width: 80,
-                                  height: 80,
-                                  fit: BoxFit.cover,
-                                  placeholder: Container(
-                                    color: Colors.grey[200],
-                                    child: Icon(Icons.restaurant_menu,
-                                        color: Colors.grey[400], size: 32),
-                                  ),
-                                )
-                                    : Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [Colors.grey[300]!, Colors.grey[200]!],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                  ),
-                                  child: Icon(Icons.restaurant_menu,
-                                      color: Colors.grey[400], size: 32),
-                                ),
+                                child: _buildOrderImage(order),
                               ),
                             ),
                           ),
@@ -429,7 +520,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        order.store.name,
+                                        order.store?.name ?? 'Unknown Store',
                                         style: const TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.w700,
@@ -444,13 +535,11 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
-                                    Icon(Icons.receipt_outlined, size: 14,
+                                    Icon(LucideIcons.receipt, size: 14,
                                         color: Colors.grey[600]),
                                     const SizedBox(width: 4),
                                     Text(
-                                      order.code != null && order.code!.isNotEmpty
-                                          ? order.code!
-                                          : '#${order.id}',
+                                      '#${order.id}',
                                       style: TextStyle(
                                         fontSize: 14,
                                         color: Colors.grey[700],
@@ -462,7 +551,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                                 const SizedBox(height: 4),
                                 Row(
                                   children: [
-                                    Icon(Icons.calendar_today_outlined, size: 14,
+                                    Icon(LucideIcons.calendar, size: 14,
                                         color: Colors.grey[600]),
                                     const SizedBox(width: 4),
                                     Text(
@@ -499,7 +588,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                             ),
                             child: Row(
                               children: [
-                                Icon(Icons.shopping_bag_outlined,
+                                Icon(LucideIcons.shoppingBag,
                                     color: _primaryGradientStart, size: 20),
                                 const SizedBox(width: 8),
                                 Expanded(
@@ -514,6 +603,22 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
+                                if (order.items != null && order.items!.length > 1)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: _primaryGradientStart.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      '${order.items!.length} item',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: _primaryGradientStart,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -534,7 +639,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    order.formatTotal(),
+                                    order.formatTotalAmount(),
                                     style: TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.w700,
@@ -567,9 +672,9 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(
-                                          builder: (context) => HistoryDetailPage(order: order),
+                                          builder: (context) => HistoryDetailScreen(orderId: order.id.toString()),
                                         ),
-                                      ).then((_) => _fetchOrders());
+                                      ).then((_) => _fetchOrders(isRefresh: true));
                                     },
                                     borderRadius: BorderRadius.circular(12),
                                     child: Container(
@@ -586,7 +691,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                                             ),
                                           ),
                                           SizedBox(width: 4),
-                                          Icon(Icons.arrow_forward_ios,
+                                          Icon(LucideIcons.arrowRight,
                                               color: Colors.white, size: 14),
                                         ],
                                       ),
@@ -604,6 +709,135 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderImage(Order order) {
+    // Try to get image from first order item
+    if (order.items != null && order.items!.isNotEmpty) {
+      final firstItem = order.items!.first;
+      if (firstItem.imageUrl != null && firstItem.imageUrl!.isNotEmpty) {
+        return ImageService.displayImage(
+          imageSource: firstItem.imageUrl!,
+          width: 80,
+          height: 80,
+          fit: BoxFit.cover,
+          placeholder: _buildImagePlaceholder(),
+          errorWidget: _buildImagePlaceholder(),
+        );
+      }
+    }
+
+    // Fallback to store image
+    if (order.store?.imageUrl != null && order.store!.imageUrl!.isNotEmpty) {
+      return ImageService.displayImage(
+        imageSource: order.store!.imageUrl!,
+        width: 80,
+        height: 80,
+        fit: BoxFit.cover,
+        placeholder: _buildImagePlaceholder(),
+        errorWidget: _buildImagePlaceholder(),
+      );
+    }
+
+    return _buildImagePlaceholder();
+  }
+
+  Widget _buildImagePlaceholder() {
+    return Container(
+      width: 80,
+      height: 80,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.grey[300]!, Colors.grey[200]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Icon(LucideIcons.utensils,
+          color: Colors.grey[400], size: 32),
+    );
+  }
+
+  Widget _buildDateFilterChip() {
+    final hasDateFilter = _startDate != null && _endDate != null;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: _showDateRangePicker,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: hasDateFilter ? _primaryGradientStart.withOpacity(0.1) : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: hasDateFilter ? _primaryGradientStart : Colors.grey[300]!,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      LucideIcons.calendar,
+                      size: 16,
+                      color: hasDateFilter ? _primaryGradientStart : Colors.grey[600],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        hasDateFilter
+                            ? '${DateFormat('dd MMM').format(_startDate!)} - ${DateFormat('dd MMM yyyy').format(_endDate!)}'
+                            : 'Filter Tanggal',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: hasDateFilter ? _primaryGradientStart : Colors.grey[600],
+                          fontWeight: hasDateFilter ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (hasDateFilter) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _clearDateFilter,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Icon(
+                  LucideIcons.x,
+                  size: 16,
+                  color: Colors.red[600],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreIndicator() {
+    if (!_isLoadingMore) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Center(
+        child: CircularProgressIndicator(
+          color: _primaryGradientStart,
+          strokeWidth: 2,
         ),
       ),
     );
@@ -631,7 +865,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  Icons.receipt_long_outlined,
+                  LucideIcons.fileText,
                   size: 60,
                   color: _primaryGradientStart,
                 ),
@@ -682,7 +916,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: const [
-                          Icon(Icons.shopping_cart_outlined, color: Colors.white),
+                          Icon(LucideIcons.shoppingCart, color: Colors.white),
                           SizedBox(width: 8),
                           Text(
                             'Pesan Sekarang',
@@ -813,7 +1047,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.error_outline,
+                LucideIcons.alertTriangle,
                 size: 50,
                 color: Colors.red[400],
               ),
@@ -854,14 +1088,14 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: _fetchOrders,
+                  onTap: () => _fetchOrders(isRefresh: true),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: const [
-                        Icon(Icons.refresh, color: Colors.white),
+                        Icon(LucideIcons.refreshCw, color: Colors.white),
                         SizedBox(width: 8),
                         Text(
                           'Coba Lagi',
@@ -896,6 +1130,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
       child: Scaffold(
         backgroundColor: _scaffoldBg,
         body: CustomScrollView(
+          controller: _scrollController,
           slivers: [
             // Custom app bar with gradient
             SliverAppBar(
@@ -935,7 +1170,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                    icon: const Icon(LucideIcons.arrowLeft, color: Colors.white, size: 20),
                     onPressed: () {
                       Navigator.pushNamedAndRemoveUntil(
                         context,
@@ -946,6 +1181,10 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                   ),
                 ),
               ),
+            ),
+            // Date filter
+            SliverToBoxAdapter(
+              child: _buildDateFilterChip(),
             ),
             // Tab bar
             SliverPersistentHeader(
@@ -975,12 +1214,12 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                   : _errorMessage != null
                   ? _buildErrorState()
                   : RefreshIndicator(
-                onRefresh: _fetchOrders,
+                onRefresh: () => _fetchOrders(isRefresh: true),
                 color: _primaryGradientStart,
                 child: TabBarView(
                   controller: _tabController,
                   children: List.generate(4, (tabIndex) {
-                    final filteredOrders = getFilteredOrders(tabIndex);
+                    final filteredOrders = getFilteredOrders();
 
                     if (filteredOrders.isEmpty) {
                       return _buildEmptyState(
@@ -988,12 +1227,19 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                       );
                     }
 
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: filteredOrders.length,
-                      itemBuilder: (context, index) {
-                        return _buildOrderCard(filteredOrders[index], index);
-                      },
+                    return Column(
+                      children: [
+                        Expanded(
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filteredOrders.length,
+                            itemBuilder: (context, index) {
+                              return _buildOrderCard(filteredOrders[index], index);
+                            },
+                          ),
+                        ),
+                        _buildLoadMoreIndicator(),
+                      ],
                     );
                   }),
                 ),

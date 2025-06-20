@@ -698,5 +698,3 @@ class OrderService {
     }
   }
 }
-
-// Add Math import for distance calculation

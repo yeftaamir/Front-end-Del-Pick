@@ -5,8 +5,8 @@ import 'package:del_pick/Views/Component/rate_store.dart';
 import 'package:del_pick/Views/Component/rate_driver.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/driver.dart';
+import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Services/order_service.dart';
-import 'package:del_pick/Services/tracking_service.dart';
 
 class RatingCustomerPage extends StatefulWidget {
   static const String route = "/Customers/RatingCustomerPage";
@@ -37,9 +37,11 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
   bool _isSubmitting = false;
   String? _errorMessage;
 
-  // Driver data
-  Map<String, dynamic>? _driver;
-  bool _isLoadingDriver = false;
+  // Order data with complete details
+  Map<String, dynamic>? _orderDetail;
+  Store? _store;
+  Driver? _driver;
+  bool _isLoadingOrderDetail = false;
 
   @override
   void initState() {
@@ -72,8 +74,8 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
       }
     });
 
-    // Fetch the driver data
-    _fetchDriverData();
+    // Fetch the complete order details
+    _fetchOrderDetails();
   }
 
   @override
@@ -86,42 +88,59 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     super.dispose();
   }
 
-  // Fetch driver data if available
-  Future<void> _fetchDriverData() async {
-    if (widget.order.driverId == null) {
-      return;
-    }
-
+  // Fetch complete order details including store and driver info
+  Future<void> _fetchOrderDetails() async {
     setState(() {
-      _isLoadingDriver = true;
+      _isLoadingOrderDetail = true;
+      _errorMessage = null;
     });
 
     try {
-      // Using TrackingService to get order details which includes driver
-      final orderDetailData = await TrackingService.getOrderDetail(widget.order.id);
+      // Get complete order details using OrderService
+      final orderDetailData = await OrderService.getOrderById(widget.order.id.toString());
 
-      if (orderDetailData != null && orderDetailData['driver'] != null) {
+      if (orderDetailData.isNotEmpty) {
         setState(() {
-          _driver = orderDetailData['driver'];
-          _isLoadingDriver = false;
+          _orderDetail = orderDetailData;
+
+          // Extract store data
+          if (orderDetailData['store'] != null) {
+            _store = Store.fromJson(orderDetailData['store']);
+          }
+
+          // Extract driver data if available
+          if (orderDetailData['driver'] != null) {
+            _driver = Driver.fromJson(orderDetailData['driver']);
+          }
+
+          _isLoadingOrderDetail = false;
         });
       } else {
         setState(() {
-          _isLoadingDriver = false;
-          _errorMessage = 'Driver information not available.';
+          _isLoadingOrderDetail = false;
+          _errorMessage = 'Failed to load order details.';
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to load driver data: $e';
-        _isLoadingDriver = false;
+        _errorMessage = 'Failed to load order details: $e';
+        _isLoadingOrderDetail = false;
       });
+      print('Error fetching order details: $e');
     }
   }
 
-  // Submit reviews to backend
+  // Submit reviews to backend using OrderService.createReview()
   Future<void> _submitReviews() async {
     if (_isSubmitting) return;
+
+    // Check if at least one rating is provided
+    if (_storeRating <= 0 && _driverRating <= 0) {
+      setState(() {
+        _errorMessage = 'Please provide at least one rating.';
+      });
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -129,38 +148,40 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     });
 
     try {
-      // Convert ratings to integer values (1-5)
-      final int storeRatingInt = _storeRating.round();
-      final int driverRatingInt = _driverRating.round();
+      // Prepare review data according to backend schema
+      Map<String, dynamic> reviewData = {};
 
-      // Prepare review data
-      Map<String, dynamic> reviewData = {
-        'orderId': widget.order.id,
-      };
-
-      // Only add ratings that have been set
-      if (storeRatingInt > 0) {
-        reviewData['storeRating'] = storeRatingInt;
-        if (_storeReviewController.text.isNotEmpty) {
-          reviewData['storeComment'] = _storeReviewController.text;
-        }
+      // Add store review if rating is provided
+      if (_storeRating > 0) {
+        reviewData['order_review'] = {
+          'rating': _storeRating.round(),
+          'comment': _storeReviewController.text.isNotEmpty
+              ? _storeReviewController.text
+              : null,
+        };
       }
 
-      if (_driver != null && driverRatingInt > 0) {
-        reviewData['driverRating'] = driverRatingInt;
-        if (_driverReviewController.text.isNotEmpty) {
-          reviewData['driverComment'] = _driverReviewController.text;
-        }
+      // Add driver review if rating is provided and driver exists
+      if (_driver != null && _driverRating > 0) {
+        reviewData['driver_review'] = {
+          'rating': _driverRating.round(),
+          'comment': _driverReviewController.text.isNotEmpty
+              ? _driverReviewController.text
+              : null,
+        };
       }
 
-      // Use OrderService.createReview() from the updated services
-      final result = await OrderService.createReview(reviewData);
+      // Call OrderService.createReview with correct signature
+      final result = await OrderService.createReview(
+        widget.order.id.toString(),
+        reviewData,
+      );
 
       setState(() {
         _isSubmitting = false;
       });
 
-      if (result != null) {
+      if (result.isNotEmpty) {
         await _showSuccessDialog();
       } else {
         setState(() {
@@ -170,8 +191,9 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     } catch (e) {
       setState(() {
         _isSubmitting = false;
-        _errorMessage = 'Error: $e';
+        _errorMessage = 'Error submitting review: $e';
       });
+      print('Error submitting reviews: $e');
     }
   }
 
@@ -332,7 +354,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
           ),
         ),
       ),
-      body: _isLoading
+      body: _isLoading || _isLoadingOrderDetail
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
         child: Padding(
@@ -366,42 +388,27 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
               const SizedBox(height: 24),
 
               // Show error message if any
-              if (_errorMessage != null)
-                _buildErrorCard(),
+              if (_errorMessage != null) _buildErrorCard(),
 
               // Store Rating Section
-              _buildCard(
-                index: 0,
-                child: RateStore(
-                  store: widget.order.store,
-                  initialRating: _storeRating,
-                  onRatingChanged: (value) => setState(() => _storeRating = value),
-                  reviewController: _storeReviewController,
-                  isLoading: _isSubmitting,
+              if (_store != null)
+                _buildCard(
+                  index: 0,
+                  child: RateStore(
+                    store: _store!,
+                    initialRating: _storeRating,
+                    onRatingChanged: (value) => setState(() => _storeRating = value),
+                    reviewController: _storeReviewController,
+                    isLoading: _isSubmitting,
+                  ),
                 ),
-              ),
 
               // Driver Rating Section (only shown if there's driver info)
-              if (_isLoadingDriver)
-                _buildCard(
-                  index: 1,
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    alignment: Alignment.center,
-                    child: const Column(
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('Loading driver data...'),
-                      ],
-                    ),
-                  ),
-                )
-              else if (_driver != null)
+              if (_driver != null)
                 _buildCard(
                   index: 1,
                   child: RateDriver(
-                    driver: Driver.fromJson(_driver!),
+                    driver: _driver!,
                     initialRating: _driverRating,
                     onRatingChanged: (value) => setState(() => _driverRating = value),
                     reviewController: _driverReviewController,
@@ -438,7 +445,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Pesanan #${widget.order.code} telah selesai',
+                        'Pesanan #${widget.order.id} telah selesai',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 14,
@@ -446,7 +453,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Total: ${widget.order.formatTotal()}',
+                        'Total: ${widget.order.formatTotalAmount()}',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 14,
@@ -478,7 +485,8 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                                 height: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(GlobalStyle.primaryColor),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      GlobalStyle.primaryColor),
                                 ),
                               ),
                               const SizedBox(width: 12),

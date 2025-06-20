@@ -5,7 +5,7 @@ import 'package:del_pick/Services/image_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class RateStore extends StatefulWidget {
-  final StoreModel store;
+  final Store store;
   final double initialRating;
   final Function(double) onRatingChanged;
   final TextEditingController reviewController;
@@ -237,9 +237,9 @@ class _RateStoreState extends State<RateStore> {
                 child: SizedBox(
                   width: 60,
                   height: 60,
-                  child: widget.store.imageUrl.isNotEmpty
+                  child: widget.store.imageUrl != null && widget.store.imageUrl!.isNotEmpty
                       ? CachedNetworkImage(
-                    imageUrl: ImageService.getImageUrl(widget.store.imageUrl),
+                    imageUrl: widget.store.imageUrl!,
                     fit: BoxFit.cover,
                     placeholder: (context, url) => Container(
                       decoration: BoxDecoration(
@@ -282,7 +282,7 @@ class _RateStoreState extends State<RateStore> {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    if (widget.store.rating > 0)
+                    if (widget.store.rating != null && widget.store.rating! > 0)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 4.0),
                         child: Row(
@@ -290,7 +290,7 @@ class _RateStoreState extends State<RateStore> {
                             const Icon(Icons.star, color: Colors.amber, size: 14),
                             const SizedBox(width: 4),
                             Text(
-                              '${widget.store.rating.toStringAsFixed(1)} (${widget.store.reviewCount} reviews)',
+                              '${widget.store.rating!.toStringAsFixed(1)} (${widget.store.reviewCount ?? 0} reviews)',
                               style: TextStyle(
                                 color: Colors.grey[700],
                                 fontSize: 12,

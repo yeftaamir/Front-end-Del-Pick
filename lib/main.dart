@@ -13,7 +13,6 @@ import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/user.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order.dart';
-import 'package:del_pick/Models/item_model.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'Models/menu_item.dart';
@@ -51,7 +50,6 @@ import 'Services/order_service.dart';
 import 'Services/image_service.dart';
 import 'Services/driver_service.dart';
 import 'Services/tracking_service.dart';
-import 'Services/menu_service.dart';
 import 'Services/user_service.dart';
 
 Future<void> main() async {
@@ -118,54 +116,6 @@ Future<void> main() async {
         ),
       ),
     ));
-  }
-}
-
-// Helper function to get order data using OrderService
-Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
-  if (orderId == null || orderId.isEmpty) {
-    throw Exception('Order ID is required');
-  }
-
-  try {
-    // Get token to verify authentication
-    final token = await TokenService.getToken();
-
-    if (token == null) {
-      throw Exception('Authentication token not found. Please login again.');
-    }
-
-    // Use OrderService.getOrderDetail to fetch order details
-    final orderData = await OrderService.getOrderDetail(orderId);
-
-    // Process images if they exist in the order data
-    if (orderData['store'] != null && orderData['store']['image'] != null) {
-      orderData['store']['image'] = ImageService.getImageUrl(orderData['store']['image']);
-    }
-
-    // Process customer avatar if present
-    if (orderData['customer'] != null && orderData['customer']['avatar'] != null) {
-      orderData['customer']['avatar'] = ImageService.getImageUrl(orderData['customer']['avatar']);
-    }
-
-    // Process driver avatar if present
-    if (orderData['driver'] != null && orderData['driver']['avatar'] != null) {
-      orderData['driver']['avatar'] = ImageService.getImageUrl(orderData['driver']['avatar']);
-    }
-
-    // Process order item images if present
-    if (orderData['items'] != null && orderData['items'] is List) {
-      for (var item in orderData['items']) {
-        if (item['imageUrl'] != null) {
-          item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
-        }
-      }
-    }
-
-    return orderData;
-  } catch (e) {
-    print('Error fetching order data: $e');
-    throw Exception('Failed to load order details: $e');
   }
 }
 
@@ -280,9 +230,11 @@ class MyApp extends StatelessWidget {
       TrackCustOrderScreen.route: (context) =>
       const InternetConnectivityWrapper(child: TrackCustOrderScreen()),
       // Updated HistoryDetailPage route to use Order fetching
-      HistoryDetailPage.route: (context) => InternetConnectivityWrapper(
+      HistoryDetailScreen.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
-          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
+          future: OrderService.getOrderById(
+            (ModalRoute.of(context)?.settings.arguments as String?) ?? '',
+          ),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -335,14 +287,16 @@ class MyApp extends StatelessWidget {
             }
 
             final order = Order.fromJson(snapshot.data!);
-            return HistoryDetailPage(order: order);
+            return HistoryDetailScreen(orderId: order.id.toString()); // Pass orderId as required
           },
         ),
       ),
       // Updated RatingCustomerPage route to use Order data
       RatingCustomerPage.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
-          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
+          future: OrderService.getOrderById(
+            (ModalRoute.of(context)?.settings.arguments as String?) ?? '',
+          ),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -415,7 +369,9 @@ class MyApp extends StatelessWidget {
       // Updated HistoryDriverDetailPage to use OrderService
       HistoryDriverDetailPage.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
-          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
+    future: OrderService.getOrderById(
+    (ModalRoute.of(context)?.settings.arguments as String?) ?? '',
+    ),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -505,7 +461,9 @@ class MyApp extends StatelessWidget {
       // Updated HistoryStoreDetailPage to use OrderService
       HistoryStoreDetailPage.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
-          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
+    future: OrderService.getOrderById(
+    (ModalRoute.of(context)?.settings.arguments as String?) ?? '',
+    ),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(

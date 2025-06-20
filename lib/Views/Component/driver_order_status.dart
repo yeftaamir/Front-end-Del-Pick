@@ -4,6 +4,7 @@ import 'package:lottie/lottie.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
+import 'package:del_pick/Services/order_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui';
 import 'dart:math' as math;
@@ -11,11 +12,13 @@ import 'dart:math' as math;
 class DriverOrderStatusCard extends StatefulWidget {
   final Map<String, dynamic> orderData;
   final Animation<Offset>? animation;
+  final Function(Map<String, dynamic>)? onOrderUpdate;
 
   const DriverOrderStatusCard({
     Key? key,
     required this.orderData,
     this.animation,
+    this.onOrderUpdate,
   }) : super(key: key);
 
   @override
@@ -37,7 +40,11 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   static const Color primaryColor = Color(0xff3E90E9);
   static const Color whiteColor = Colors.white;
 
-  // Driver status configuration with new color scheme
+  // State management for real-time updates
+  Map<String, dynamic> _currentOrderData = {};
+  bool _isRefreshing = false;
+
+  // Driver status configuration updated to match backend enum
   final List<Map<String, dynamic>> _statusConfig = [
     {
       'status': OrderStatus.pending,
@@ -48,7 +55,7 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
       'animation': 'assets/animations/loading_animation.json'
     },
     {
-      'status': OrderStatus.approved,
+      'status': OrderStatus.confirmed,  // Updated from 'approved' to match backend
       'label': 'Diterima',
       'description': 'Pesanan diterima driver',
       'icon': Icons.assignment_turned_in_rounded,
@@ -62,6 +69,14 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
       'icon': Icons.shopping_bag_rounded,
       'color': const Color(0xFF9C27B0),
       'animation': 'assets/animations/diambil.json'
+    },
+    {
+      'status': OrderStatus.ready_for_pickup,  // Added new status from backend
+      'label': 'Siap Diambil',
+      'description': 'Pesanan siap untuk diambil',
+      'icon': Icons.takeout_dining_rounded,
+      'color': const Color(0xFF673AB7),
+      'animation': 'assets/animations/siap_diambil.json'
     },
     {
       'status': OrderStatus.on_delivery,
@@ -84,8 +99,12 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   @override
   void initState() {
     super.initState();
+    _currentOrderData = Map.from(widget.orderData);
     _initAnimations();
     _checkStatusChange();
+
+    // Start periodic refresh for real-time updates
+    _startPeriodicRefresh();
   }
 
   void _initAnimations() {
@@ -122,6 +141,59 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     }
   }
 
+  void _startPeriodicRefresh() {
+    // Refresh order status every 10 seconds for real-time updates
+    Future.delayed(const Duration(seconds: 10), () {
+      if (mounted) {
+        _refreshOrderStatus();
+        _startPeriodicRefresh();
+      }
+    });
+  }
+
+  Future<void> _refreshOrderStatus() async {
+    if (_isRefreshing) return;
+
+    setState(() {
+      _isRefreshing = true;
+    });
+
+    try {
+      final orderId = _getOrderId();
+      if (orderId.isNotEmpty) {
+        final updatedOrderData = await OrderService.getOrderById(orderId);
+
+        if (updatedOrderData.isNotEmpty && mounted) {
+          final oldStatus = _getCurrentOrderStatus();
+
+          setState(() {
+            _currentOrderData = updatedOrderData;
+          });
+
+          final newStatus = _getCurrentOrderStatus();
+
+          // Check for status change and trigger animations/sounds
+          if (oldStatus != newStatus) {
+            _checkStatusChange();
+
+            // Notify parent component of order update
+            if (widget.onOrderUpdate != null) {
+              widget.onOrderUpdate!(_currentOrderData);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Error refreshing order status: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshing = false;
+        });
+      }
+    }
+  }
+
   void _startAnimations(OrderStatus status) {
     if (status == OrderStatus.pending) {
       _pulseController.repeat(reverse: true);
@@ -153,7 +225,10 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   @override
   void didUpdateWidget(DriverOrderStatusCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _checkStatusChange();
+    if (oldWidget.orderData != widget.orderData) {
+      _currentOrderData = Map.from(widget.orderData);
+      _checkStatusChange();
+    }
   }
 
   @override
@@ -166,16 +241,24 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   }
 
   OrderStatus _getCurrentOrderStatus() {
-    final statusString = widget.orderData['order_status'] ?? 'pending';
+    final statusString = _currentOrderData['order_status'] ?? 'pending';
     return OrderStatus.fromString(statusString);
   }
 
   void _playStatusChangeSound() async {
-    await _audioPlayer.play(AssetSource('audio/kring.mp3'));
+    try {
+      await _audioPlayer.play(AssetSource('audio/kring.mp3'));
+    } catch (e) {
+      print('Error playing status change sound: $e');
+    }
   }
 
   void _playCancelSound() async {
-    await _audioPlayer.play(AssetSource('audio/found.wav'));
+    try {
+      await _audioPlayer.play(AssetSource('audio/found.wav'));
+    } catch (e) {
+      print('Error playing cancel sound: $e');
+    }
   }
 
   Map<String, dynamic> _getCurrentStatusInfo() {
@@ -199,11 +282,15 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   }
 
   String _getCustomerName() {
-    return widget.orderData['customer']?['name'] ?? 'Customer';
+    return _currentOrderData['customer']?['name'] ?? 'Customer';
   }
 
   String _getOrderId() {
-    return widget.orderData['id']?.toString() ?? '';
+    return _currentOrderData['id']?.toString() ?? '';
+  }
+
+  String _getStoreName() {
+    return _currentOrderData['store']?['name'] ?? 'Store';
   }
 
   @override
@@ -224,6 +311,28 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
 
                 // Main glassmorphism card
                 _buildMainCard(currentStatusInfo),
+
+                // Refresh indicator
+                if (_isRefreshing)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -396,6 +505,18 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+
+                const SizedBox(height: 2),
+
+                Text(
+                  'From: ${_getStoreName()}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: whiteColor.withOpacity(0.8),
+                    fontFamily: GlobalStyle.fontFamily,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
               ],
             ),
           ),
@@ -418,51 +539,6 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     );
   }
 
-// Perbaikan untuk CustomerOrderStatusCard, DriverOrderStatusCard, dan StoreOrderStatusCard
-// Ganti method _buildStatusAnimation dengan kode berikut:
-
-  // Widget _buildStatusAnimation(Map<String, dynamic> statusInfo) {
-  //   return Stack(
-  //     alignment: Alignment.center,
-  //     children: [
-  //       // Background glow effect (opsional untuk efek visual)
-  //       AnimatedBuilder(
-  //         animation: _pulseAnimation,
-  //         builder: (context, child) {
-  //           return Container(
-  //             width: 180,
-  //             height: 180,
-  //             decoration: BoxDecoration(
-  //               shape: BoxShape.circle,
-  //               gradient: RadialGradient(
-  //                 colors: [
-  //                   statusInfo['color'].withOpacity(0.1),
-  //                   statusInfo['color'].withOpacity(0.05),
-  //                   Colors.transparent,
-  //                 ],
-  //                 stops: const [0.0, 0.6, 1.0],
-  //               ),
-  //             ),
-  //           );
-  //         },
-  //       ),
-  //
-  //       // Clean animation without container
-  //       Container(
-  //         width: 140,
-  //         height: 140,
-  //         child: Lottie.asset(
-  //           statusInfo['animation'],
-  //           fit: BoxFit.contain,
-  //           repeat: _getCurrentOrderStatus() != OrderStatus.delivered,
-  //         ),
-  //       ),
-  //     ],
-  //   );
-  // }
-
-// ATAU jika ingin benar-benar tanpa efek circle sama sekali:
-//
   Widget _buildStatusAnimation(Map<String, dynamic> statusInfo) {
     return Container(
       width: 140,
@@ -471,6 +547,22 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
         statusInfo['animation'],
         fit: BoxFit.contain,
         repeat: _getCurrentOrderStatus() != OrderStatus.delivered,
+        errorBuilder: (context, error, stackTrace) {
+          // Fallback if animation fails to load
+          return Container(
+            width: 140,
+            height: 140,
+            decoration: BoxDecoration(
+              color: statusInfo['color'].withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              statusInfo['icon'],
+              color: statusInfo['color'],
+              size: 60,
+            ),
+          );
+        },
       ),
     );
   }
@@ -506,13 +598,16 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
                 size: 28,
               ),
               const SizedBox(width: 12),
-              Text(
-                statusInfo['label'],
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: statusInfo['color'],
-                  fontFamily: GlobalStyle.fontFamily,
+              Flexible(
+                child: Text(
+                  statusInfo['label'],
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: statusInfo['color'],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
