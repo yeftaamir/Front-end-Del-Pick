@@ -6,49 +6,8 @@ import 'core/token_service.dart';
 import 'image_service.dart';
 
 class TrackingService {
-  /// Get order tracking data
+  /// Get tracking data for an order
   static Future<Map<String, dynamic>> getTrackingData(String orderId) async {
-    try {
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/tracking/$orderId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-
-        // Process driver profile image if present
-        if (jsonData['data'] != null && jsonData['data']['driver'] != null) {
-          if (jsonData['data']['driver']['name'] != null) {
-            // Process data directly
-          } else if (jsonData['data']['driver']['user'] != null &&
-              jsonData['data']['driver']['user']['avatar'] != null) {
-            jsonData['data']['driver']['user']['avatar'] =
-                ImageService.getImageUrl(jsonData['data']['driver']['user']['avatar']);
-          }
-        }
-
-        return jsonData['data'];
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to fetch order tracking');
-      }
-    } catch (e) {
-      print('Error fetching tracking data: $e');
-      throw Exception('Failed to fetch order tracking: $e');
-    }
-  }
-
-  /// Get order tracking information
-  static Future<Map<String, dynamic>> getOrderTracking(String orderId) async {
     try {
       final token = await TokenService.getToken();
       if (token == null) {
@@ -64,29 +23,114 @@ class TrackingService {
       );
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
 
-        // Process driver avatar if present
-        if (jsonData['data'] != null &&
-            jsonData['data']['driver'] != null &&
-            jsonData['data']['driver']['avatar'] != null) {
-          jsonData['data']['driver']['avatar'] =
-              ImageService.getImageUrl(jsonData['data']['driver']['avatar']);
+        // Process driver image if present
+        if (jsonData['data'] != null && jsonData['data']['driver'] != null) {
+          _processDriverImage(jsonData['data']['driver']);
         }
 
-        return jsonData['data'];
+        return jsonData['data'] ?? {};
       } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to fetch order tracking status');
+        _handleErrorResponse(response);
       }
     } catch (e) {
-      print('Error fetching order tracking: $e');
-      throw Exception('Failed to fetch order tracking status: $e');
+      print('Error fetching tracking data: $e');
+      throw Exception('Failed to get tracking data: $e');
     }
+    return {};
   }
 
-  /// Get order detail with status information
-  static Future<Map<String, dynamic>> getOrderDetail(String orderId) async {
+  /// Start delivery (by driver)
+  static Future<Map<String, dynamic>> startDelivery(String orderId) async {
+    try {
+      final token = await TokenService.getToken();
+      if (token == null) {
+        throw Exception('Authentication token not found');
+      }
+
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/orders/$orderId/tracking/start'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData['data'] ?? {};
+      } else {
+        _handleErrorResponse(response);
+      }
+    } catch (e) {
+      print('Error starting delivery: $e');
+      throw Exception('Failed to start delivery: $e');
+    }
+    return {};
+  }
+
+  /// Complete delivery (by driver)
+  static Future<Map<String, dynamic>> completeDelivery(String orderId) async {
+    try {
+      final token = await TokenService.getToken();
+      if (token == null) {
+        throw Exception('Authentication token not found');
+      }
+
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/orders/$orderId/tracking/complete'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData['data'] ?? {};
+      } else {
+        _handleErrorResponse(response);
+      }
+    } catch (e) {
+      print('Error completing delivery: $e');
+      throw Exception('Failed to complete delivery: $e');
+    }
+    return {};
+  }
+
+  /// Update driver location during delivery
+  static Future<Map<String, dynamic>> updateDriverLocation(String orderId, Map<String, dynamic> locationData) async {
+    try {
+      final token = await TokenService.getToken();
+      if (token == null) {
+        throw Exception('Authentication token not found');
+      }
+
+      final response = await http.put(
+        Uri.parse('${ApiConstants.baseUrl}/orders/$orderId/tracking/location'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(locationData),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData['data'] ?? {};
+      } else {
+        _handleErrorResponse(response);
+      }
+    } catch (e) {
+      print('Error updating driver location: $e');
+      throw Exception('Failed to update driver location: $e');
+    }
+    return {};
+  }
+
+  /// Get tracking history for an order
+  static Future<Map<String, dynamic>> getTrackingHistory(String orderId) async {
     try {
       final token = await TokenService.getToken();
       if (token == null) {
@@ -94,7 +138,7 @@ class TrackingService {
       }
 
       final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/orders/$orderId/detail'),
+        Uri.parse('${ApiConstants.baseUrl}/orders/$orderId/tracking/history'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -102,139 +146,43 @@ class TrackingService {
       );
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-
-        // Process images and additional data if present
-        if (jsonData['data'] != null) {
-          // Process store image if present
-          if (jsonData['data']['store'] != null && jsonData['data']['store']['image'] != null) {
-            jsonData['data']['store']['image'] =
-                ImageService.getImageUrl(jsonData['data']['store']['image']);
-          }
-
-          // Process customer avatar if present
-          if (jsonData['data']['customer'] != null && jsonData['data']['customer']['avatar'] != null) {
-            jsonData['data']['customer']['avatar'] =
-                ImageService.getImageUrl(jsonData['data']['customer']['avatar']);
-          }
-
-          // Process driver avatar if present
-          if (jsonData['data']['driver'] != null && jsonData['data']['driver']['avatar'] != null) {
-            jsonData['data']['driver']['avatar'] =
-                ImageService.getImageUrl(jsonData['data']['driver']['avatar']);
-          }
-
-          // Process items images if present
-          if (jsonData['data']['items'] != null && jsonData['data']['items'] is List) {
-            for (var item in jsonData['data']['items']) {
-              if (item['imageUrl'] != null) {
-                item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
-              }
-            }
-          }
-
-          // Process tracking information if present
-          if (jsonData['data']['tracking'] != null) {
-            // Additional tracking data processing if needed
-          }
-        }
-
-        return jsonData['data'];
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData['data'] ?? {};
       } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to get order detail');
+        _handleErrorResponse(response);
       }
     } catch (e) {
-      print('Error fetching order detail: $e');
-      throw Exception('Failed to get order detail: $e');
+      print('Error fetching tracking history: $e');
+      throw Exception('Failed to get tracking history: $e');
+    }
+    return {};
+  }
+
+  // Helper methods
+  static void _processDriverImage(Map<String, dynamic> driver) {
+    if (driver['avatar'] != null && driver['avatar'].toString().isNotEmpty) {
+      driver['avatar'] = ImageService.getImageUrl(driver['avatar']);
+    }
+    if (driver['user'] != null && driver['user']['avatar'] != null) {
+      driver['user']['avatar'] = ImageService.getImageUrl(driver['user']['avatar']);
     }
   }
 
-  /// Start delivery by driver
-  static Future<Map<String, dynamic>> startDelivery(String orderId) async {
+  static Map<String, dynamic> _parseResponseBody(String body) {
     try {
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/tracking/$orderId/start'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to start delivery');
-      }
+      return json.decode(body);
     } catch (e) {
-      print('Error starting delivery: $e');
-      throw Exception('Failed to start delivery: $e');
+      throw Exception('Invalid response format: $body');
     }
   }
 
-  /// Complete delivery by driver
-  static Future<Map<String, dynamic>> completeDelivery(String orderId) async {
+  static void _handleErrorResponse(http.Response response) {
     try {
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/tracking/$orderId/complete'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to complete delivery');
-      }
+      final errorData = _parseResponseBody(response.body);
+      final message = errorData['message'] ?? 'Request failed';
+      throw Exception(message);
     } catch (e) {
-      print('Error completing delivery: $e');
-      throw Exception('Failed to complete delivery: $e');
-    }
-  }
-
-  /// Update order status
-  static Future<Map<String, dynamic>> updateOrderStatus(String orderId, String status) async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/orders/$orderId/status'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'status': status}),
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to update order status');
-      }
-    } catch (e) {
-      print('Error updating order status: $e');
-      throw Exception('Failed to update order status: $e');
+      throw Exception('Request failed with status ${response.statusCode}: ${response.body}');
     }
   }
 }

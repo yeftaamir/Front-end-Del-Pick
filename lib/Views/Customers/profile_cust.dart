@@ -11,7 +11,7 @@ import 'package:http/http.dart' as http;
 import '../../Models/user.dart';
 import '../../Services/auth_service.dart';
 import '../../Services/image_service.dart';
-import '../../Services/customer_service.dart';
+import '../../Services/user_service.dart';
 import '../Controls/login_page.dart';
 
 class ProfilePage extends StatefulWidget {

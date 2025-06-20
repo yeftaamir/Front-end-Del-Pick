@@ -90,6 +90,70 @@ class AuthService {
     return {};
   }
 
+  /// Register new user
+  static Future<Map<String, dynamic>> register(Map<String, dynamic> userData) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(userData),
+      );
+
+      if (response.statusCode == 201) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData['data'] ?? {};
+      } else {
+        _handleErrorResponse(response);
+      }
+    } catch (e) {
+      print('Error during registration: $e');
+      throw Exception('Registration failed: $e');
+    }
+    return {};
+  }
+
+  /// Logout user - removes token and calls logout API
+  static Future<bool> logout() async {
+    try {
+      final token = await TokenService.getToken();
+
+      // Call server-side logout if token exists
+      if (token != null) {
+        try {
+          final response = await http.post(
+            Uri.parse('${ApiConstants.baseUrl}/auth/logout'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          );
+
+          print('Server logout response: ${response.statusCode}');
+          // Continue with local cleanup regardless of server response
+        } catch (e) {
+          print('Server-side logout failed, continuing with local cleanup: $e');
+        }
+      }
+
+      // Perform local cleanup (most important part)
+      await _clearAllUserData();
+
+      print('Logout completed successfully');
+      return true;
+    } catch (e) {
+      print('Error during logout: $e');
+
+      // Even if there's an error, still try to clear local data
+      try {
+        await _clearAllUserData();
+      } catch (clearError) {
+        print('Failed to clear local data: $clearError');
+      }
+
+      return false;
+    }
+  }
+
   /// Get user profile data
   static Future<Map<String, dynamic>> getProfile() async {
     try {
@@ -136,46 +200,139 @@ class AuthService {
     return {};
   }
 
-    /// Logout user - removes token and calls logout API
-  static Future<bool> logout() async {
+  /// Update user profile
+  static Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> profileData) async {
     try {
       final token = await TokenService.getToken();
+      if (token == null) {
+        throw Exception('Authentication token not found');
+      }
 
-      // Call server-side logout if token exists
-      if (token != null) {
-        try {
-          final response = await http.post(
-            Uri.parse('${ApiConstants.baseUrl}/auth/logout'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-          );
+      final response = await http.put(
+        Uri.parse('${ApiConstants.baseUrl}/auth/profile'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(profileData),
+      );
 
-          print('Server logout response: ${response.statusCode}');
-          // Continue with local cleanup regardless of server response
-        } catch (e) {
-          print('Server-side logout failed, continuing with local cleanup: $e');
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+
+        if (jsonData['data'] != null) {
+          final updatedProfileData = jsonData['data'];
+          _processProfileImages(updatedProfileData);
+
+          // Update cached user data
+          await _saveUserData({'user': updatedProfileData});
+
+          return updatedProfileData;
         }
+        return {};
+      } else {
+        _handleErrorResponse(response);
       }
-
-      // Perform local cleanup (most important part)
-      await _clearAllUserData();
-
-      print('Logout completed successfully');
-      return true;
     } catch (e) {
-      print('Error during logout: $e');
+      print('Error updating profile: $e');
+      throw Exception('Failed to update profile: $e');
+    }
+    return {};
+  }
 
-      // Even if there's an error, still try to clear local data
-      try {
-        await _clearAllUserData();
-      } catch (clearError) {
-        print('Failed to clear local data: $clearError');
+  /// Forgot password
+  static Future<Map<String, dynamic>> forgotPassword(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/auth/forgot-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData;
+      } else {
+        _handleErrorResponse(response);
+      }
+    } catch (e) {
+      print('Error during forgot password: $e');
+      throw Exception('Forgot password failed: $e');
+    }
+    return {};
+  }
+
+  /// Reset password
+  static Future<Map<String, dynamic>> resetPassword(String token, String password) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/auth/reset-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'token': token, 'password': password}),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData;
+      } else {
+        _handleErrorResponse(response);
+      }
+    } catch (e) {
+      print('Error during reset password: $e');
+      throw Exception('Reset password failed: $e');
+    }
+    return {};
+  }
+
+  /// Verify email
+  static Future<Map<String, dynamic>> verifyEmail(String token) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/auth/verify-email/$token'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData;
+      } else {
+        _handleErrorResponse(response);
+      }
+    } catch (e) {
+      print('Error during email verification: $e');
+      throw Exception('Email verification failed: $e');
+    }
+    return {};
+  }
+
+  /// Resend verification email
+  static Future<Map<String, dynamic>> resendVerification(String email) async {
+    try {
+      final token = await TokenService.getToken();
+      if (token == null) {
+        throw Exception('Authentication token not found');
       }
 
-      return false;
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/auth/resend-verification'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'email': email}),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+        return jsonData;
+      } else {
+        _handleErrorResponse(response);
+      }
+    } catch (e) {
+      print('Error during resend verification: $e');
+      throw Exception('Resend verification failed: $e');
     }
+    return {};
   }
 
   /// Get cached user data

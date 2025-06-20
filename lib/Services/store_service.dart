@@ -1,87 +1,102 @@
 // lib/services/store_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../Models/store.dart';
 import 'core/api_constants.dart';
 import 'core/token_service.dart';
 import 'image_service.dart';
 
 class StoreService {
-  /// Fetch all stores
-  static Future<List<dynamic>> getAllStores() async {
+  /// Get all stores
+  static Future<List<Map<String, dynamic>>> getAllStores({
+    int page = 1,
+    int limit = 10,
+    String? search,
+    double? latitude,
+    double? longitude,
+    double? radiusKm,
+  }) async {
     try {
+      final queryParams = {
+        'page': page.toString(),
+        'limit': limit.toString(),
+      };
+
+      if (search != null) queryParams['search'] = search;
+      if (latitude != null) queryParams['latitude'] = latitude.toString();
+      if (longitude != null) queryParams['longitude'] = longitude.toString();
+      if (radiusKm != null) queryParams['radius'] = radiusKm.toString();
+
+      final uri = Uri.parse('${ApiConstants.baseUrl}/stores')
+          .replace(queryParameters: queryParams);
+
       final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/stores'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        uri,
+        headers: {'Content-Type': 'application/json'},
       );
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        List<dynamic> storesJson = jsonData['data']['stores'];
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
 
-        // Process each store, ensuring proper handling of images
-        storesJson.forEach((json) {
-          // Ensure image URLs are properly formatted
-          if (json['image'] != null) {
-            json['image'] = ImageService.getImageUrl(json['image']);
+        List<Map<String, dynamic>> stores = [];
+        if (jsonData['data'] != null && jsonData['data']['stores'] is List) {
+          stores = List<Map<String, dynamic>>.from(jsonData['data']['stores']);
+
+          // Process store images
+          for (var store in stores) {
+            _processStoreImage(store);
           }
-        });
+        }
 
-        return storesJson;
+        return stores;
       } else {
-        throw Exception('Failed to load stores: ${response.statusCode}');
+        _handleErrorResponse(response);
       }
     } catch (e) {
       print('Error fetching stores: $e');
-      throw Exception('Failed to load stores: $e');
+      throw Exception('Failed to get stores: $e');
     }
+    return [];
   }
 
-  /// Fetch store by ID
+  /// Get store by ID
   static Future<Map<String, dynamic>> getStoreById(String storeId) async {
     try {
       final response = await http.get(
         Uri.parse('${ApiConstants.baseUrl}/stores/$storeId'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
       );
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
 
-        // Format image URL if present
-        if (jsonData['data']['image'] != null) {
-          jsonData['data']['image'] = ImageService.getImageUrl(jsonData['data']['image']);
+        // Process store image
+        if (jsonData['data'] != null) {
+          _processStoreImage(jsonData['data']);
         }
 
-        return jsonData['data'];
+        return jsonData['data'] ?? {};
       } else {
-        throw Exception('Failed to load store: ${response.statusCode}');
+        _handleErrorResponse(response);
       }
     } catch (e) {
-      print('Error fetching store #$storeId: $e');
-      throw Exception('Failed to load store: $e');
+      print('Error fetching store: $e');
+      throw Exception('Failed to get store: $e');
     }
+    return {};
   }
 
-  /// Update store status (active/inactive)
+  /// Update store status (for store owners)
   static Future<Map<String, dynamic>> updateStoreStatus(String storeId, String status) async {
     try {
-      // Validate status input
-      if (status != 'active' && status != 'inactive') {
+      if (!['active', 'inactive'].contains(status)) {
         throw Exception('Status must be "active" or "inactive"');
       }
 
-      // Get authentication token
-      final String? token = await TokenService.getToken();
+      final token = await TokenService.getToken();
       if (token == null) {
         throw Exception('Authentication token not found');
       }
 
-      // Make API request
       final response = await http.patch(
         Uri.parse('${ApiConstants.baseUrl}/stores/$storeId/status'),
         headers: {
@@ -91,17 +106,50 @@ class StoreService {
         body: jsonEncode({'status': status}),
       );
 
-      // Handle response
       if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
+        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
+
+        // Process store image
+        if (jsonData['data'] != null) {
+          _processStoreImage(jsonData['data']);
+        }
+
+        return jsonData['data'] ?? {};
       } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to update store status');
+        _handleErrorResponse(response);
       }
     } catch (e) {
       print('Error updating store status: $e');
       throw Exception('Failed to update store status: $e');
+    }
+    return {};
+  }
+
+  // Helper methods
+  static void _processStoreImage(Map<String, dynamic> store) {
+    if (store['image'] != null && store['image'].toString().isNotEmpty) {
+      store['image'] = ImageService.getImageUrl(store['image']);
+    }
+    if (store['imageUrl'] != null && store['imageUrl'].toString().isNotEmpty) {
+      store['imageUrl'] = ImageService.getImageUrl(store['imageUrl']);
+    }
+  }
+
+  static Map<String, dynamic> _parseResponseBody(String body) {
+    try {
+      return json.decode(body);
+    } catch (e) {
+      throw Exception('Invalid response format: $body');
+    }
+  }
+
+  static void _handleErrorResponse(http.Response response) {
+    try {
+      final errorData = _parseResponseBody(response.body);
+      final message = errorData['message'] ?? 'Request failed';
+      throw Exception(message);
+    } catch (e) {
+      throw Exception('Request failed with status ${response.statusCode}: ${response.body}');
     }
   }
 }
