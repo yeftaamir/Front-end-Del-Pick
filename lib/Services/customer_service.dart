@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math; // Tambahkan import untuk math
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
-import '../Models/customer.dart';
+import '../Models/user.dart';
 import 'core/api_constants.dart';
 import 'core/token_service.dart';
 import 'image_service.dart';

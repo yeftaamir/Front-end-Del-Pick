@@ -14,7 +14,7 @@ import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Models/order.dart';
-import 'package:del_pick/Models/customer.dart';
+import 'package:del_pick/Models/user.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:badges/badges.dart' as badges;
 import 'dart:async';

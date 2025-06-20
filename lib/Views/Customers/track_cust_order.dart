@@ -14,7 +14,7 @@ import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/store.dart';
-import 'package:del_pick/Models/customer.dart';
+import 'package:del_pick/Models/user.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
 import 'package:del_pick/Services/auth_service.dart';

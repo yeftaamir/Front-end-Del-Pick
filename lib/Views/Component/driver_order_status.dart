@@ -5,6 +5,8 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'dart:ui';
+import 'dart:math' as math;
 
 class DriverOrderStatusCard extends StatefulWidget {
   final Map<String, dynamic> orderData;
@@ -25,52 +27,56 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   final AudioPlayer _audioPlayer = AudioPlayer();
   OrderStatus? _previousStatus;
   late AnimationController _pulseController;
+  late AnimationController _floatController;
+  late AnimationController _shimmerController;
   late Animation<double> _pulseAnimation;
+  late Animation<double> _floatAnimation;
+  late Animation<double> _shimmerAnimation;
 
-  // Driver-specific color theme
-  final Color _primaryColor = const Color(0xFF2E7D32);
-  final Color _secondaryColor = const Color(0xFF66BB6A);
+  // Updated color theme
+  static const Color primaryColor = Color(0xff3E90E9);
+  static const Color whiteColor = Colors.white;
 
-  // Status timeline for driver perspective
-  final List<Map<String, dynamic>> _statusTimeline = [
+  // Driver status configuration with new color scheme
+  final List<Map<String, dynamic>> _statusConfig = [
     {
       'status': OrderStatus.pending,
       'label': 'Menunggu',
-      'description': 'Menunggu tindakan driver',
-      'icon': Icons.schedule,
-      'color': Colors.orange,
+      'description': 'Menunggu konfirmasi driver',
+      'icon': Icons.schedule_rounded,
+      'color': const Color(0xFFFF9800),
       'animation': 'assets/animations/loading_animation.json'
     },
     {
       'status': OrderStatus.approved,
       'label': 'Diterima',
-      'description': 'Pesanan diterima, siap diproses',
-      'icon': Icons.assignment_turned_in,
-      'color': Colors.blue,
+      'description': 'Pesanan diterima driver',
+      'icon': Icons.assignment_turned_in_rounded,
+      'color': primaryColor,
       'animation': 'assets/animations/diproses.json'
     },
     {
       'status': OrderStatus.preparing,
       'label': 'Ambil Pesanan',
       'description': 'Sedang mengambil pesanan',
-      'icon': Icons.shopping_bag,
-      'color': Colors.purple,
+      'icon': Icons.shopping_bag_rounded,
+      'color': const Color(0xFF9C27B0),
       'animation': 'assets/animations/diambil.json'
     },
     {
       'status': OrderStatus.on_delivery,
       'label': 'Antar Pesanan',
       'description': 'Dalam perjalanan ke customer',
-      'icon': Icons.directions_bike,
-      'color': Colors.indigo,
+      'icon': Icons.directions_bike_rounded,
+      'color': const Color(0xFF2196F3),
       'animation': 'assets/animations/diantar.json'
     },
     {
       'status': OrderStatus.delivered,
       'label': 'Terkirim',
       'description': 'Pesanan berhasil diantar',
-      'icon': Icons.check_circle,
-      'color': Colors.green,
+      'icon': Icons.check_circle_rounded,
+      'color': const Color(0xFF4CAF50),
       'animation': 'assets/animations/pesanan_selesai.json'
     },
   ];
@@ -78,12 +84,32 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   @override
   void initState() {
     super.initState();
+    _initAnimations();
+    _checkStatusChange();
+  }
+
+  void _initAnimations() {
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     );
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
+    _floatController = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    );
+    _shimmerController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    );
+
+    _pulseAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+    _floatAnimation = Tween<double>(begin: -8, end: 8).animate(
+      CurvedAnimation(parent: _floatController, curve: Curves.easeInOut),
+    );
+    _shimmerAnimation = Tween<double>(begin: -1, end: 2).animate(
+      CurvedAnimation(parent: _shimmerController, curve: Curves.easeInOut),
     );
 
     final currentStatus = _getCurrentOrderStatus();
@@ -91,39 +117,51 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
 
     if (currentStatus == OrderStatus.cancelled) {
       _playCancelSound();
+    } else {
+      _startAnimations(currentStatus);
     }
+  }
 
-    // Start pulse animation for pending status
-    if (currentStatus == OrderStatus.pending) {
+  void _startAnimations(OrderStatus status) {
+    if (status == OrderStatus.pending) {
       _pulseController.repeat(reverse: true);
     }
+    _floatController.repeat(reverse: true);
+    _shimmerController.repeat();
+  }
+
+  void _checkStatusChange() {
+    final currentStatus = _getCurrentOrderStatus();
+    if (_previousStatus != currentStatus) {
+      if (currentStatus == OrderStatus.cancelled) {
+        _playCancelSound();
+        _stopAnimations();
+      } else {
+        _playStatusChangeSound();
+        _startAnimations(currentStatus);
+      }
+      _previousStatus = currentStatus;
+    }
+  }
+
+  void _stopAnimations() {
+    _pulseController.stop();
+    _floatController.stop();
+    _shimmerController.stop();
   }
 
   @override
   void didUpdateWidget(DriverOrderStatusCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-
-    final currentStatus = _getCurrentOrderStatus();
-    if (_previousStatus != currentStatus) {
-      if (currentStatus == OrderStatus.cancelled) {
-        _playCancelSound();
-        _pulseController.stop();
-      } else {
-        _playStatusChangeSound();
-        if (currentStatus == OrderStatus.pending) {
-          _pulseController.repeat(reverse: true);
-        } else {
-          _pulseController.stop();
-        }
-      }
-      _previousStatus = currentStatus;
-    }
+    _checkStatusChange();
   }
 
   @override
   void dispose() {
     _audioPlayer.dispose();
     _pulseController.dispose();
+    _floatController.dispose();
+    _shimmerController.dispose();
     super.dispose();
   }
 
@@ -148,361 +186,49 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
         'status': OrderStatus.cancelled,
         'label': 'Dibatalkan',
         'description': 'Pesanan telah dibatalkan',
-        'icon': Icons.cancel_outlined,
-        'color': Colors.red,
+        'icon': Icons.cancel_rounded,
+        'color': const Color(0xFFE53E3E),
         'animation': 'assets/animations/cancel.json'
       };
     }
 
-    return _statusTimeline.firstWhere(
+    return _statusConfig.firstWhere(
           (item) => item['status'] == currentStatus,
-      orElse: () => _statusTimeline[0],
+      orElse: () => _statusConfig[0],
     );
   }
 
-  int _getCurrentStatusIndex() {
-    final currentStatus = _getCurrentOrderStatus();
-    return _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
+  String _getCustomerName() {
+    return widget.orderData['customer']?['name'] ?? 'Customer';
+  }
+
+  String _getOrderId() {
+    return widget.orderData['id']?.toString() ?? '';
   }
 
   @override
   Widget build(BuildContext context) {
     final currentStatusInfo = _getCurrentStatusInfo();
-    final currentStatus = _getCurrentOrderStatus();
-    final currentIndex = _getCurrentStatusIndex();
 
-    Widget content = Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            _primaryColor.withOpacity(0.02),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: _primaryColor.withOpacity(0.15),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-            spreadRadius: 0,
+    Widget content = AnimatedBuilder(
+      animation: _floatAnimation,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, _floatAnimation.value),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Stack(
+              children: [
+                // Background glow effect
+                _buildBackgroundGlow(currentStatusInfo['color']),
+
+                // Main glassmorphism card
+                _buildMainCard(currentStatusInfo),
+              ],
+            ),
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [_primaryColor, _secondaryColor],
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      Icons.delivery_dining,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Status Pengiriman',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                        Text(
-                          'Order #${widget.orderData['id']}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.9),
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Customer info
-                  if (widget.orderData['customer'] != null)
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircleAvatar(
-                            radius: 12,
-                            backgroundImage: widget.orderData['customer']['avatar'] != null
-                                ? NetworkImage(widget.orderData['customer']['avatar'])
-                                : null,
-                            child: widget.orderData['customer']['avatar'] == null
-                                ? Icon(Icons.person, size: 16, color: Colors.white)
-                                : null,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            widget.orderData['customer']['name'] ?? 'Customer',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  // Animation
-                  if (currentStatus == OrderStatus.pending)
-                    AnimatedBuilder(
-                      animation: _pulseAnimation,
-                      builder: (context, child) {
-                        return Transform.scale(
-                          scale: _pulseAnimation.value,
-                          child: Container(
-                            height: 180,
-                            child: Lottie.asset(
-                              currentStatusInfo['animation'],
-                              repeat: true,
-                            ),
-                          ),
-                        );
-                      },
-                    )
-                  else
-                    Container(
-                      height: 180,
-                      child: Lottie.asset(
-                        currentStatusInfo['animation'],
-                        repeat: currentStatus != OrderStatus.delivered,
-                      ),
-                    ),
-
-                  const SizedBox(height: 20),
-
-                  // Status Timeline (only for non-cancelled orders)
-                  if (currentStatus != OrderStatus.cancelled)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Row(
-                        children: List.generate(_statusTimeline.length, (index) {
-                          final isActive = index <= currentIndex;
-                          final isCurrent = index == currentIndex;
-                          final isLast = index == _statusTimeline.length - 1;
-                          final statusItem = _statusTimeline[index];
-
-                          return Expanded(
-                            child: Row(
-                              children: [
-                                Column(
-                                  children: [
-                                    AnimatedContainer(
-                                      duration: const Duration(milliseconds: 300),
-                                      width: isCurrent ? 32 : 24,
-                                      height: isCurrent ? 32 : 24,
-                                      decoration: BoxDecoration(
-                                        color: isActive
-                                            ? statusItem['color']
-                                            : Colors.grey[300],
-                                        shape: BoxShape.circle,
-                                        boxShadow: isCurrent ? [
-                                          BoxShadow(
-                                            color: statusItem['color'].withOpacity(0.4),
-                                            blurRadius: 8,
-                                            spreadRadius: 2,
-                                          ),
-                                        ] : [],
-                                      ),
-                                      child: Icon(
-                                        statusItem['icon'],
-                                        color: Colors.white,
-                                        size: isCurrent ? 16 : 12,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      statusItem['label'],
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isActive
-                                            ? statusItem['color']
-                                            : Colors.grey,
-                                        fontWeight: isCurrent
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
-                                        fontFamily: GlobalStyle.fontFamily,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ],
-                                ),
-                                if (!isLast)
-                                  Expanded(
-                                    child: Container(
-                                      height: 2,
-                                      margin: const EdgeInsets.only(bottom: 20),
-                                      decoration: BoxDecoration(
-                                        color: index < currentIndex
-                                            ? _statusTimeline[index]['color']
-                                            : Colors.grey[300],
-                                        borderRadius: BorderRadius.circular(1),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-
-                  const SizedBox(height: 20),
-
-                  // Status Message
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          currentStatusInfo['color'].withOpacity(0.1),
-                          currentStatusInfo['color'].withOpacity(0.05),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: currentStatusInfo['color'].withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          currentStatusInfo['label'],
-                          style: TextStyle(
-                            color: currentStatusInfo['color'],
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          currentStatusInfo['description'],
-                          style: TextStyle(
-                            color: currentStatusInfo['color'].withOpacity(0.8),
-                            fontSize: 14,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Delivery Info
-                  if (widget.orderData['deliveryAddress'] != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.grey.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.location_on,
-                                size: 16, color: Colors.grey[600]),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                widget.orderData['deliveryAddress'],
-                                style: TextStyle(
-                                  color: Colors.grey[700],
-                                  fontSize: 12,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                  // Earnings info for delivered orders
-                  if (currentStatus == OrderStatus.delivered)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.monetization_on,
-                                size: 16, color: Colors.green),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Pengiriman Selesai - Terima kasih!',
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                fontFamily: GlobalStyle.fontFamily,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+        );
+      },
     );
 
     if (widget.animation != null) {
@@ -513,5 +239,300 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     }
 
     return content;
+  }
+
+  Widget _buildBackgroundGlow(Color statusColor) {
+    return Positioned.fill(
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(32),
+          boxShadow: [
+            BoxShadow(
+              color: statusColor.withOpacity(0.15),
+              blurRadius: 30,
+              spreadRadius: 5,
+              offset: const Offset(0, 8),
+            ),
+            BoxShadow(
+              color: primaryColor.withOpacity(0.1),
+              blurRadius: 20,
+              spreadRadius: -5,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainCard(Map<String, dynamic> statusInfo) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(32),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                whiteColor.withOpacity(0.25),
+                whiteColor.withOpacity(0.1),
+                whiteColor.withOpacity(0.15),
+              ],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(
+              color: whiteColor.withOpacity(0.3),
+              width: 1.5,
+            ),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header with order info
+                _buildHeader(),
+
+                const SizedBox(height: 24),
+
+                // Status animation and info
+                _buildStatusSection(statusInfo),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            primaryColor.withOpacity(0.8),
+            primaryColor.withOpacity(0.6),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Driver icon
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: whiteColor.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              Icons.delivery_dining_rounded,
+              color: whiteColor,
+              size: 24,
+            ),
+          ),
+
+          const SizedBox(width: 16),
+
+          // Order and customer info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AnimatedBuilder(
+                  animation: _shimmerAnimation,
+                  builder: (context, child) {
+                    return ShaderMask(
+                      shaderCallback: (bounds) {
+                        return LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            whiteColor,
+                            whiteColor.withOpacity(0.8),
+                            whiteColor,
+                          ],
+                          stops: [
+                            _shimmerAnimation.value - 1,
+                            _shimmerAnimation.value,
+                            _shimmerAnimation.value + 1,
+                          ],
+                        ).createShader(bounds);
+                      },
+                      child: Text(
+                        'Order #${_getOrderId()}',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: whiteColor,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 4),
+
+                Text(
+                  'Customer: ${_getCustomerName()}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: whiteColor.withOpacity(0.9),
+                    fontFamily: GlobalStyle.fontFamily,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusSection(Map<String, dynamic> statusInfo) {
+    return Column(
+      children: [
+        // Status animation
+        _buildStatusAnimation(statusInfo),
+
+        const SizedBox(height: 24),
+
+        // Status info
+        _buildStatusInfo(statusInfo),
+      ],
+    );
+  }
+
+// Perbaikan untuk CustomerOrderStatusCard, DriverOrderStatusCard, dan StoreOrderStatusCard
+// Ganti method _buildStatusAnimation dengan kode berikut:
+
+  // Widget _buildStatusAnimation(Map<String, dynamic> statusInfo) {
+  //   return Stack(
+  //     alignment: Alignment.center,
+  //     children: [
+  //       // Background glow effect (opsional untuk efek visual)
+  //       AnimatedBuilder(
+  //         animation: _pulseAnimation,
+  //         builder: (context, child) {
+  //           return Container(
+  //             width: 180,
+  //             height: 180,
+  //             decoration: BoxDecoration(
+  //               shape: BoxShape.circle,
+  //               gradient: RadialGradient(
+  //                 colors: [
+  //                   statusInfo['color'].withOpacity(0.1),
+  //                   statusInfo['color'].withOpacity(0.05),
+  //                   Colors.transparent,
+  //                 ],
+  //                 stops: const [0.0, 0.6, 1.0],
+  //               ),
+  //             ),
+  //           );
+  //         },
+  //       ),
+  //
+  //       // Clean animation without container
+  //       Container(
+  //         width: 140,
+  //         height: 140,
+  //         child: Lottie.asset(
+  //           statusInfo['animation'],
+  //           fit: BoxFit.contain,
+  //           repeat: _getCurrentOrderStatus() != OrderStatus.delivered,
+  //         ),
+  //       ),
+  //     ],
+  //   );
+  // }
+
+// ATAU jika ingin benar-benar tanpa efek circle sama sekali:
+//
+  Widget _buildStatusAnimation(Map<String, dynamic> statusInfo) {
+    return Container(
+      width: 140,
+      height: 140,
+      child: Lottie.asset(
+        statusInfo['animation'],
+        fit: BoxFit.contain,
+        repeat: _getCurrentOrderStatus() != OrderStatus.delivered,
+      ),
+    );
+  }
+
+  Widget _buildStatusInfo(Map<String, dynamic> statusInfo) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            statusInfo['color'].withOpacity(0.1),
+            statusInfo['color'].withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: statusInfo['color'].withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          // Status icon and label
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                statusInfo['icon'],
+                color: statusInfo['color'],
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                statusInfo['label'],
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: statusInfo['color'],
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // Status description
+          Text(
+            statusInfo['description'],
+            style: TextStyle(
+              fontSize: 16,
+              color: statusInfo['color'].withOpacity(0.8),
+              fontFamily: GlobalStyle.fontFamily,
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
   }
 }

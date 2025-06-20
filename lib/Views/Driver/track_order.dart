@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:del_pick/Common/global_style.dart';
-import 'package:del_pick/Models/customer.dart';
+import 'package:del_pick/Models/user.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Services/image_service.dart';

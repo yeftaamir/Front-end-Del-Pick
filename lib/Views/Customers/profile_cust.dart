@@ -8,7 +8,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
 
-import '../../Models/customer.dart';
+import '../../Models/user.dart';
 import '../../Services/auth_service.dart';
 import '../../Services/image_service.dart';
 import '../../Services/customer_service.dart';
