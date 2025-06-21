@@ -1,24 +1,21 @@
 // lib/services/menu_item_service.dart
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'core/api_constants.dart';
-import 'core/token_service.dart';
+import 'package:flutter/foundation.dart';
+import 'core/base_service.dart';
 import 'image_service.dart';
 
-class MenuItemService {
-  /// Get all menu items
+class MenuItemService extends BaseService {
+
+  // Get all menu items with pagination and filtering
   static Future<Map<String, dynamic>> getAllMenuItems({
     int page = 1,
     int limit = 10,
     String? category,
     String? search,
+    bool? isAvailable,
+    double? minPrice,
+    double? maxPrice,
   }) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
       final queryParams = {
         'page': page.toString(),
         'limit': limit.toString(),
@@ -26,38 +23,24 @@ class MenuItemService {
 
       if (category != null) queryParams['category'] = category;
       if (search != null) queryParams['search'] = search;
+      if (isAvailable != null) queryParams['isAvailable'] = isAvailable.toString();
+      if (minPrice != null) queryParams['minPrice'] = minPrice.toString();
+      if (maxPrice != null) queryParams['maxPrice'] = maxPrice.toString();
 
-      final uri = Uri.parse('${ApiConstants.baseUrl}/menu')
-          .replace(queryParameters: queryParams);
+      final response = await BaseService.get('/menu', queryParams: queryParams);
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process menu item images
-        if (jsonData['data'] != null) {
-          _processMenuItemList(jsonData['data']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
+      if (response['data'] != null) {
+        _processMenuItemList(response['data']);
       }
+
+      return response;
     } catch (e) {
-      print('Error fetching menu items: $e');
-      throw Exception('Failed to get menu items: $e');
+      debugPrint('Get all menu items error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Get menu items by store ID
+  // Get menu items by store ID
   static Future<Map<String, dynamic>> getMenuItemsByStore(String storeId, {
     int page = 1,
     int limit = 10,
@@ -65,11 +48,6 @@ class MenuItemService {
     bool? isAvailable,
   }) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
       final queryParams = {
         'page': page.toString(),
         'limit': limit.toString(),
@@ -78,246 +56,162 @@ class MenuItemService {
       if (category != null) queryParams['category'] = category;
       if (isAvailable != null) queryParams['isAvailable'] = isAvailable.toString();
 
-      final uri = Uri.parse('${ApiConstants.baseUrl}/menu/store/$storeId')
-          .replace(queryParameters: queryParams);
+      final response = await BaseService.get('/menu/store/$storeId', queryParams: queryParams);
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process menu item images
-        if (jsonData['data'] != null) {
-          _processMenuItemList(jsonData['data']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
+      if (response['data'] != null) {
+        _processMenuItemList(response['data']);
       }
+
+      return response;
     } catch (e) {
-      print('Error fetching menu items by store: $e');
-      throw Exception('Failed to get menu items: $e');
+      debugPrint('Get menu items by store error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Get menu item by ID
-  static Future<Map<String, dynamic>> getMenuItemById(String itemId) async {
+  // Get menu item by ID
+  static Future<Map<String, dynamic>> getMenuItemById(String menuItemId) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      final response = await BaseService.get('/menu/$menuItemId');
+
+      if (response['data'] != null) {
+        _processMenuItemImages(response['data']);
       }
 
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/menu/$itemId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process menu item image
-        if (jsonData['data'] != null) {
-          _processMenuItemImage(jsonData['data']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error fetching menu item: $e');
-      throw Exception('Failed to get menu item: $e');
+      debugPrint('Get menu item by ID error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Create menu item (for store owners)
+  // Create new menu item
   static Future<Map<String, dynamic>> createMenuItem(Map<String, dynamic> menuItemData) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      final response = await BaseService.post('/menu', menuItemData);
+
+      if (response['data'] != null) {
+        _processMenuItemImages(response['data']);
       }
 
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/menu'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(menuItemData),
-      );
-
-      if (response.statusCode == 201) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process menu item image
-        if (jsonData['data'] != null) {
-          _processMenuItemImage(jsonData['data']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error creating menu item: $e');
-      throw Exception('Failed to create menu item: $e');
+      debugPrint('Create menu item error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Update menu item
-  static Future<Map<String, dynamic>> updateMenuItem(String itemId, Map<String, dynamic> menuItemData) async {
+  // Update menu item
+  static Future<Map<String, dynamic>> updateMenuItem(String menuItemId, Map<String, dynamic> menuItemData) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      final response = await BaseService.put('/menu/$menuItemId', menuItemData);
+
+      if (response['data'] != null) {
+        _processMenuItemImages(response['data']);
       }
 
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/menu/$itemId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(menuItemData),
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process menu item image
-        if (jsonData['data'] != null) {
-          _processMenuItemImage(jsonData['data']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error updating menu item: $e');
-      throw Exception('Failed to update menu item: $e');
+      debugPrint('Update menu item error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Delete menu item
-  static Future<bool> deleteMenuItem(String itemId) async {
+  // Delete menu item
+  static Future<bool> deleteMenuItem(String menuItemId) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.delete(
-        Uri.parse('${ApiConstants.baseUrl}/menu/$itemId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        _handleErrorResponse(response);
-      }
+      await BaseService.delete('/menu/$menuItemId');
+      return true;
     } catch (e) {
-      print('Error deleting menu item: $e');
-      throw Exception('Failed to delete menu item: $e');
+      debugPrint('Delete menu item error: $e');
+      rethrow;
     }
-    return false;
   }
 
-  /// Update menu item status
-  static Future<Map<String, dynamic>> updateMenuItemStatus(String itemId, bool isAvailable) async {
+  // Search menu items
+  static Future<Map<String, dynamic>> searchMenuItems(String query, {
+    int page = 1,
+    int limit = 10,
+    String? category,
+    double? minPrice,
+    double? maxPrice,
+  }) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      final queryParams = {
+        'search': query,
+        'page': page.toString(),
+        'limit': limit.toString(),
+      };
+
+      if (category != null) queryParams['category'] = category;
+      if (minPrice != null) queryParams['minPrice'] = minPrice.toString();
+      if (maxPrice != null) queryParams['maxPrice'] = maxPrice.toString();
+
+      final response = await BaseService.get('/menu/search', queryParams: queryParams);
+
+      if (response['data'] != null) {
+        _processMenuItemList(response['data']);
       }
 
-      final response = await http.patch(
-        Uri.parse('${ApiConstants.baseUrl}/menu/$itemId/status'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'isAvailable': isAvailable}),
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process menu item image
-        if (jsonData['data'] != null) {
-          _processMenuItemImage(jsonData['data']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      return response;
     } catch (e) {
-      print('Error updating menu item status: $e');
-      throw Exception('Failed to update menu item status: $e');
+      debugPrint('Search menu items error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  // Helper methods
+  // Get menu categories
+  static Future<List<String>> getMenuCategories() async {
+    try {
+      final response = await BaseService.get('/menu/categories');
+
+      if (response['data'] != null && response['data'] is List) {
+        return List<String>.from(response['data']);
+      }
+
+      return [];
+    } catch (e) {
+      debugPrint('Get menu categories error: $e');
+      rethrow;
+    }
+  }
+
+  // PRIVATE HELPER METHODS
+
   static void _processMenuItemList(dynamic data) {
-    List<dynamic> menuItems = [];
-
-    if (data is List) {
-      menuItems = data;
-    } else if (data is Map && data['menuItems'] != null) {
-      menuItems = data['menuItems'];
-    }
-
-    for (var item in menuItems) {
-      _processMenuItemImage(item);
-    }
-  }
-
-  static void _processMenuItemImage(Map<String, dynamic> menuItem) {
-    if (menuItem['imageUrl'] != null && menuItem['imageUrl'].toString().isNotEmpty) {
-      menuItem['imageUrl'] = ImageService.getImageUrl(menuItem['imageUrl']);
-    }
-    if (menuItem['image'] != null && menuItem['image'].toString().isNotEmpty) {
-      menuItem['image'] = ImageService.getImageUrl(menuItem['image']);
-    }
-  }
-
-  static Map<String, dynamic> _parseResponseBody(String body) {
     try {
-      return json.decode(body);
+      List<dynamic> menuItems = [];
+
+      if (data is List) {
+        menuItems = data;
+      } else if (data is Map && data['items'] is List) {
+        menuItems = data['items'];
+      }
+
+      for (var menuItem in menuItems) {
+        _processMenuItemImages(menuItem);
+      }
     } catch (e) {
-      throw Exception('Invalid response format: $body');
+      debugPrint('Process menu item list error: $e');
     }
   }
 
-  static void _handleErrorResponse(http.Response response) {
+  static void _processMenuItemImages(Map<String, dynamic> menuItemData) {
     try {
-      final errorData = _parseResponseBody(response.body);
-      final message = errorData['message'] ?? 'Request failed';
-      throw Exception(message);
+      if (menuItemData['imageUrl'] != null) {
+        menuItemData['imageUrl'] = ImageService.getImageUrl(menuItemData['imageUrl']);
+      }
+
+      if (menuItemData['image'] != null) {
+        menuItemData['image'] = ImageService.getImageUrl(menuItemData['image']);
+      }
+
+      // Process store information if present
+      if (menuItemData['store'] != null && menuItemData['store']['imageUrl'] != null) {
+        menuItemData['store']['imageUrl'] = ImageService.getImageUrl(menuItemData['store']['imageUrl']);
+      }
     } catch (e) {
-      throw Exception('Request failed with status ${response.statusCode}: ${response.body}');
+      debugPrint('Process menu item images error: $e');
     }
   }
 }

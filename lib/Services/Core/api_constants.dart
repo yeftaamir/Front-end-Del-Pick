@@ -3,48 +3,44 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiConstants {
   static const bool isEmulator = false;
-  static const bool isLocalDevelopment = true;
+  static const bool isLocalDevelopment = false; // Change to true for local development
 
-  // URL API untuk server local
+  // API URLs
   static const String localApiUrl = 'http://10.0.2.2:6100/api/v1';
-
-  // URL untuk server produksi
   static const String productionApiUrl = 'https://delpick.horas-code.my.id/api/v1';
 
-  static const String prodBaseUrl = 'https://delpick.horas-code.my.id';
-
-  static const String devBaseUrl = 'http://10.0.2.2:6100/api/v1';
-  // static const String baseUrl = 'http://127.0.0.1:6100/api/v1';
-
-  // URL untuk mengakses gambar (database server)
+  // Image URLs
   static const String dbServerUrl = 'http://157.66.56.13';
-  // URL untuk akses gambar produksi
   static const String productionImageUrl = 'https://delpick.horas-code.my.id';
 
-  // URL untuk mengakses gambar
-  static const String imageBaseUrl = 'https://delpick.horas-code.my.id';
-
-  // URL yang digunakan untuk API berdasarkan mode
-  // static String get baseUrl => isLocalDevelopment ? localApiUrl : productionApiUrl;
-
-  // URL yang digunakan untuk akses gambar
-  // static String get imageBaseUrl => isLocalDevelopment ? dbServerUrl : productionImageUrl;
-
-  // Choose which one to use
-  // static final String baseUrl = prodBaseUrl;
-
+  // Dynamic URL selection
   static String get baseUrl {
-    if (isEmulator) {
-      return 'http://10.0.2.2:6100/api/v1'; // Untuk Android Emulator
-      // return 'http://localhost:6100'; // Untuk iOS Simulator
+    if (isEmulator && isLocalDevelopment) {
+      return 'http://10.0.2.2:6100/api/v1'; // Android Emulator
+    } else if (isLocalDevelopment) {
+      return 'http://127.0.0.1:6100/api/v1'; // iOS Simulator/Local
     } else {
-      return 'https://delpick.horas-code.my.id/api/v1'; // URL produksi
+      return productionApiUrl; // Production
     }
   }
 
-  // static final String imageBaseUrl = dbServerUrl;
+  static String get imageBaseUrl {
+    return isLocalDevelopment ? dbServerUrl : productionImageUrl;
+  }
 
+  // Secure storage instance
+  static final FlutterSecureStorage storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+  );
 
+  // Common headers
+  static Map<String, String> get defaultHeaders => {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
 
-  static final FlutterSecureStorage storage = FlutterSecureStorage();
+  // Request timeout
+  static const Duration requestTimeout = Duration(seconds: 30);
 }

@@ -1,259 +1,133 @@
 // lib/services/user_service.dart
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'core/api_constants.dart';
-import 'core/token_service.dart';
+import 'package:flutter/foundation.dart';
+import 'core/base_service.dart';
 import 'image_service.dart';
 
-class UserService {
-  /// Get user profile
+class UserService extends BaseService {
+
+  // Get user profile (same as auth profile but different endpoint)
   static Future<Map<String, dynamic>> getProfile() async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      final response = await BaseService.get('/users/profile');
+
+      if (response['data'] != null) {
+        final profileData = response['data'];
+        _processUserImages(profileData);
+        return profileData;
       }
 
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/users/profile'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process user avatar
-        if (jsonData['data'] != null && jsonData['data']['avatar'] != null) {
-          jsonData['data']['avatar'] = ImageService.getImageUrl(jsonData['data']['avatar']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      return {};
     } catch (e) {
-      print('Error fetching profile: $e');
-      throw Exception('Failed to get profile: $e');
+      debugPrint('Get user profile error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Update user profile
+  // Update user profile
   static Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> profileData) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      final response = await BaseService.put('/users/profile', profileData);
+
+      if (response['data'] != null) {
+        final updatedData = response['data'];
+        _processUserImages(updatedData);
+        return updatedData;
       }
 
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/users/profile'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(profileData),
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process user avatar
-        if (jsonData['data'] != null && jsonData['data']['avatar'] != null) {
-          jsonData['data']['avatar'] = ImageService.getImageUrl(jsonData['data']['avatar']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      return {};
     } catch (e) {
-      print('Error updating profile: $e');
-      throw Exception('Failed to update profile: $e');
+      debugPrint('Update user profile error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Delete user profile
-  static Future<bool> deleteProfile() async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.delete(
-        Uri.parse('${ApiConstants.baseUrl}/users/profile'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        _handleErrorResponse(response);
-      }
-    } catch (e) {
-      print('Error deleting profile: $e');
-      throw Exception('Failed to delete profile: $e');
-    }
-    return false;
-  }
-
-  /// Get user notifications
-  static Future<List<Map<String, dynamic>>> getNotifications({
+  // Get all users (admin only)
+  static Future<Map<String, dynamic>> getAllUsers({
     int page = 1,
     int limit = 10,
-    bool? unreadOnly,
+    String? role,
+    String? search,
   }) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
       final queryParams = {
         'page': page.toString(),
         'limit': limit.toString(),
       };
 
-      if (unreadOnly != null) queryParams['unreadOnly'] = unreadOnly.toString();
+      if (role != null) queryParams['role'] = role;
+      if (search != null) queryParams['search'] = search;
 
-      final uri = Uri.parse('${ApiConstants.baseUrl}/users/notifications')
-          .replace(queryParameters: queryParams);
+      final response = await BaseService.get('/users', queryParams: queryParams);
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        List<Map<String, dynamic>> notifications = [];
-        if (jsonData['data'] != null && jsonData['data'] is List) {
-          notifications = List<Map<String, dynamic>>.from(jsonData['data']);
+      if (response['data'] != null && response['data'] is List) {
+        for (var user in response['data']) {
+          _processUserImages(user);
         }
-
-        return notifications;
-      } else {
-        _handleErrorResponse(response);
       }
+
+      return response;
     } catch (e) {
-      print('Error fetching notifications: $e');
-      throw Exception('Failed to get notifications: $e');
-    }
-    return [];
-  }
-
-  /// Mark notification as read
-  static Future<bool> markNotificationAsRead(String notificationId) async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.patch(
-        Uri.parse('${ApiConstants.baseUrl}/users/notifications/$notificationId/read'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        _handleErrorResponse(response);
-      }
-    } catch (e) {
-      print('Error marking notification as read: $e');
-      throw Exception('Failed to mark notification as read: $e');
-    }
-    return false;
-  }
-
-  /// Mark all notifications as read - NEW METHOD
-  static Future<bool> markAllNotificationsAsRead() async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.patch(
-        Uri.parse('${ApiConstants.baseUrl}/users/notifications/read-all'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        _handleErrorResponse(response);
-      }
-    } catch (e) {
-      print('Error marking all notifications as read: $e');
-      throw Exception('Failed to mark all notifications as read: $e');
-    }
-    return false;
-  }
-
-  /// Delete notification
-  static Future<bool> deleteNotification(String notificationId) async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.delete(
-        Uri.parse('${ApiConstants.baseUrl}/users/notifications/$notificationId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        _handleErrorResponse(response);
-      }
-    } catch (e) {
-      print('Error deleting notification: $e');
-      throw Exception('Failed to delete notification: $e');
-    }
-    return false;
-  }
-
-  // Helper methods
-  static Map<String, dynamic> _parseResponseBody(String body) {
-    try {
-      return json.decode(body);
-    } catch (e) {
-      throw Exception('Invalid response format: $body');
+      debugPrint('Get all users error: $e');
+      rethrow;
     }
   }
 
-  static void _handleErrorResponse(http.Response response) {
+  // Get user by ID (admin only)
+  static Future<Map<String, dynamic>> getUserById(String userId) async {
     try {
-      final errorData = _parseResponseBody(response.body);
-      final message = errorData['message'] ?? 'Request failed';
-      throw Exception(message);
+      final response = await BaseService.get('/users/$userId');
+
+      if (response['data'] != null) {
+        _processUserImages(response['data']);
+      }
+
+      return response['data'] ?? {};
     } catch (e) {
-      throw Exception('Request failed with status ${response.statusCode}: ${response.body}');
+      debugPrint('Get user by ID error: $e');
+      rethrow;
+    }
+  }
+
+  // Update user by ID (admin only)
+  static Future<Map<String, dynamic>> updateUserById(String userId, Map<String, dynamic> userData) async {
+    try {
+      final response = await BaseService.put('/users/$userId', userData);
+
+      if (response['data'] != null) {
+        _processUserImages(response['data']);
+      }
+
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Update user by ID error: $e');
+      rethrow;
+    }
+  }
+
+  // Delete user by ID (admin only)
+  static Future<bool> deleteUserById(String userId) async {
+    try {
+      await BaseService.delete('/users/$userId');
+      return true;
+    } catch (e) {
+      debugPrint('Delete user by ID error: $e');
+      rethrow;
+    }
+  }
+
+  // PRIVATE HELPER METHODS
+
+  static void _processUserImages(Map<String, dynamic> userData) {
+    try {
+      if (userData['avatar'] != null) {
+        userData['avatar'] = ImageService.getImageUrl(userData['avatar']);
+      }
+
+      if (userData['profileImage'] != null) {
+        userData['profileImage'] = ImageService.getImageUrl(userData['profileImage']);
+      }
+    } catch (e) {
+      debugPrint('Process user images error: $e');
     }
   }
 }

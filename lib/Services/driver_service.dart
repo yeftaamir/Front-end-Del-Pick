@@ -1,25 +1,20 @@
 // lib/services/driver_service.dart
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'core/api_constants.dart';
-import 'core/token_service.dart';
+import 'package:flutter/foundation.dart';
+import 'core/base_service.dart';
 import 'image_service.dart';
 
-class DriverService {
-  /// Get all drivers (with pagination support)
+class DriverService extends BaseService {
+
+  // Get all drivers with pagination
   static Future<Map<String, dynamic>> getAllDrivers({
     int page = 1,
     int limit = 10,
     String? sortBy,
     String? sortOrder,
     String? search,
+    String? status,
   }) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
       final queryParams = {
         'page': page.toString(),
         'limit': limit.toString(),
@@ -28,187 +23,162 @@ class DriverService {
       if (sortBy != null) queryParams['sortBy'] = sortBy;
       if (sortOrder != null) queryParams['sortOrder'] = sortOrder;
       if (search != null) queryParams['search'] = search;
+      if (status != null) queryParams['status'] = status;
 
-      final uri = Uri.parse('${ApiConstants.baseUrl}/drivers')
-          .replace(queryParameters: queryParams);
+      final response = await BaseService.get('/drivers', queryParams: queryParams);
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process driver images if present
-        if (jsonData['data'] != null && jsonData['data'] is List) {
-          for (var driver in jsonData['data']) {
-            _processDriverImages(driver);
-          }
+      if (response['data'] != null && response['data'] is List) {
+        for (var driver in response['data']) {
+          _processDriverImages(driver);
         }
-
-        return jsonData;
-      } else {
-        _handleErrorResponse(response);
       }
+
+      return response;
     } catch (e) {
-      print('Error fetching drivers: $e');
-      throw Exception('Failed to get drivers: $e');
+      debugPrint('Get all drivers error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Get driver by ID
+  // Get driver by ID
   static Future<Map<String, dynamic>> getDriverById(String driverId) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      final response = await BaseService.get('/drivers/$driverId');
+
+      if (response['data'] != null) {
+        _processDriverImages(response['data']);
       }
 
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/$driverId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process driver images
-        if (jsonData['data'] != null) {
-          _processDriverImages(jsonData['data']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error fetching driver by ID: $e');
-      throw Exception('Failed to get driver: $e');
+      debugPrint('Get driver by ID error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Get driver location by ID
-  static Future<Map<String, dynamic>> getDriverLocation(String driverId) async {
+  // Create new driver
+  static Future<Map<String, dynamic>> createDriver(Map<String, dynamic> driverData) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      final response = await BaseService.post('/drivers', driverData);
+
+      if (response['data'] != null) {
+        _processDriverImages(response['data']);
       }
 
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/$driverId/location'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-        return jsonData['data'] ?? {};
-      } else if (response.statusCode == 404) {
-        throw Exception('Driver location not available');
-      } else {
-        _handleErrorResponse(response);
-      }
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error fetching driver location: $e');
-      throw Exception('Failed to get driver location: $e');
+      debugPrint('Create driver error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Update driver status (active/inactive/busy)
+  // Update driver
+  static Future<Map<String, dynamic>> updateDriver(String driverId, Map<String, dynamic> driverData) async {
+    try {
+      final response = await BaseService.put('/drivers/$driverId', driverData);
+
+      if (response['data'] != null) {
+        _processDriverImages(response['data']);
+      }
+
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Update driver error: $e');
+      rethrow;
+    }
+  }
+
+  // Delete driver
+  static Future<bool> deleteDriver(String driverId) async {
+    try {
+      await BaseService.delete('/drivers/$driverId');
+      return true;
+    } catch (e) {
+      debugPrint('Delete driver error: $e');
+      rethrow;
+    }
+  }
+
+  // Get current driver profile
+  static Future<Map<String, dynamic>> getCurrentDriverProfile() async {
+    try {
+      final response = await BaseService.get('/drivers/profile');
+
+      if (response['data'] != null) {
+        _processDriverImages(response['data']);
+      }
+
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Get current driver profile error: $e');
+      rethrow;
+    }
+  }
+
+  // Update current driver profile
+  static Future<Map<String, dynamic>> updateCurrentDriverProfile(Map<String, dynamic> driverData) async {
+    try {
+      final response = await BaseService.put('/drivers/profile', driverData);
+
+      if (response['data'] != null) {
+        _processDriverImages(response['data']);
+      }
+
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Update current driver profile error: $e');
+      rethrow;
+    }
+  }
+
+  // Update driver status
   static Future<Map<String, dynamic>> updateDriverStatus(String status) async {
     try {
       if (!['active', 'inactive', 'busy'].contains(status)) {
-        throw Exception('Status must be "active", "inactive", or "busy"');
+        throw ApiException('Status must be "active", "inactive", or "busy"');
       }
 
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/status'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'status': status}),
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      final response = await BaseService.put('/drivers/status', {'status': status});
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error updating driver status: $e');
-      throw Exception('Failed to update driver status: $e');
+      debugPrint('Update driver status error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Update driver profile
-  static Future<Map<String, dynamic>> updateProfileDriver(Map<String, dynamic> profileData) async {
+  // Update driver location
+  static Future<Map<String, dynamic>> updateDriverLocation(double latitude, double longitude) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
+      final response = await BaseService.put('/drivers/location', {
+        'latitude': latitude,
+        'longitude': longitude,
+      });
 
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/profile'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(profileData),
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process driver images
-        if (jsonData['data'] != null) {
-          _processDriverImages(jsonData['data']);
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error updating driver profile: $e');
-      throw Exception('Failed to update driver profile: $e');
+      debugPrint('Update driver location error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Get driver orders
+  // Get driver location
+  static Future<Map<String, dynamic>> getDriverLocation(String driverId) async {
+    try {
+      final response = await BaseService.get('/drivers/$driverId/location');
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Get driver location error: $e');
+      rethrow;
+    }
+  }
+
+  // Get driver orders
   static Future<Map<String, dynamic>> getDriverOrders({
     int page = 1,
     int limit = 10,
     String? status,
   }) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
       final queryParams = {
         'page': page.toString(),
         'limit': limit.toString(),
@@ -216,251 +186,107 @@ class DriverService {
 
       if (status != null) queryParams['status'] = status;
 
-      final uri = Uri.parse('${ApiConstants.baseUrl}/drivers/orders')
-          .replace(queryParameters: queryParams);
+      final response = await BaseService.get('/drivers/orders', queryParams: queryParams);
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        // Process order images if present
-        if (jsonData['data'] != null) {
-          final data = jsonData['data'];
-          List<dynamic> orders = [];
-
-          if (data is List) {
-            orders = data;
-          } else if (data['orders'] != null && data['orders'] is List) {
-            orders = data['orders'];
-          }
-
-          for (var order in orders) {
-            _processOrderImages(order);
-          }
-        }
-
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
+      if (response['data'] != null) {
+        _processOrdersData(response['data']);
       }
+
+      return response;
     } catch (e) {
-      print('Error fetching driver orders: $e');
-      throw Exception('Failed to get driver orders: $e');
+      debugPrint('Get driver orders error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Update driver location
-  static Future<Map<String, dynamic>> updateDriverLocation(Map<String, dynamic> locationData) async {
+  // Get nearby drivers
+  static Future<List<Map<String, dynamic>>> getNearbyDrivers(
+      double latitude,
+      double longitude, {
+        double radius = 5.0,
+        int limit = 10,
+      }) async {
     try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      // Validate required fields
-      if (!locationData.containsKey('latitude') || !locationData.containsKey('longitude')) {
-        throw Exception('Latitude and longitude are required');
-      }
-
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/location'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(locationData),
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
-    } catch (e) {
-      print('Error updating driver location: $e');
-      throw Exception('Failed to update driver location: $e');
-    }
-    return {};
-  }
-
-  /// Get driver statistics - NEW METHOD
-  static Future<Map<String, dynamic>> getDriverStatistics() async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/statistics'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-        return jsonData['data'] ?? {};
-      } else {
-        _handleErrorResponse(response);
-      }
-    } catch (e) {
-      print('Error fetching driver statistics: $e');
-      throw Exception('Failed to get driver statistics: $e');
-    }
-    return {};
-  }
-
-  /// Get nearby drivers (for customer/store use)
-  static Future<List<Map<String, dynamic>>> getNearbyDrivers({
-    required double latitude,
-    required double longitude,
-    double radiusKm = 5.0,
-  }) async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
       final queryParams = {
         'latitude': latitude.toString(),
         'longitude': longitude.toString(),
-        'radius': radiusKm.toString(),
+        'radius': radius.toString(),
+        'limit': limit.toString(),
       };
 
-      final uri = Uri.parse('${ApiConstants.baseUrl}/drivers/nearby')
-          .replace(queryParameters: queryParams);
+      final response = await BaseService.get('/drivers/nearby', queryParams: queryParams);
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        List<Map<String, dynamic>> drivers = [];
-        if (jsonData['data'] != null && jsonData['data'] is List) {
-          drivers = List<Map<String, dynamic>>.from(jsonData['data']);
-
-          // Process driver images
-          for (var driver in drivers) {
-            _processDriverImages(driver);
-          }
+      if (response['data'] != null && response['data'] is List) {
+        for (var driver in response['data']) {
+          _processDriverImages(driver);
         }
-
-        return drivers;
-      } else {
-        _handleErrorResponse(response);
+        return List<Map<String, dynamic>>.from(response['data']);
       }
+
+      return [];
     } catch (e) {
-      print('Error fetching nearby drivers: $e');
-      throw Exception('Failed to get nearby drivers: $e');
+      debugPrint('Get nearby drivers error: $e');
+      rethrow;
     }
-    return [];
   }
 
   // PRIVATE HELPER METHODS
 
-  /// Process driver images in data
-  static void _processDriverImages(Map<String, dynamic> driver) {
+  static void _processDriverImages(Map<String, dynamic> driverData) {
     try {
       // Process user avatar if present
-      if (driver['user'] != null && driver['user']['avatar'] != null) {
-        driver['user']['avatar'] = ImageService.getImageUrl(driver['user']['avatar']);
+      if (driverData['user'] != null && driverData['user']['avatar'] != null) {
+        driverData['user']['avatar'] = ImageService.getImageUrl(driverData['user']['avatar']);
       }
 
-      // Process direct driver profile image fields
-      if (driver['profileImage'] != null && driver['profileImage'].toString().isNotEmpty) {
-        driver['profileImage'] = ImageService.getImageUrl(driver['profileImage']);
+      // Process driver profile images
+      if (driverData['profileImage'] != null) {
+        driverData['profileImage'] = ImageService.getImageUrl(driverData['profileImage']);
       }
 
-      if (driver['image'] != null && driver['image'].toString().isNotEmpty) {
-        driver['image'] = ImageService.getImageUrl(driver['image']);
-        // Set profileImage for consistency if not present
-        if (driver['profileImage'] == null) {
-          driver['profileImage'] = driver['image'];
-        }
+      if (driverData['image'] != null) {
+        driverData['image'] = ImageService.getImageUrl(driverData['image']);
       }
     } catch (e) {
-      print('Error processing driver images: $e');
+      debugPrint('Process driver images error: $e');
     }
   }
 
-  /// Process order images in driver order data
-  static void _processOrderImages(Map<String, dynamic> order) {
+  static void _processOrdersData(dynamic data) {
     try {
-      // Process store image if present
-      if (order['store'] != null) {
-        if (order['store']['imageUrl'] != null) {
-          order['store']['imageUrl'] = ImageService.getImageUrl(order['store']['imageUrl']);
-        }
-        if (order['store']['image'] != null) {
-          order['store']['image'] = ImageService.getImageUrl(order['store']['image']);
-        }
+      List<dynamic> orders = [];
+
+      if (data is List) {
+        orders = data;
+      } else if (data is Map<String, dynamic> && data['orders'] != null && data['orders'] is List) {
+        orders = data['orders'];
       }
 
-      // Process customer avatar if present
-      if (order['customer'] != null && order['customer']['avatar'] != null) {
-        order['customer']['avatar'] = ImageService.getImageUrl(order['customer']['avatar']);
+      for (var order in orders) {
+        _processOrderImages(order);
+      }
+    } catch (e) {
+      debugPrint('Process orders data error: $e');
+    }
+  }
+
+  static void _processOrderImages(Map<String, dynamic> orderData) {
+    try {
+      // Process store image
+      if (orderData['store'] != null && orderData['store']['imageUrl'] != null) {
+        orderData['store']['imageUrl'] = ImageService.getImageUrl(orderData['store']['imageUrl']);
       }
 
-      // Process order items if present
-      if (order['items'] != null && order['items'] is List) {
-        for (var item in order['items']) {
-          if (item['imageUrl'] != null) {
-            item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
+      // Process menu item images
+      if (orderData['items'] != null && orderData['items'] is List) {
+        for (var item in orderData['items']) {
+          if (item['menuItem'] != null && item['menuItem']['imageUrl'] != null) {
+            item['menuItem']['imageUrl'] = ImageService.getImageUrl(item['menuItem']['imageUrl']);
           }
         }
       }
     } catch (e) {
-      print('Error processing order images: $e');
-    }
-  }
-
-  /// Parse response body with better error handling
-  static Map<String, dynamic> _parseResponseBody(String body) {
-    try {
-      return json.decode(body);
-    } catch (e) {
-      print('Error parsing response body: $e');
-      String cleanedBody = body.trim();
-      if (cleanedBody.startsWith('\uFEFF')) {
-        cleanedBody = cleanedBody.substring(1);
-      }
-      try {
-        return json.decode(cleanedBody);
-      } catch (e) {
-        throw Exception('Invalid response format: $body');
-      }
-    }
-  }
-
-  /// Handle error responses consistently
-  static void _handleErrorResponse(http.Response response) {
-    try {
-      final errorData = _parseResponseBody(response.body);
-      final message = errorData['message'] ?? 'Request failed';
-      throw Exception(message);
-    } catch (e) {
-      if (e is Exception && e.toString().contains('Request failed')) {
-        rethrow;
-      }
-      throw Exception('Request failed with status ${response.statusCode}: ${response.body}');
+      debugPrint('Process order images error: $e');
     }
   }
 }

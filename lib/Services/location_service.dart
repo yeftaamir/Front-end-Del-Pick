@@ -1,234 +1,257 @@
 // lib/services/location_service.dart
-import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/material.dart';
-import 'driver_service.dart';
+import 'core/base_service.dart';
 
-class LocationService {
-  // Singleton instance
-  static final LocationService _instance = LocationService._internal();
-  factory LocationService() => _instance;
-  LocationService._internal();
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 
-  // Timer for periodic location updates
-  Timer? _locationUpdateTimer;
+class LocationService extends BaseService {
 
-  // Current position
-  Position? _currentPosition;
+  // Get current device location
+  static Future<Position?> getCurrentLocation() async {
+    try {
+      // Check if location service is enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Location services are disabled');
+      }
 
-  // Status flags
-  bool _isTracking = false;
-  bool _isPermissionGranted = false;
-
-  // For logging and debugging
-  final bool _enableLogging = true;
-
-  // Getters
-  bool get isTracking => _isTracking;
-  Position? get currentPosition => _currentPosition;
-
-  /// Initialize location service and request permissions
-  Future<bool> initialize() async {
-    // Check if location services are enabled
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _log('Location services are disabled');
-      return false;
-    }
-
-    // Check location permission status
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+      // Check location permissions
+      LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
-        _log('Location permissions denied');
-        _isPermissionGranted = false;
-        return false;
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception('Location permissions are denied');
+        }
       }
-    }
 
-    if (permission == LocationPermission.deniedForever) {
-      _log('Location permissions permanently denied');
-      _isPermissionGranted = false;
-      return false;
-    }
-
-    // Also check permission_handler for more granular control
-    var status = await Permission.location.status;
-    if (!status.isGranted) {
-      status = await Permission.location.request();
-      _isPermissionGranted = status.isGranted;
-    } else {
-      _isPermissionGranted = true;
-    }
-
-    _log('Location service initialized, permission: $_isPermissionGranted');
-    return _isPermissionGranted;
-  }
-
-  /// Start tracking location at set intervals
-  Future<bool> startTracking() async {
-    if (_isTracking) {
-      _log('Already tracking location');
-      return true;
-    }
-
-    // Check for permissions
-    if (!_isPermissionGranted) {
-      bool initialized = await initialize();
-      if (!initialized) {
-        _log('Failed to initialize location service');
-        return false;
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Location permissions are permanently denied');
       }
-    }
 
-    // Get current position first
-    try {
-      _currentPosition = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high
-      );
-
-      // Send initial position to backend
-      await _sendLocationUpdate();
-
-      // Setup periodic location updates (every 10 seconds)
-      _locationUpdateTimer = Timer.periodic(
-          const Duration(seconds: 10),
-              (_) => _updateLocation()
-      );
-
-      _isTracking = true;
-      _log('Started location tracking with timer');
-      return true;
-    } catch (e) {
-      _log('Error starting location tracking: $e');
-      return false;
-    }
-  }
-
-  /// Stop tracking location
-  void stopTracking() {
-    _locationUpdateTimer?.cancel();
-    _locationUpdateTimer = null;
-    _isTracking = false;
-    _log('Location tracking stopped');
-  }
-
-  /// Update location once (called from timer)
-  Future<void> _updateLocation() async {
-    try {
       // Get current position
       Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 10),
       );
 
-      // Update stored position
-      _currentPosition = position;
-
-      // Send to backend
-      await _sendLocationUpdate();
+      debugPrint('Current location: ${position.latitude}, ${position.longitude}');
+      return position;
     } catch (e) {
-      _log('Error updating location: $e');
-    }
-  }
-
-  /// Send location update to backend
-  Future<void> _sendLocationUpdate() async {
-    if (_currentPosition == null) {
-      _log('No position available to send');
-      return;
-    }
-
-    try {
-      await DriverService.updateDriverLocation({
-        'latitude': _currentPosition!.latitude,
-        'longitude': _currentPosition!.longitude,
-      });
-
-      _log('Location sent to backend: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}');
-    } catch (e) {
-      _log('Error sending location to backend: $e');
-    }
-  }
-
-  /// Force a location update immediately
-  Future<bool> forceLocationUpdate() async {
-    try {
-      await _updateLocation();
-      return true;
-    } catch (e) {
-      _log('Error forcing location update: $e');
-      return false;
-    }
-  }
-
-  /// Show location permission dialog
-  Future<void> showLocationPermissionDialog(BuildContext context) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Izin Lokasi Diperlukan'),
-          content: const Text(
-              'Untuk mengaktifkan status driver, aplikasi memerlukan akses lokasi. '
-                  'Mohon berikan izin lokasi di pengaturan perangkat Anda.'
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Batal'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            TextButton(
-              child: const Text('Buka Pengaturan'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                openAppSettings();
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  /// Get last known position or current position
-  Future<Position?> getLastKnownPosition() async {
-    try {
-      if (_currentPosition != null) {
-        return _currentPosition;
-      }
-
-      // Try to get last known position if current isn't available
-      Position? lastKnown = await Geolocator.getLastKnownPosition();
-      if (lastKnown != null) {
-        _currentPosition = lastKnown;
-        return lastKnown;
-      }
-
-      // If no last known, get current
-      _currentPosition = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high
-      );
-      return _currentPosition;
-    } catch (e) {
-      _log('Error getting position: $e');
+      debugPrint('Get current location error: $e');
       return null;
     }
   }
 
-  // Helper for logging
-  void _log(String message) {
-    if (_enableLogging) {
-      print('LocationService: $message');
+  // Request location permissions
+  static Future<bool> requestLocationPermission() async {
+    try {
+      PermissionStatus status = await Permission.location.request();
+      return status == PermissionStatus.granted;
+    } catch (e) {
+      debugPrint('Request location permission error: $e');
+      return false;
     }
   }
 
-  // Dispose resources
-  void dispose() {
-    stopTracking();
+  // Check if location permissions are granted
+  static Future<bool> hasLocationPermission() async {
+    try {
+      PermissionStatus status = await Permission.location.status;
+      return status == PermissionStatus.granted;
+    } catch (e) {
+      debugPrint('Check location permission error: $e');
+      return false;
+    }
+  }
+
+  // Calculate distance between two points (in kilometers)
+  static double calculateDistance(
+      double lat1, double lon1,
+      double lat2, double lon2,
+      ) {
+    return Geolocator.distanceBetween(lat1, lon1, lat2, lon2) / 1000;
+  }
+
+  // Calculate bearing between two points
+  static double calculateBearing(
+      double lat1, double lon1,
+      double lat2, double lon2,
+      ) {
+    return Geolocator.bearingBetween(lat1, lon1, lat2, lon2);
+  }
+
+  // Update driver location (for drivers)
+  static Future<Map<String, dynamic>> updateDriverLocation(
+      double latitude,
+      double longitude,
+      ) async {
+    try {
+      // Validate coordinates
+      if (latitude < -90 || latitude > 90) {
+        throw ApiException('Invalid latitude: must be between -90 and 90');
+      }
+      if (longitude < -180 || longitude > 180) {
+        throw ApiException('Invalid longitude: must be between -180 and 180');
+      }
+
+      final response = await BaseService.put('/drivers/location', {
+        'latitude': latitude,
+        'longitude': longitude,
+      });
+
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Update driver location error: $e');
+      rethrow;
+    }
+  }
+
+  // Get driver location by ID
+  static Future<Map<String, dynamic>> getDriverLocation(String driverId) async {
+    try {
+      final response = await BaseService.get('/drivers/$driverId/location');
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Get driver location error: $e');
+      rethrow;
+    }
+  }
+
+  // Update order delivery location (for tracking)
+  static Future<Map<String, dynamic>> updateOrderDeliveryLocation(
+      String orderId,
+      double latitude,
+      double longitude,
+      ) async {
+    try {
+      final response = await BaseService.put('/orders/$orderId/tracking/location', {
+        'latitude': latitude,
+        'longitude': longitude,
+      });
+
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Update order delivery location error: $e');
+      rethrow;
+    }
+  }
+
+  // Get nearby places (stores, drivers, etc.) based on location
+  static Future<List<Map<String, dynamic>>> getNearbyPlaces({
+    required double latitude,
+    required double longitude,
+    required String type, // 'stores', 'drivers'
+    double radius = 5.0,
+    int limit = 20,
+  }) async {
+    try {
+      final queryParams = {
+        'latitude': latitude.toString(),
+        'longitude': longitude.toString(),
+        'radius': radius.toString(),
+        'limit': limit.toString(),
+      };
+
+      final response = await BaseService.get('/$type/nearby', queryParams: queryParams);
+
+      if (response['data'] != null && response['data'] is List) {
+        return List<Map<String, dynamic>>.from(response['data']);
+      }
+
+      return [];
+    } catch (e) {
+      debugPrint('Get nearby places error: $e');
+      rethrow;
+    }
+  }
+
+  // Start location tracking (for real-time updates)
+  static Stream<Position>? startLocationTracking({
+    LocationAccuracy accuracy = LocationAccuracy.high,
+    int intervalMs = 5000,
+    int distanceFilter = 10,
+  }) {
+    try {
+      return Geolocator.getPositionStream(
+        locationSettings: LocationSettings(
+          accuracy: accuracy,
+          distanceFilter: distanceFilter,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Start location tracking error: $e');
+      return null;
+    }
+  }
+
+  // Geocoding: Get address from coordinates
+  static Future<String?> getAddressFromCoordinates(
+      double latitude,
+      double longitude,
+      ) async {
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(latitude, longitude);
+
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks[0];
+        return '${place.street}, ${place.subLocality}, ${place.locality}, ${place.administrativeArea}';
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('Get address from coordinates error: $e');
+      return null;
+    }
+  }
+
+  // Check if location is within delivery radius
+  static bool isWithinDeliveryRadius(
+      double userLat, double userLon,
+      double storeLat, double storeLon,
+      double maxRadius,
+      ) {
+    double distance = calculateDistance(userLat, userLon, storeLat, storeLon);
+    return distance <= maxRadius;
+  }
+
+  // Get optimal route between multiple points
+  static Future<Map<String, dynamic>> getOptimalRoute(List<Map<String, double>> waypoints) async {
+    try {
+      // This would typically integrate with a routing service like Google Maps API
+      // For now, we'll return a basic implementation
+
+      double totalDistance = 0;
+      List<Map<String, dynamic>> route = [];
+
+      for (int i = 0; i < waypoints.length - 1; i++) {
+        double distance = calculateDistance(
+          waypoints[i]['latitude']!,
+          waypoints[i]['longitude']!,
+          waypoints[i + 1]['latitude']!,
+          waypoints[i + 1]['longitude']!,
+        );
+
+        totalDistance += distance;
+        route.add({
+          'from': waypoints[i],
+          'to': waypoints[i + 1],
+          'distance': distance,
+        });
+      }
+
+      return {
+        'route': route,
+        'total_distance': totalDistance,
+        'estimated_duration': totalDistance * 2, // Rough estimate: 2 minutes per km
+      };
+    } catch (e) {
+      debugPrint('Get optimal route error: $e');
+      rethrow;
+    }
   }
 }
+
+// Add missing import for geocoding
