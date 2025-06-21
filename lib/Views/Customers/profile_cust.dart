@@ -1,12 +1,18 @@
-// Updated profile_page.dart dengan penggunaan service yang telah diupdate
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
 
 import '../../Models/user.dart';
 import '../../Services/auth_service.dart';
-import '../../Services/user_service.dart';  // Updated import
+import '../../Services/core/token_service.dart';
 import '../../Services/image_service.dart';
+import '../../Services/user_service.dart';
 import '../Controls/login_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -19,12 +25,18 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin {
-  User? _user;  // Changed from Customer to User (unified model)
+  User? _customer;
   bool _isLoading = true;
   bool _isUpdatingImage = false;
   bool _hasError = false;
   String _errorMessage = '';
   String? _processedImageUrl;
+
+  // Additional data from TokenService
+  String? _authToken;
+  String? _userRole;
+  String? _userId;
+  bool _isAuthenticated = false;
 
   late AnimationController _fadeController;
   late AnimationController _slideController;
@@ -69,7 +81,6 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     super.dispose();
   }
 
-  /// Updated method using new service structure
   Future<void> _loadUserData() async {
     if (!mounted) return;
 
@@ -81,40 +92,27 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     });
 
     try {
-      User? user;
+      print("=== Loading User Data with Service Implementation ===");
 
-      // Primary method: Use UserService.getProfile()
-      try {
-        final profileData = await UserService.getProfile();
-        print('User profile loaded successfully from UserService: $profileData');
+      // 1. Get Token
+      _authToken = await TokenService.getToken();
+      print("Auth Token: ${_authToken != null ? 'Present (${_authToken!.substring(0, 20)}...)' : 'Not found'}");
 
-        if (profileData.isNotEmpty) {
-          user = User.fromJson(profileData);
-        }
-      } catch (e) {
-        print('Error loading profile from UserService: $e');
+      // 2. Get User Role
+      _userRole = await TokenService.getUserRole();
+      print("User Role: ${_userRole ?? 'Not found'}");
 
-        // Fallback method: Use AuthService.getProfile()
-        try {
-          final authProfileData = await AuthService.getProfile();
-          print('Profile data received from AuthService: $authProfileData');
+      // 3. Get User ID
+      _userId = await TokenService.getUserId();
+      print("User ID: ${_userId ?? 'Not found'}");
 
-          if (authProfileData.isNotEmpty) {
-            user = User.fromJson(authProfileData);
-          }
-        } catch (authError) {
-          print('Error loading profile from AuthService: $authError');
+      // 4. Check Authentication Status
+      _isAuthenticated = await TokenService.isAuthenticated();
+      print("Is Authenticated: $_isAuthenticated");
 
-          // Final fallback: Use cached data
-          final userData = await AuthService.getUserData();
-          if (userData != null) {
-            user = User.fromJson(userData);
-          }
-        }
-      }
-
-      if (user == null) {
-        print('No user data available, redirecting to login');
+      // If not authenticated, redirect to login
+      if (!_isAuthenticated || _authToken == null) {
+        print("User not authenticated, redirecting to login");
         if (!mounted) return;
         Navigator.pushAndRemoveUntil(
           context,
@@ -124,37 +122,219 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
         return;
       }
 
+      // 5. Get Profile Data using AuthService.getProfile()
+      User? customer;
+      try {
+        print("Fetching profile from AuthService.getProfile()...");
+        final profileData = await AuthService.getProfile();
+
+        if (profileData.isNotEmpty) {
+          customer = User.fromJson(profileData);
+          print("Profile loaded successfully from AuthService");
+          print("User Name: ${customer.name}");
+          print("User Email: ${customer.email}");
+          print("User Role: ${customer.role}");
+        } else {
+          print("AuthService.getProfile() returned empty data");
+        }
+      } catch (e) {
+        print("Error fetching profile from AuthService: $e");
+      }
+
+      // Fallback: Try to get cached user data if profile fetch failed
+      if (customer == null) {
+        try {
+          print("Trying fallback: getting cached user data...");
+          final userData = await AuthService.getUserData();
+
+          if (userData != null) {
+            customer = User.fromJson(userData);
+            print("Profile loaded from cached user data");
+          } else {
+            print("No cached user data available");
+          }
+        } catch (e) {
+          print("Error loading cached user data: $e");
+        }
+      }
+
+      // Final fallback: Try UserService if available
+      if (customer == null) {
+        try {
+          print("Trying UserService.getProfile() as final fallback...");
+          final userProfileData = await UserService.getProfile();
+
+          if (userProfileData.isNotEmpty) {
+            customer = User.fromJson(userProfileData);
+            print("Profile loaded from UserService");
+          }
+        } catch (e) {
+          print("UserService fallback failed: $e");
+        }
+      }
+
+      // If all methods failed, create empty user but don't redirect
+      if (customer == null) {
+        print("All profile loading methods failed, using empty user");
+        customer = User.empty();
+        customer = customer.copyWith(
+          id: int.tryParse(_userId ?? '0') ?? 0,
+          role: _userRole ?? 'customer',
+          name: 'User',
+          email: 'user@example.com',
+        );
+      }
+
+      // Verify that token service data matches profile data
+      print("\n=== Data Verification ===");
+      print("TokenService User ID: $_userId");
+      print("Profile User ID: ${customer.id}");
+      print("TokenService Role: $_userRole");
+      print("Profile Role: ${customer.role}");
+
+      // Update customer with TokenService data if there's mismatch
+      if (_userId != null && customer.id.toString() != _userId) {
+        print("ID mismatch detected, updating with TokenService data");
+        customer = customer.copyWith(id: int.tryParse(_userId!) ?? customer.id);
+      }
+
+      if (_userRole != null && customer.role != _userRole) {
+        print("Role mismatch detected, updating with TokenService data");
+        customer = customer.copyWith(role: _userRole!);
+      }
+
       // Process image URL if available
-      if (user.avatar != null && user.avatar!.isNotEmpty) {
-        print('Processing avatar: ${user.avatar}');
-        _processedImageUrl = user.getProcessedImageUrl(); // Use new method from User model
+      String? imageUrl;
+      if (customer.avatar != null && customer.avatar!.isNotEmpty) {
+        print('Processing avatar: ${customer.avatar}');
+
+        if (customer.avatar!.startsWith('data:image/')) {
+          print('Avatar is in data URL format');
+          imageUrl = customer.avatar;
+        } else if (_isBase64String(customer.avatar!)) {
+          print('Avatar appears to be a raw base64 string');
+          String formattedBase64 = 'data:image/jpeg;base64,${customer.avatar}';
+          imageUrl = formattedBase64;
+        } else {
+          print('Avatar is a server path or URL');
+          imageUrl = ImageService.getImageUrl(customer.avatar!);
+          print('Processed image URL: $imageUrl');
+        }
+      } else {
+        print('No avatar found for customer');
       }
 
       if (mounted) {
         setState(() {
-          _user = user;
-          _isLoading = false;
-          _hasError = false;
+          _customer = customer;
+          _processedImageUrl = imageUrl;
         });
-
-        // Start animations
         _fadeController.forward();
         _slideController.forward();
+
+        print("=== Profile Loading Complete ===");
+        print("Final Customer Name: ${_customer!.name}");
+        print("Final Customer Email: ${_customer!.email}");
+        print("Final Customer Role: ${_customer!.role}");
+        print("Final Customer ID: ${_customer!.id}");
+        print("Has Avatar: ${_processedImageUrl != null}");
       }
     } catch (e) {
       print('Error loading user data: $e');
       if (mounted) {
         setState(() {
           _hasError = true;
-          _errorMessage = 'Failed to load profile data: ${e.toString()}';
+          _errorMessage = e.toString();
+          _customer = User.empty();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load user data: $_errorMessage'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
           _isLoading = false;
         });
       }
     }
   }
 
-  /// Updated logout implementation using AuthService
-  Future<void> _handleLogout() async {
+  bool _isBase64String(String str) {
+    try {
+      if (str.length % 4 != 0 || str.contains(RegExp(r'[^A-Za-z0-9+/=]'))) {
+        return false;
+      }
+      base64Decode(str);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _updateProfileImage() async {
+    if (_customer == null) return;
+
+    setState(() {
+      _isUpdatingImage = true;
+    });
+
+    try {
+      final imageFile = await ImageService.pickImage();
+      if (imageFile == null) {
+        setState(() {
+          _isUpdatingImage = false;
+        });
+        return;
+      }
+
+      // Convert image to base64
+      final base64Image = await ImageService.imageToBase64(imageFile);
+      if (base64Image == null) {
+        throw Exception('Failed to convert image to base64');
+      }
+
+      // Update profile using AuthService
+      final updatedProfile = await AuthService.updateProfile({
+        'avatar': base64Image,
+      });
+
+      if (updatedProfile.isNotEmpty) {
+        await _loadUserData(); // Reload data to get updated image
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile image updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        throw Exception('Failed to update profile image');
+      }
+    } catch (e) {
+      print('Error updating profile image: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating profile image: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingImage = false;
+        });
+      }
+    }
+  }
+
+  // Updated logout implementation using proper service methods
+  void _handleLogout() async {
     // Show loading dialog
     showDialog(
       context: context,
@@ -199,48 +379,56 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     );
 
     try {
-      // Use AuthService.logout() - unified logout method
-      final success = await AuthService.logout();
+      print("=== Starting Logout Process ===");
 
-      if (!mounted) return;
-      Navigator.of(context).pop(); // Close loading dialog
-
-      if (success) {
-        // Navigate to login page on successful logout
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginPage()),
-              (route) => false,
-        );
-      } else {
-        // Show error but still navigate to login as fallback
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Logout completed with warnings'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginPage()),
-              (route) => false,
-        );
+      // 1. Call AuthService.logout() first (this may call server-side logout)
+      try {
+        print("Calling AuthService.logout()...");
+        final logoutResult = await AuthService.logout();
+        print("AuthService.logout() completed: $logoutResult");
+      } catch (e) {
+        print("AuthService.logout() failed (continuing with local cleanup): $e");
+        // Continue with local cleanup even if server logout fails
       }
-    } catch (e) {
-      print('Logout error: $e');
+
+      // 2. Clear all local data using TokenService.clearAll()
+      print("Clearing all local data with TokenService.clearAll()...");
+      await TokenService.clearAll();
+      print("All local data cleared successfully");
+
+      // 3. Verify data is cleared
+      final verifyToken = await TokenService.getToken();
+      final verifyRole = await TokenService.getUserRole();
+      final verifyUserId = await TokenService.getUserId();
+      final verifyAuth = await TokenService.isAuthenticated();
+
+      print("=== Logout Verification ===");
+      print("Token after clear: ${verifyToken ?? 'null (✓)'}");
+      print("Role after clear: ${verifyRole ?? 'null (✓)'}");
+      print("User ID after clear: ${verifyUserId ?? 'null (✓)'}");
+      print("Is authenticated after clear: $verifyAuth (should be false)");
+
+      // Navigate to login page
       if (!mounted) return;
-
-      Navigator.of(context).pop(); // Close loading dialog
-
-      // Show error message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Logout error: $e'),
-          backgroundColor: Colors.red,
-        ),
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+            (route) => false,
       );
 
-      // Still navigate to login page as fallback
+      print("=== Logout Process Complete ===");
+    } catch (e) {
+      print('Logout error: $e');
+
+      // Even if logout fails, try to clear local data and navigate
+      try {
+        await TokenService.clearAll();
+        print("Force cleared local data after logout error");
+      } catch (clearError) {
+        print("Force clear also failed: $clearError");
+      }
+
+      if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -249,64 +437,13 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     }
   }
 
-  /// Updated profile image update using UserService
-  Future<void> _updateProfileImage(String base64Image) async {
-    if (!mounted) return;
-
-    setState(() {
-      _isUpdatingImage = true;
-    });
-
-    try {
-      // Use UserService.updateProfile() for consistency
-      final success = await UserService.updateProfile({
-        'avatar': base64Image,
-      });
-
-      if (success.isNotEmpty) {
-        await _loadUserData(); // Reload user data
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profile image updated successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to update profile image'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      print('Error updating profile image: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating profile image: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isUpdatingImage = false;
-        });
-      }
-    }
-  }
-
   void _viewProfileImage() {
     if (_processedImageUrl == null || _processedImageUrl!.isEmpty) {
-      if (_user == null || _user!.avatar == null || _user!.avatar!.isEmpty) {
+      if (_customer == null || _customer!.avatar == null || _customer!.avatar!.isEmpty) {
         return;
       }
-      _processedImageUrl = _user!.getProcessedImageUrl();
-      if (_processedImageUrl == null || _processedImageUrl!.isEmpty) {
+      _processedImageUrl = ImageService.getImageUrl(_customer!.avatar!);
+      if (_processedImageUrl!.isEmpty) {
         return;
       }
     }
@@ -349,15 +486,15 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                     ),
                     errorWidget: Container(
                       color: Colors.grey[900],
-                      child: const Column(
+                      child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.broken_image,
                             size: 80,
                             color: Colors.white54,
                           ),
-                          SizedBox(height: 16),
+                          const SizedBox(height: 16),
                           Text(
                             'Failed to load image',
                             style: TextStyle(
@@ -398,6 +535,44 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     );
   }
 
+  // Debug method untuk check service data
+  Future<void> _debugCheckServiceData() async {
+    try {
+      print("\n=== DEBUG: Current Service Data ===");
+
+      final token = await TokenService.getToken();
+      final role = await TokenService.getUserRole();
+      final userId = await TokenService.getUserId();
+      final isAuth = await TokenService.isAuthenticated();
+      final userData = await AuthService.getUserData();
+
+      print("Token: ${token != null ? 'Present' : 'Not found'}");
+      print("Role: ${role ?? 'Not found'}");
+      print("User ID: ${userId ?? 'Not found'}");
+      print("Is Authenticated: $isAuth");
+      print("Cached User Data: ${userData != null ? 'Present' : 'Not found'}");
+
+      if (userData != null) {
+        print("Cached User Name: ${userData['name']}");
+        print("Cached User Email: ${userData['email']}");
+      }
+
+      print("=== END DEBUG ===\n");
+
+      // Show in UI
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Debug info logged to console'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+    } catch (e) {
+      print("Debug check error: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -424,113 +599,496 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
           ],
         ),
       )
-          : _hasError
+          : _customer == null
           ? Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               Icons.error_outline,
-              size: 64,
+              size: 80,
               color: Colors.red[400],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
             Text(
-              'Error Loading Profile',
+              'Unable to load profile',
               style: TextStyle(
-                fontFamily: GlobalStyle.fontFamily,
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Colors.red[400],
+                fontFamily: GlobalStyle.fontFamily,
               ),
             ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                _errorMessage,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: GlobalStyle.fontFamily,
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
+            const SizedBox(height: 12),
+            Text(
+              'Please check your connection',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
               ),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton(
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
               onPressed: _loadUserData,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try Again'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
                 ),
-              ),
-              child: const Text(
-                'Retry',
-                style: TextStyle(color: Colors.white),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                elevation: 0,
               ),
             ),
           ],
         ),
       )
-          : _buildProfileContent(),
-    );
-  }
+          : CustomScrollView(
+        slivers: [
+          // Modern App Bar with Gradient
+          SliverAppBar(
+            expandedHeight: 280,
+            floating: false,
+            pinned: true,
+            backgroundColor: Colors.transparent,
+            flexibleSpace: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final double top = constraints.biggest.height;
+                final bool isCollapsed = top <= kToolbarHeight + 50;
 
-  Widget _buildProfileContent() {
-    return CustomScrollView(
-      slivers: [
-        SliverAppBar(
-          expandedHeight: 280,
-          floating: false,
-          pinned: true,
-          backgroundColor: GlobalStyle.primaryColor,
-          elevation: 0,
-          flexibleSpace: FlexibleSpaceBar(
-            background: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    GlobalStyle.primaryColor,
-                    GlobalStyle.primaryColor.withOpacity(0.8),
-                  ],
-                ),
-              ),
-              child: SafeArea(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 60),
-                    FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: SlideTransition(
-                        position: _slideAnimation,
-                        child: _buildProfileAvatar(),
-                      ),
+                return Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        GlobalStyle.primaryColor,
+                        GlobalStyle.primaryColor.withOpacity(0.8),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    FadeTransition(
-                      opacity: _fadeAnimation,
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(30),
+                      bottomRight: Radius.circular(30),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: GlobalStyle.primaryColor.withOpacity(0.3),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: FlexibleSpaceBar(
+                    title: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 200),
+                      opacity: isCollapsed ? 1.0 : 0.0,
                       child: Text(
-                        _user?.name ?? 'Unknown User',
+                        _customer!.name,
                         style: const TextStyle(
-                          fontSize: 24,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: Text(
-                        _user?.email ?? '',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.white.withOpacity(0.9),
+                    background: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Background Pattern
+                        Positioned(
+                          right: -50,
+                          top: -50,
+                          child: Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.1),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: -30,
+                          bottom: -30,
+                          child: Container(
+                            width: 150,
+                            height: 150,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.1),
+                            ),
+                          ),
+                        ),
+
+                        // Profile Content
+                        FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const SizedBox(height: 40),
+                                // Profile Image
+                                Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Container(
+                                      width: 130,
+                                      height: 130,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Colors.white.withOpacity(0.3),
+                                            Colors.white.withOpacity(0.1),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: _viewProfileImage,
+                                      child: Hero(
+                                        tag: 'profileImage',
+                                        child: Container(
+                                          width: 120,
+                                          height: 120,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: Colors.white,
+                                              width: 3,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(0.2),
+                                                blurRadius: 15,
+                                                offset: const Offset(0, 5),
+                                              ),
+                                            ],
+                                          ),
+                                          child: ClipOval(
+                                            child: _processedImageUrl != null &&
+                                                _processedImageUrl!.isNotEmpty
+                                                ? ImageService.displayImage(
+                                              imageSource: _processedImageUrl!,
+                                              width: 120,
+                                              height: 120,
+                                              fit: BoxFit.cover,
+                                              placeholder: Container(
+                                                color: Colors.white,
+                                                child: Center(
+                                                  child: CircularProgressIndicator(
+                                                    valueColor:
+                                                    AlwaysStoppedAnimation<Color>(
+                                                      GlobalStyle.primaryColor,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              errorWidget: Container(
+                                                color: Colors.white,
+                                                child: Icon(
+                                                  Icons.person,
+                                                  size: 60,
+                                                  color: GlobalStyle.primaryColor,
+                                                ),
+                                              ),
+                                            )
+                                                : Container(
+                                              color: Colors.white,
+                                              child: Icon(
+                                                Icons.person,
+                                                size: 60,
+                                                color: GlobalStyle.primaryColor,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      bottom: 0,
+                                      right: 0,
+                                      child: GestureDetector(
+                                        onTap: _isUpdatingImage ? null : _updateProfileImage,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                Colors.white,
+                                                Colors.grey[100]!,
+                                              ],
+                                            ),
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(0.2),
+                                                blurRadius: 8,
+                                                offset: const Offset(0, 2),
+                                              ),
+                                            ],
+                                          ),
+                                          child: _isUpdatingImage
+                                              ? SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor: AlwaysStoppedAnimation<Color>(
+                                                GlobalStyle.primaryColor,
+                                              ),
+                                            ),
+                                          )
+                                              : Icon(
+                                            Icons.camera_alt,
+                                            color: GlobalStyle.primaryColor,
+                                            size: 22,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                // Name
+                                Text(
+                                  _customer!.name,
+                                  style: const TextStyle(
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                // Role Badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.3),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.verified_user,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _customer!.role.toUpperCase(),
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                          letterSpacing: 1.2,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            leading: Container(
+              margin: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+            // Debug button for development
+            actions: [
+              Container(
+                margin: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.info_outline,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  onPressed: _debugCheckServiceData,
+                ),
+              ),
+            ],
+          ),
+
+          // Profile Content
+          SliverToBoxAdapter(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Personal Information Section
+                    _buildSectionHeader(
+                      icon: Icons.person_pin,
+                      title: 'Personal Information',
+                      color: GlobalStyle.primaryColor,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildInfoCard(
+                      children: [
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.idCard,
+                          title: 'User ID',
+                          value: _customer!.id.toString(),
+                          iconColor: Colors.blue[600]!,
+                        ),
+                        _buildDivider(),
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.userAlt,
+                          title: 'Full Name',
+                          value: _customer!.name,
+                          iconColor: Colors.green[600]!,
+                        ),
+                        _buildDivider(),
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.phone,
+                          title: 'Phone Number',
+                          value: _customer!.phone ?? 'Not provided',
+                          iconColor: Colors.orange[600]!,
+                        ),
+                        _buildDivider(),
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.envelope,
+                          title: 'Email Address',
+                          value: _customer!.email,
+                          iconColor: Colors.purple[600]!,
+                        ),
+                        // Additional Service Info
+                        if (_userRole != null) ...[
+                          _buildDivider(),
+                          _buildInfoItem(
+                            icon: FontAwesomeIcons.userTag,
+                            title: 'Account Role',
+                            value: _userRole!,
+                            iconColor: Colors.indigo[600]!,
+                          ),
+                        ],
+                        if (_isAuthenticated) ...[
+                          _buildDivider(),
+                          _buildInfoItem(
+                            icon: FontAwesomeIcons.checkCircle,
+                            title: 'Authentication Status',
+                            value: 'Authenticated',
+                            iconColor: Colors.green[600]!,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Logout Button
+                    Container(
+                      width: double.infinity,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.red[400]!,
+                            Colors.red[600]!,
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.red.withOpacity(0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _handleLogout,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.logout,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Logout',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // App Version
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 32.0),
+                        child: Column(
+                          children: [
+                            Image.asset(
+                              'assets/images/delpick_image.png',
+                              width: 80,
+                              height: 80,
+                              color: Colors.grey[400],
+                              colorBlendMode: BlendMode.modulate,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'DelPick v1.0.0',
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 14,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -539,137 +1097,114 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
               ),
             ),
           ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.logout, color: Colors.white),
-              onPressed: _handleLogout,
-            ),
-          ],
+        ],
+      ),
+      // Add debug floating action button (only in development)
+      floatingActionButton: FloatingActionButton.small(
+        onPressed: _debugCheckServiceData,
+        backgroundColor: GlobalStyle.primaryColor,
+        child: const Icon(Icons.bug_report, color: Colors.white),
+        tooltip: 'Debug Service Data',
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required String title,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            color: color,
+            size: 24,
+          ),
         ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _buildProfileInfoCard(),
-                const SizedBox(height: 16),
-                _buildActionButtons(),
-              ],
-            ),
+        const SizedBox(width: 16),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: GlobalStyle.fontColor,
+            fontFamily: GlobalStyle.fontFamily,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildProfileAvatar() {
-    return GestureDetector(
-      onTap: _processedImageUrl != null ? _viewProfileImage : null,
-      child: Container(
-        width: 120,
-        height: 120,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 4),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: ClipOval(
-          child: _processedImageUrl != null && _processedImageUrl!.isNotEmpty
-              ? ImageService.displayImage(
-            imageSource: _processedImageUrl!,
-            width: 120,
-            height: 120,
-            fit: BoxFit.cover,
-            placeholder: const CircularProgressIndicator(
-              color: Colors.white,
-            ),
-            errorWidget: _buildDefaultAvatar(),
-          )
-              : _buildDefaultAvatar(),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDefaultAvatar() {
+  Widget _buildInfoCard({required List<Widget> children}) {
     return Container(
-      width: 120,
-      height: 120,
       decoration: BoxDecoration(
-        color: Colors.grey[300],
-        shape: BoxShape.circle,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
-      child: Icon(
-        Icons.person,
-        size: 60,
-        color: Colors.grey[600],
-      ),
+      child: Column(children: children),
     );
   }
 
-  Widget _buildProfileInfoCard() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Profile Information',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildInfoRow(Icons.person, 'Name', _user?.name ?? 'N/A'),
-            _buildInfoRow(Icons.email, 'Email', _user?.email ?? 'N/A'),
-            _buildInfoRow(Icons.phone, 'Phone', _user?.phone ?? 'Not provided'),
-            _buildInfoRow(Icons.badge, 'Role', _user?.role.toUpperCase() ?? 'N/A'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(IconData icon, String label, String value) {
+  Widget _buildInfoItem({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color iconColor,
+  }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(20),
       child: Row(
         children: [
-          Icon(
-            icon,
-            color: GlobalStyle.primaryColor,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                color: Colors.grey[600],
-              ),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: FaIcon(
+              icon,
+              size: 20,
+              color: iconColor,
             ),
           ),
+          const SizedBox(width: 16),
           Expanded(
-            flex: 3,
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -677,49 +1212,12 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     );
   }
 
-  Widget _buildActionButtons() {
-    return Column(
-      children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: () {
-              // Navigate to edit profile page
-            },
-            icon: const Icon(Icons.edit, color: Colors.white),
-            label: const Text(
-              'Edit Profile',
-              style: TextStyle(color: Colors.white),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: GlobalStyle.primaryColor,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: _handleLogout,
-            icon: const Icon(Icons.logout, color: Colors.red),
-            label: const Text(
-              'Logout',
-              style: TextStyle(color: Colors.red),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.red),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
-      ],
+  Widget _buildDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: Colors.grey[100],
+      indent: 80,
     );
   }
 }

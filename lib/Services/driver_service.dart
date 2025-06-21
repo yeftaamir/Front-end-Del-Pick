@@ -177,6 +177,8 @@ class DriverService extends BaseService {
     int page = 1,
     int limit = 10,
     String? status,
+    String? sortBy,
+    String? sortOrder,
   }) async {
     try {
       final queryParams = {
@@ -185,17 +187,84 @@ class DriverService extends BaseService {
       };
 
       if (status != null) queryParams['status'] = status;
+      if (sortBy != null) queryParams['sortBy'] = sortBy;
+      if (sortOrder != null) queryParams['sortOrder'] = sortOrder;
 
       final response = await BaseService.get('/drivers/orders', queryParams: queryParams);
 
       if (response['data'] != null) {
-        _processOrdersData(response['data']);
+        _processOrdersList(response['data']);
       }
 
       return response;
     } catch (e) {
-      debugPrint('Get driver orders error: $e');
+      debugPrint('Get user orders error: $e');
       rethrow;
+    }
+  }
+
+  static void _processOrdersList(dynamic data) {
+    try {
+      List<dynamic> orders = [];
+
+      if (data is List) {
+        orders = data;
+      } else if (data is Map) {
+        if (data['orders'] is List) {
+          orders = data['orders'];
+        } else if (data['data'] is List) {
+          orders = data['data'];
+        }
+      }
+
+      for (var order in orders) {
+        _processOrderData(order);
+      }
+    } catch (e) {
+      debugPrint('Process orders list error: $e');
+    }
+  }
+
+  static void _processOrderData(Map<String, dynamic> orderData) {
+    try {
+      // Process store images
+      if (orderData['store'] != null) {
+        if (orderData['store']['imageUrl'] != null) {
+          orderData['store']['imageUrl'] = ImageService.getImageUrl(orderData['store']['imageUrl']);
+        }
+        if (orderData['store']['logoUrl'] != null) {
+          orderData['store']['logoUrl'] = ImageService.getImageUrl(orderData['store']['logoUrl']);
+        }
+      }
+
+      // Process menu item images
+      if (orderData['items'] != null && orderData['items'] is List) {
+        for (var item in orderData['items']) {
+          if (item['menuItem'] != null && item['menuItem']['imageUrl'] != null) {
+            item['menuItem']['imageUrl'] = ImageService.getImageUrl(item['menuItem']['imageUrl']);
+          }
+          if (item['menu_item'] != null && item['menu_item']['imageUrl'] != null) {
+            item['menu_item']['imageUrl'] = ImageService.getImageUrl(item['menu_item']['imageUrl']);
+          }
+        }
+      }
+
+      // Process driver images
+      if (orderData['driver'] != null) {
+        if (orderData['driver']['user'] != null && orderData['driver']['user']['avatar'] != null) {
+          orderData['driver']['user']['avatar'] = ImageService.getImageUrl(orderData['driver']['user']['avatar']);
+        }
+        if (orderData['driver']['profileImage'] != null) {
+          orderData['driver']['profileImage'] = ImageService.getImageUrl(orderData['driver']['profileImage']);
+        }
+      }
+
+      // Process customer avatar
+      if (orderData['customer'] != null && orderData['customer']['avatar'] != null) {
+        orderData['customer']['avatar'] = ImageService.getImageUrl(orderData['customer']['avatar']);
+      }
+    } catch (e) {
+      debugPrint('Process order data error: $e');
     }
   }
 

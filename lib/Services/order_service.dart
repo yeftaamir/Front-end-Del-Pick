@@ -1,5 +1,6 @@
 // lib/services/order_service.dart
 import 'package:flutter/foundation.dart';
+import 'Core/token_service.dart';
 import 'core/base_service.dart';
 import 'image_service.dart';
 
@@ -138,6 +139,8 @@ class OrderService extends BaseService {
     int page = 1,
     int limit = 10,
     String? status,
+    String? sortBy,
+    String? sortOrder,
   }) async {
     try {
       final queryParams = {
@@ -146,6 +149,8 @@ class OrderService extends BaseService {
       };
 
       if (status != null) queryParams['status'] = status;
+      if (sortBy != null) queryParams['sortBy'] = sortBy;
+      if (sortOrder != null) queryParams['sortOrder'] = sortOrder;
 
       final response = await BaseService.get('/orders/user', queryParams: queryParams);
 
@@ -165,6 +170,8 @@ class OrderService extends BaseService {
     int page = 1,
     int limit = 10,
     String? status,
+    String? sortBy,
+    String? sortOrder,
   }) async {
     try {
       final queryParams = {
@@ -173,6 +180,8 @@ class OrderService extends BaseService {
       };
 
       if (status != null) queryParams['status'] = status;
+      if (sortBy != null) queryParams['sortBy'] = sortBy;
+      if (sortOrder != null) queryParams['sortOrder'] = sortOrder;
 
       final response = await BaseService.get('/orders/store', queryParams: queryParams);
 
@@ -182,7 +191,7 @@ class OrderService extends BaseService {
 
       return response;
     } catch (e) {
-      debugPrint('Get store orders error: $e');
+      debugPrint('Get user orders error: $e');
       rethrow;
     }
   }
@@ -203,6 +212,44 @@ class OrderService extends BaseService {
     }
   }
 
+  // ===== REVIEW OPERATIONS =====
+
+  /// Create review for order
+  static Future<Map<String, dynamic>> createReview(String orderId, Map<String, dynamic> reviewData) async {
+    try {
+      // Verify user is authenticated
+      if (!await TokenService.isAuthenticated()) {
+        throw ApiException('Authentication required');
+      }
+
+      // Validate review data
+      if (!reviewData.containsKey('rating') || !reviewData.containsKey('review_type')) {
+        throw ApiException('rating and review_type are required');
+      }
+
+      final requestBody = {
+        'rating': reviewData['rating'],
+        'review_type': reviewData['review_type'], // 'order' or 'driver'
+      };
+
+      if (reviewData['comment'] != null) {
+        requestBody['comment'] = reviewData['comment'];
+      }
+
+      final response = await BaseService.post('/orders/$orderId/review', requestBody);
+
+      if (response['data'] != null) {
+        _processReviewData(response['data']);
+      }
+
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Create review error: $e');
+      rethrow;
+    }
+  }
+
+
   // Get order tracking information
   static Future<Map<String, dynamic>> getOrderTracking(String orderId) async {
     try {
@@ -215,6 +262,23 @@ class OrderService extends BaseService {
       return response['data'] ?? {};
     } catch (e) {
       debugPrint('Get order tracking error: $e');
+      rethrow;
+    }
+  }
+
+  // ===== ESTIMATION OPERATIONS =====
+
+  /// Calculate estimated times for pickup and delivery
+  static Future<Map<String, dynamic>> calculateEstimatedTimes(String driverId, String storeId) async {
+    try {
+      final response = await BaseService.post('/calculate-estimated-times', {
+        'driver_id': driverId,
+        'store_id': storeId,
+      });
+
+      return response['data'] ?? {};
+    } catch (e) {
+      debugPrint('Calculate estimated times error: $e');
       rethrow;
     }
   }
@@ -291,6 +355,22 @@ class OrderService extends BaseService {
       }
     } catch (e) {
       debugPrint('Process order data error: $e');
+    }
+  }
+
+  static void _processReviewData(Map<String, dynamic> reviewData) {
+    try {
+      // Process review-specific data
+      if (reviewData['created_at'] != null) {
+        reviewData['created_at'] = DateTime.parse(reviewData['created_at'].toString()).toIso8601String();
+      }
+
+      // Process user avatars in reviews
+      if (reviewData['user'] != null && reviewData['user']['avatar'] != null) {
+        reviewData['user']['avatar'] = ImageService.getImageUrl(reviewData['user']['avatar']);
+      }
+    } catch (e) {
+      debugPrint('Process review data error: $e');
     }
   }
 

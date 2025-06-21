@@ -129,7 +129,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         });
       }
 
-      final orderData = await OrderService.getOrdersByUser(
+      final orderData = await OrderService.getUserOrders(
         page: _currentPage,
         limit: _limit,
         status: _selectedStatus,

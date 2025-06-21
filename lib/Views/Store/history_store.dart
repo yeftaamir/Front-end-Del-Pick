@@ -94,7 +94,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     });
 
     try {
-      final response = await OrderService.getOrdersByStore(
+      final response = await OrderService.getStoreOrders(
         page: _currentPage,
         limit: 10,
         sortBy: 'created_at',

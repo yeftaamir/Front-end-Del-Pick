@@ -29,7 +29,6 @@ import 'Views/Customers/cart_screen.dart';
 import 'Views/Customers/location_access.dart';
 import 'Views/Customers/history_detail.dart';
 import 'Views/Customers/rating_cust.dart';
-import 'Views/Customers/track_cust_order.dart';
 import 'Views/Store/home_store.dart';
 import 'Views/Store/add_item.dart';
 import 'Views/Store/history_store.dart';
@@ -227,9 +226,6 @@ class MyApp extends StatelessWidget {
           ),
         );
       },
-      TrackCustOrderScreen.route: (context) =>
-      const InternetConnectivityWrapper(child: TrackCustOrderScreen()),
-      // Updated HistoryDetailPage route to use Order fetching
       HistoryDetailScreen.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
           future: OrderService.getOrderById(

@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:del_pick/Services/auth_service.dart';
+import 'package:del_pick/Services/core/token_service.dart';
 import 'connectivity_service.dart';
 import 'dart:io';
+import 'dart:convert';
 
 class LoginPage extends StatefulWidget {
   static const String route = "/Controls/Login";
@@ -67,7 +69,7 @@ class LoginPageState extends State<LoginPage> {
     }
   }
 
-  // Improved login function using AuthService
+  // Updated login function dengan explicit service calls
   void _login() async {
     // Validate input fields
     if (emailController.text.trim().isEmpty || passwordController.text.isEmpty) {
@@ -94,44 +96,75 @@ class LoginPageState extends State<LoginPage> {
         return;
       }
 
-      // Use AuthService for login - it handles token saving automatically
+      // Call AuthService.login - this returns the response data
       final loginResponse = await AuthService.login(
           emailController.text.trim(),
           passwordController.text
       );
 
+      // Check if login response is valid
+      if (loginResponse.isEmpty) {
+        _showFriendlyError("Login gagal", "Respons server tidak valid. Silakan coba lagi.");
+        return;
+      }
+
+      // Extract data from login response
+      final String? token = loginResponse['token'];
+      final Map<String, dynamic>? userData = loginResponse['user'];
+
+      if (token == null || userData == null) {
+        _showFriendlyError("Login gagal", "Data login tidak lengkap. Silakan coba lagi.");
+        return;
+      }
+
+      // EXPLICIT SERVICE CALLS - Save authentication data step by step
+      print("Saving authentication data...");
+
+      // 1. Save JWT Token
+      await TokenService.saveToken(token);
+      print("✓ Token saved: ${token.substring(0, 20)}...");
+
+      // 2. Save User Role
+      final String userRole = userData['role'] ?? 'customer';
+      await TokenService.saveUserRole(userRole);
+      print("✓ User role saved: $userRole");
+
+      // 3. Save User ID
+      final dynamic userId = userData['id'];
+      if (userId != null) {
+        await TokenService.saveUserId(userId);
+        print("✓ User ID saved: $userId");
+      }
+
+      // 4. Save Complete User Data as JSON string
+      final String userDataJson = json.encode(userData);
+      await TokenService.saveUserData(userDataJson);
+      print("✓ User data saved");
+
       // Handle Remember Me functionality
       await _handleRememberMe();
 
-      // Check if login was successful
-      if (loginResponse.isEmpty) {
-        _showFriendlyError("Login gagal", "Terjadi kesalahan saat masuk. Silakan coba lagi.");
-        return;
-      }
-
-      // Get user data from response
-      final userData = loginResponse['user'];
-      if (userData == null) {
-        _showFriendlyError("Login gagal", "Data pengguna tidak ditemukan. Silakan coba lagi.");
-        return;
-      }
-
-      final String userRole = userData['role'] ?? '';
+      // Get user information for display
       final String userName = userData['name'] ?? 'Pengguna';
-
       print("Login successful for user: $userName (Role: $userRole)");
 
       // Show success message
       _showSuccessMessage("Selamat datang, $userName!");
 
-      // Navigate based on user role
-      await Future.delayed(Duration(milliseconds: 500)); // Brief delay for user to see success message
+      // Verify saved data (optional verification step)
+      await _verifySavedData();
+
+      // Navigate based on user role after brief delay
+      await Future.delayed(Duration(milliseconds: 1000));
+
+      if (!mounted) return;
 
       switch (userRole.toLowerCase()) {
         case 'customer':
           Navigator.pushReplacementNamed(context, '/Customers/HomePage');
           break;
         case 'store':
+        case 'store_owner':
           Navigator.pushReplacementNamed(context, '/Store/HomePage');
           break;
         case 'driver':
@@ -142,7 +175,7 @@ class LoginPageState extends State<LoginPage> {
           break;
         default:
           _showFriendlyError("Akun tidak dikenali",
-              "Tipe akun Anda belum didukung. Silakan hubungi administrator.");
+              "Tipe akun '$userRole' belum didukung. Silakan hubungi administrator.");
       }
 
     } on SocketException catch (_) {
@@ -154,12 +187,49 @@ class LoginPageState extends State<LoginPage> {
     } catch (e) {
       String errorMessage = _getFriendlyErrorMessage(e.toString());
       _showFriendlyError("Login gagal", errorMessage);
+      print("Login error details: $e");
     } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  // Verification method untuk memastikan data tersimpan dengan benar
+  Future<void> _verifySavedData() async {
+    try {
+      print("\n=== Verifying Saved Data ===");
+
+      // Verify token
+      final savedToken = await TokenService.getToken();
+      print("Saved Token: ${savedToken != null ? '✓ Present' : '✗ Missing'}");
+
+      // Verify user role
+      final savedRole = await TokenService.getUserRole();
+      print("Saved Role: ${savedRole ?? 'Not found'}");
+
+      // Verify user ID
+      final savedUserId = await TokenService.getUserId();
+      print("Saved User ID: ${savedUserId ?? 'Not found'}");
+
+      // Verify user data
+      final savedUserData = await TokenService.getUserData();
+      if (savedUserData != null) {
+        final parsedData = json.decode(savedUserData);
+        print("Saved User Data: ✓ ${parsedData['name']} (${parsedData['email']})");
+      } else {
+        print("Saved User Data: ✗ Not found");
+      }
+
+      // Check authentication status
+      final isAuthenticated = await TokenService.isAuthenticated();
+      print("Authentication Status: ${isAuthenticated ? '✓ Authenticated' : '✗ Not authenticated'}");
+
+      print("=== End Verification ===\n");
+    } catch (e) {
+      print("Verification error: $e");
     }
   }
 
@@ -296,6 +366,36 @@ class LoginPageState extends State<LoginPage> {
     );
   }
 
+  // Method untuk clear semua data (untuk testing/logout)
+  Future<void> _clearAllData() async {
+    try {
+      await TokenService.clearAll();
+      print("All authentication data cleared");
+      _showSuccessMessage("Data berhasil dihapus");
+    } catch (e) {
+      print("Error clearing data: $e");
+      _showFriendlyError("Error", "Gagal menghapus data");
+    }
+  }
+
+  // Method untuk check current authentication status
+  Future<void> _checkAuthStatus() async {
+    try {
+      final isAuth = await TokenService.isAuthenticated();
+      final userRole = await TokenService.getUserRole();
+      final userId = await TokenService.getUserId();
+
+      print("Authentication Status:");
+      print("- Is Authenticated: $isAuth");
+      print("- User Role: $userRole");
+      print("- User ID: $userId");
+
+      _showSuccessMessage("Check console untuk status authentication");
+    } catch (e) {
+      print("Error checking auth status: $e");
+    }
+  }
+
   // Role selection dialog for testing/demo purposes
   void _showRoleSelectionDialog() {
     final connectivityService =
@@ -346,6 +446,19 @@ class LoginPageState extends State<LoginPage> {
                       () => Navigator.pushReplacementNamed(
                       context, '/Store/HomePage'),
                 ),
+                const SizedBox(height: 20),
+                // Debug buttons
+                _buildDebugButton(
+                  'Clear All Data',
+                  Icons.delete,
+                  _clearAllData,
+                ),
+                const SizedBox(height: 10),
+                _buildDebugButton(
+                  'Check Auth Status',
+                  Icons.info,
+                  _checkAuthStatus,
+                ),
               ],
             ),
           ),
@@ -377,6 +490,38 @@ class LoginPageState extends State<LoginPage> {
               style: TextStyle(
                 color: GlobalStyle.primaryColor,
                 fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDebugButton(String label, IconData icon, VoidCallback onPressed) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.orange.shade100,
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: Colors.orange),
+          ),
+        ),
+        onPressed: onPressed,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.orange, size: 16),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.orange,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -508,20 +653,6 @@ class LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const Spacer(),
-                    TextButton(
-                      onPressed: () {
-                        // TODO: Implement forgot password
-                        _showFriendlyError("Fitur Lupa Password",
-                            "Fitur ini akan tersedia segera. Hubungi customer service untuk bantuan.");
-                      },
-                      child: Text(
-                        'Lupa Password?',
-                        style: TextStyle(
-                          color: GlobalStyle.primaryColor,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -567,11 +698,11 @@ class LoginPageState extends State<LoginPage> {
               const SizedBox(height: 20.0),
 
               // Demo Role Selection Button (for testing)
-              if (false) // Set to true for demo/testing
+              if (true) // Set to true for demo/testing
                 TextButton(
                   onPressed: _showRoleSelectionDialog,
                   child: Text(
-                    'Demo Role Selection',
+                    'Demo & Debug Options',
                     style: TextStyle(
                       color: GlobalStyle.primaryColor,
                       fontSize: 12,

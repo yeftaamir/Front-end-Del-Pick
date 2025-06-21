@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/Models/user.dart';
 import 'package:del_pick/Services/auth_service.dart';
+import 'package:del_pick/Services/core/token_service.dart';
+import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Views/Controls/login_page.dart';
 
@@ -19,8 +22,15 @@ class ProfileStorePage extends StatefulWidget {
 
 class _ProfileStorePageState extends State<ProfileStorePage> with TickerProviderStateMixin {
   Store? store;
+  User? _user;
   bool isLoading = true;
   String? errorMessage;
+
+  // Service data
+  String? _authToken;
+  String? _userRole;
+  String? _userId;
+  bool _isAuthenticated = false;
 
   late AnimationController _fadeController;
   late AnimationController _slideController;
@@ -72,85 +82,196 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     });
 
     try {
-      // First try to get cached user data
-      final userData = await AuthService.getUserData();
+      print("=== Loading Store Data with Service Implementation ===");
 
-      if (userData != null) {
-        // Check if user data contains store information
-        if (userData.containsKey('store') && userData['store'] != null) {
-          setState(() {
-            store = Store.fromJson(userData['store']);
-            isLoading = false;
-          });
-          _fadeController.forward();
-          _slideController.forward();
-          return;
+      // 1. Get Token
+      _authToken = await TokenService.getToken();
+      print("Auth Token: ${_authToken != null ? 'Present (${_authToken!.substring(0, 20)}...)' : 'Not found'}");
+
+      // 2. Get User Role
+      _userRole = await TokenService.getUserRole();
+      print("User Role: ${_userRole ?? 'Not found'}");
+
+      // 3. Get User ID
+      _userId = await TokenService.getUserId();
+      print("User ID: ${_userId ?? 'Not found'}");
+
+      // 4. Check Authentication Status
+      _isAuthenticated = await TokenService.isAuthenticated();
+      print("Is Authenticated: $_isAuthenticated");
+
+      // If not authenticated, redirect to login
+      if (!_isAuthenticated || _authToken == null) {
+        print("User not authenticated, redirecting to login");
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+              (route) => false,
+        );
+        return;
+      }
+
+      // 5. Try to get store profile using StoreService
+      Store? storeData;
+      try {
+        print("Fetching store profile from StoreService...");
+        final storeProfileData = await StoreService.getCurrentStoreProfile();
+
+        if (storeProfileData.isNotEmpty) {
+          storeData = Store.fromJson(storeProfileData);
+          print("Store profile loaded successfully from StoreService");
+          print("Store Name: ${storeData.name}");
+          print("Store Address: ${storeData.address}");
+          print("Store Status: ${storeData.status}");
+        } else {
+          print("StoreService.getCurrentStoreProfile() returned empty data");
         }
+      } catch (e) {
+        print("Error fetching store profile from StoreService: $e");
+      }
 
-        // If user is a store owner but store data not in cache, check user data structure
-        if (userData['role'] == 'store' || userData['role'] == 'store_owner') {
-          // Try to get fresh profile data
+      // Fallback 1: Get profile using AuthService.getProfile()
+      if (storeData == null) {
+        try {
+          print("Fallback 1: Fetching profile from AuthService.getProfile()...");
           final profileData = await AuthService.getProfile();
 
-          if (profileData.containsKey('store') && profileData['store'] != null) {
-            setState(() {
-              store = Store.fromJson(profileData['store']);
-              isLoading = false;
-            });
-            _fadeController.forward();
-            _slideController.forward();
-            return;
+          if (profileData.isNotEmpty) {
+            // Check if profile contains store data
+            if (profileData.containsKey('store') && profileData['store'] != null) {
+              storeData = Store.fromJson(profileData['store']);
+              print("Store profile loaded from AuthService profile data");
+            } else {
+              // Create store from user data with defaults
+              _user = User.fromJson(profileData);
+              storeData = Store(
+                id: int.tryParse(_userId ?? '0') ?? 0,
+                userId: _user!.id,
+                name: "${_user!.name}'s Store",
+                address: 'Store Address',
+                description: 'Welcome to our store!',
+                phone: _user!.phone ?? '',
+                latitude: 0.0,
+                longitude: 0.0,
+                status: 'active',
+                owner: _user,
+              );
+              print("Created store from user profile data");
+            }
+          } else {
+            print("AuthService.getProfile() returned empty data");
           }
+        } catch (e) {
+          print("Error fetching profile from AuthService: $e");
         }
       }
 
-      // If cached data doesn't have store info, fetch fresh profile
-      final profileData = await AuthService.getProfile();
+      // Fallback 2: Try to get cached user data
+      if (storeData == null) {
+        try {
+          print("Fallback 2: Getting cached user data...");
+          final userData = await AuthService.getUserData();
 
-      if (profileData.containsKey('store') && profileData['store'] != null) {
+          if (userData != null) {
+            if (userData.containsKey('store') && userData['store'] != null) {
+              storeData = Store.fromJson(userData['store']);
+              print("Store loaded from cached user data");
+            } else {
+              // Create store from cached user data
+              _user = User.fromJson(userData);
+              storeData = Store(
+                id: int.tryParse(_userId ?? '0') ?? 0,
+                userId: _user!.id,
+                name: "${_user!.name}'s Store",
+                address: 'Store Address',
+                description: 'Welcome to our store!',
+                phone: _user!.phone ?? '',
+                latitude: 0.0,
+                longitude: 0.0,
+                status: 'active',
+                owner: _user,
+              );
+              print("Created store from cached user data");
+            }
+          } else {
+            print("No cached user data available");
+          }
+        } catch (e) {
+          print("Error loading cached user data: $e");
+        }
+      }
+
+      // Final fallback: Create empty store with TokenService data
+      if (storeData == null) {
+        print("All store loading methods failed, creating empty store");
+        storeData = Store(
+          id: int.tryParse(_userId ?? '0') ?? 0,
+          userId: int.tryParse(_userId ?? '0') ?? 0,
+          name: 'My Store',
+          address: 'Store Address',
+          description: 'Welcome to our store!',
+          phone: '',
+          latitude: 0.0,
+          longitude: 0.0,
+          status: 'active',
+          owner: User(
+            id: int.tryParse(_userId ?? '0') ?? 0,
+            name: 'Store Owner',
+            email: 'store@example.com',
+            role: _userRole ?? 'store',
+          ),
+        );
+      }
+
+      // Verify that token service data matches store data
+      print("\n=== Data Verification ===");
+      print("TokenService User ID: $_userId");
+      print("Store User ID: ${storeData.userId}");
+      print("TokenService Role: $_userRole");
+      print("Store Owner Role: ${storeData.owner?.role}");
+
+      // Update store with TokenService data if there's mismatch
+      if (_userId != null && storeData.userId.toString() != _userId) {
+        print("User ID mismatch detected, updating with TokenService data");
+        storeData = storeData.copyWith(userId: int.tryParse(_userId!) ?? storeData.userId);
+      }
+
+      if (_userRole != null && storeData.owner?.role != _userRole) {
+        print("Role mismatch detected, updating owner data with TokenService data");
+        if (storeData.owner != null) {
+          final updatedOwner = storeData.owner!.copyWith(role: _userRole!);
+          storeData = storeData.copyWith(owner: updatedOwner);
+        }
+      }
+
+      if (mounted) {
         setState(() {
-          store = Store.fromJson(profileData['store']);
+          store = storeData;
           isLoading = false;
         });
         _fadeController.forward();
         _slideController.forward();
-      } else {
-        // Check if the user is a store owner but store data is missing
-        final userRole = profileData['role'] ?? 'customer';
-        if (userRole == 'store' || userRole == 'store_owner') {
-          setState(() {
-            isLoading = false;
-            errorMessage = 'Store data not found. Please contact support.';
-          });
-        } else {
-          setState(() {
-            isLoading = false;
-            errorMessage = 'You are not authorized to access store profile.';
-          });
-        }
+
+        print("=== Store Profile Loading Complete ===");
+        print("Final Store Name: ${store!.name}");
+        print("Final Store Address: ${store!.address}");
+        print("Final Store Status: ${store!.status}");
+        print("Final Store Phone: ${store!.phone}");
+        print("Has Store Image: ${store!.imageUrl != null && store!.imageUrl!.isNotEmpty}");
       }
     } catch (e) {
-      setState(() {
-        isLoading = false;
-        errorMessage = _getErrorMessage(e.toString());
-      });
       print('Error loading store data: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          errorMessage = 'Gagal memuat data: $e';
+        });
+      }
     }
   }
 
-  String _getErrorMessage(String error) {
-    if (error.contains('Session expired')) {
-      return 'Session expired. Please login again.';
-    } else if (error.contains('Authentication token not found')) {
-      return 'Authentication required. Please login.';
-    } else if (error.contains('Failed to get profile')) {
-      return 'Unable to load profile. Please check your connection.';
-    } else {
-      return 'Failed to load store data. Please try again.';
-    }
-  }
-
-  // Enhanced logout implementation with better error handling
+  // Updated logout implementation using proper service methods
   void _handleLogout() async {
     // Show loading dialog
     showDialog(
@@ -196,44 +317,56 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     );
 
     try {
-      // Call logout service
-      final success = await AuthService.logout();
+      print("=== Starting Store Logout Process ===");
 
-      if (!mounted) return;
-
-      // Close loading dialog
-      Navigator.of(context).pop();
-
-      if (success) {
-        // Navigate to login page
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginPage()),
-              (route) => false,
-        );
-      } else {
-        // Show error but still navigate to login
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Logout completed with warnings'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginPage()),
-              (route) => false,
-        );
+      // 1. Call AuthService.logout() first (this may call server-side logout)
+      try {
+        print("Calling AuthService.logout()...");
+        final logoutResult = await AuthService.logout();
+        print("AuthService.logout() completed: $logoutResult");
+      } catch (e) {
+        print("AuthService.logout() failed (continuing with local cleanup): $e");
+        // Continue with local cleanup even if server logout fails
       }
+
+      // 2. Clear all local data using TokenService.clearAll()
+      print("Clearing all local data with TokenService.clearAll()...");
+      await TokenService.clearAll();
+      print("All local data cleared successfully");
+
+      // 3. Verify data is cleared
+      final verifyToken = await TokenService.getToken();
+      final verifyRole = await TokenService.getUserRole();
+      final verifyUserId = await TokenService.getUserId();
+      final verifyAuth = await TokenService.isAuthenticated();
+
+      print("=== Store Logout Verification ===");
+      print("Token after clear: ${verifyToken ?? 'null (✓)'}");
+      print("Role after clear: ${verifyRole ?? 'null (✓)'}");
+      print("User ID after clear: ${verifyUserId ?? 'null (✓)'}");
+      print("Is authenticated after clear: $verifyAuth (should be false)");
+
+      // Navigate to login page
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+            (route) => false,
+      );
+
+      print("=== Store Logout Process Complete ===");
     } catch (e) {
-      print('Logout error: $e');
+      print('Store logout error: $e');
+
+      // Even if logout fails, try to clear local data and navigate
+      try {
+        await TokenService.clearAll();
+        print("Force cleared local data after logout error");
+      } catch (clearError) {
+        print("Force clear also failed: $clearError");
+      }
 
       if (!mounted) return;
-
-      // Close loading dialog
-      Navigator.of(context).pop();
-
-      // Even if logout fails, navigate to login page for security
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -332,6 +465,49 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
         );
       },
     );
+  }
+
+  // Debug method untuk check service data
+  Future<void> _debugCheckServiceData() async {
+    try {
+      print("\n=== DEBUG: Current Store Service Data ===");
+
+      final token = await TokenService.getToken();
+      final role = await TokenService.getUserRole();
+      final userId = await TokenService.getUserId();
+      final isAuth = await TokenService.isAuthenticated();
+      final userData = await AuthService.getUserData();
+
+      print("Token: ${token != null ? 'Present' : 'Not found'}");
+      print("Role: ${role ?? 'Not found'}");
+      print("User ID: ${userId ?? 'Not found'}");
+      print("Is Authenticated: $isAuth");
+      print("Cached User Data: ${userData != null ? 'Present' : 'Not found'}");
+
+      if (userData != null) {
+        print("Cached User Name: ${userData['name']}");
+        print("Cached User Email: ${userData['email']}");
+        print("Has Store Data: ${userData['store'] != null}");
+      }
+
+      print("Current Store Name: ${store?.name}");
+      print("Current Store Status: ${store?.status}");
+      print("Current Store Address: ${store?.address}");
+
+      print("=== END DEBUG ===\n");
+
+      // Show in UI
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Debug info logged to console'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+    } catch (e) {
+      print("Debug check error: $e");
+    }
   }
 
   @override
@@ -648,7 +824,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                                         vertical: 8,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: _getStatusColor(store?.status ?? 'active').withOpacity(0.2),
+                                        color: Colors.green.withOpacity(0.2),
                                         borderRadius: BorderRadius.circular(20),
                                         border: Border.all(
                                           color: Colors.white.withOpacity(0.3),
@@ -668,7 +844,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                                           ),
                                           const SizedBox(width: 6),
                                           Text(
-                                            _getStatusText(store?.status ?? 'active'),
+                                            store?.status?.toUpperCase() ?? 'ACTIVE',
                                             style: const TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.bold,
@@ -737,6 +913,24 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                 onPressed: () => Navigator.pop(context),
               ),
             ),
+            // Debug button for development
+            actions: [
+              Container(
+                margin: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.info_outline,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  onPressed: _debugCheckServiceData,
+                ),
+              ),
+            ],
           ),
 
           // Store Content
@@ -767,8 +961,8 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                         _buildInfoItem(
                           icon: FontAwesomeIcons.circleInfo,
                           title: 'Description',
-                          value: store?.description.isNotEmpty == true
-                              ? store!.description
+                          value: store?.description?.isNotEmpty == true
+                              ? store!.description!
                               : 'No description available',
                           iconColor: Colors.purple[600]!,
                           isDescription: true,
@@ -780,6 +974,25 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                           value: store?.phone ?? '-',
                           iconColor: Colors.green[600]!,
                         ),
+                        // Additional Service Info
+                        if (_userRole != null) ...[
+                          _buildDivider(),
+                          _buildInfoItem(
+                            icon: FontAwesomeIcons.userTag,
+                            title: 'Account Role',
+                            value: _userRole!,
+                            iconColor: Colors.indigo[600]!,
+                          ),
+                        ],
+                        if (_isAuthenticated) ...[
+                          _buildDivider(),
+                          _buildInfoItem(
+                            icon: FontAwesomeIcons.checkCircle,
+                            title: 'Authentication Status',
+                            value: 'Authenticated',
+                            iconColor: Colors.green[600]!,
+                          ),
+                        ],
                       ],
                     ),
 
@@ -805,53 +1018,21 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                         _buildInfoItem(
                           icon: FontAwesomeIcons.clock,
                           title: 'Opening Hours',
-                          value: store?.openHours ?? '-',
+                          value: store?.openHours ?? 'Not specified',
                           iconColor: Colors.orange[600]!,
+                        ),
+                        _buildDivider(),
+                        _buildInfoItem(
+                          icon: FontAwesomeIcons.star,
+                          title: 'Store Rating',
+                          value: store?.rating != null
+                              ? '${store!.rating}/5.0 (${store!.reviewCount ?? 0} reviews)'
+                              : 'No ratings yet',
+                          iconColor: Colors.amber[600]!,
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 32),
-
-                    // Store Statistics Section
-                    if (store?.rating != null || store?.totalProducts != null)
-                      Column(
-                        children: [
-                          _buildSectionHeader(
-                            icon: Icons.analytics,
-                            title: 'Store Statistics',
-                            color: Colors.indigo[700]!,
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              if (store?.rating != null)
-                                Expanded(
-                                  child: _buildStatCard(
-                                    icon: Icons.star,
-                                    title: 'Rating',
-                                    value: store!.rating!.toStringAsFixed(1),
-                                    subtitle: '${store!.reviewCount ?? 0} reviews',
-                                    color: Colors.amber[600]!,
-                                  ),
-                                ),
-                              if (store?.rating != null && store?.totalProducts != null)
-                                const SizedBox(width: 16),
-                              if (store?.totalProducts != null)
-                                Expanded(
-                                  child: _buildStatCard(
-                                    icon: Icons.inventory,
-                                    title: 'Products',
-                                    value: '${store!.totalProducts}',
-                                    subtitle: 'menu items',
-                                    color: Colors.blue[600]!,
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 32),
-                        ],
-                      ),
 
                     // Logout Button
                     Container(
@@ -937,33 +1118,14 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
           ),
         ],
       ),
+      // Add debug floating action button (only in development)
+      floatingActionButton: FloatingActionButton.small(
+        onPressed: _debugCheckServiceData,
+        backgroundColor: GlobalStyle.primaryColor,
+        child: const Icon(Icons.bug_report, color: Colors.white),
+        tooltip: 'Debug Service Data',
+      ),
     );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'active':
-        return Colors.green;
-      case 'inactive':
-        return Colors.red;
-      case 'closed':
-        return Colors.grey;
-      default:
-        return Colors.green;
-    }
-  }
-
-  String _getStatusText(String status) {
-    switch (status.toLowerCase()) {
-      case 'active':
-        return 'OPEN';
-      case 'inactive':
-        return 'CLOSED';
-      case 'closed':
-        return 'CLOSED';
-      default:
-        return 'OPEN';
-    }
   }
 
   Widget _buildErrorView() {
@@ -986,17 +1148,14 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
             ),
           ),
           const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32.0),
-            child: Text(
-              errorMessage ?? 'Please check your connection',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
+          Text(
+            errorMessage ?? 'Please check your connection',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[600],
+              fontFamily: GlobalStyle.fontFamily,
             ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
           ElevatedButton.icon(
@@ -1124,74 +1283,6 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
                   overflow: isDescription ? null : TextOverflow.ellipsis,
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    required String subtitle,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 30,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: GlobalStyle.fontColor,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: GlobalStyle.fontColor,
-              fontFamily: GlobalStyle.fontFamily,
             ),
           ),
         ],
