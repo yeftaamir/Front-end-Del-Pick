@@ -8,7 +8,7 @@ import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Views/Customers/location_access.dart';
 import 'package:del_pick/Views/Customers/track_cust_order.dart';
 import 'package:del_pick/Views/Customers/rating_cust.dart';
-import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/order_review.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';

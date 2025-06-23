@@ -101,7 +101,7 @@ class Item {
     };
   }
 
-  factory Item.fromMenuItem(MenuItem menuItem) {
+  factory Item.fromMenuItem(Item menuItem) {
     // Process menu item's image URL
     String imageUrl = menuItem.imageUrl ?? '';
     if (imageUrl.isEmpty) {

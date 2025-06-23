@@ -13,7 +13,7 @@ import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/customer.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order.dart';
-import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/order_review.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'Models/menu_item.dart';

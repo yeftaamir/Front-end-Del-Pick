@@ -1,11 +1,11 @@
-// lib/Models/order_enum.dart
+// ========================================
+// 1. lib/models/enums/order_enums.dart
+// ========================================
 
-// Payment method enum
 enum PaymentMethod {
-  cash, // Only accepting cash as per requirement
+  cash,
 }
 
-// Payment status enum
 enum PaymentStatus {
   pending,
   paid,
@@ -13,54 +13,121 @@ enum PaymentStatus {
   refunded,
 }
 
-// Updated to match backend's order_status enum
 enum OrderStatus {
   pending,
-  approved,       // New status from backend
-  preparing,      // New status from backend
-  on_delivery,    // New status from backend
-  delivered,      // New status from backend
-  cancelled,      // Kept from original FE
-  // Keep original FE statuses for backward compatibility
-  driverAssigned,
-  driverHeadingToStore,
-  driverAtStore,
-  driverHeadingToCustomer,
-  driverArrived,
-  completed;
-
-  bool get isCompleted =>
-      this == OrderStatus.completed ||
-          this == OrderStatus.cancelled ||
-          this == OrderStatus.delivered;
-
-  // Convert backend status string to OrderStatus enum
-  static OrderStatus fromString(String status) {
-    try {
-      return OrderStatus.values.firstWhere(
-              (e) => e.toString().split('.').last.toLowerCase() == status.toLowerCase()
-      );
-    } catch (_) {
-      return OrderStatus.pending; // Default value
-    }
-  }
+  confirmed,
+  preparing,
+  readyForPickup,
+  onDelivery,
+  delivered,
+  cancelled,
+  rejected,
 }
 
-// New enum to match backend's delivery_status
 enum DeliveryStatus {
-  waiting,
-  picking_up,
-  on_delivery,
-  delivered;
+  pending,
+  pickedUp,
+  onWay,
+  delivered,
+}
 
-  // Convert string to DeliveryStatus enum
-  static DeliveryStatus fromString(String status) {
-    try {
-      return DeliveryStatus.values.firstWhere(
-              (e) => e.toString().split('.').last.toLowerCase() == status.toLowerCase()
-      );
-    } catch (_) {
-      return DeliveryStatus.waiting; // Default value
+enum DriverStatus {
+  active,
+  inactive,
+  busy,
+}
+
+enum StoreStatus {
+  active,
+  inactive,
+  closed,
+}
+
+enum UserRole {
+  admin,
+  customer,
+  store,
+  driver,
+}
+
+// Extension methods for enum conversions
+extension OrderStatusExtension on OrderStatus {
+  String get value {
+    switch (this) {
+      case OrderStatus.pending:
+        return 'pending';
+      case OrderStatus.confirmed:
+        return 'confirmed';
+      case OrderStatus.preparing:
+        return 'preparing';
+      case OrderStatus.readyForPickup:
+        return 'ready_for_pickup';
+      case OrderStatus.onDelivery:
+        return 'on_delivery';
+      case OrderStatus.delivered:
+        return 'delivered';
+      case OrderStatus.cancelled:
+        return 'cancelled';
+      case OrderStatus.rejected:
+        return 'rejected';
+    }
+  }
+
+  static OrderStatus fromString(String value) {
+    switch (value.toLowerCase()) {
+      case 'pending':
+        return OrderStatus.pending;
+      case 'confirmed':
+        return OrderStatus.confirmed;
+      case 'preparing':
+        return OrderStatus.preparing;
+      case 'ready_for_pickup':
+        return OrderStatus.readyForPickup;
+      case 'on_delivery':
+        return OrderStatus.onDelivery;
+      case 'delivered':
+        return OrderStatus.delivered;
+      case 'cancelled':
+        return OrderStatus.cancelled;
+      case 'rejected':
+        return OrderStatus.rejected;
+      default:
+        return OrderStatus.pending;
+    }
+  }
+
+  bool get isCompleted =>
+      this == OrderStatus.delivered ||
+          this == OrderStatus.cancelled ||
+          this == OrderStatus.rejected;
+}
+
+extension DeliveryStatusExtension on DeliveryStatus {
+  String get value {
+    switch (this) {
+      case DeliveryStatus.pending:
+        return 'pending';
+      case DeliveryStatus.pickedUp:
+        return 'picked_up';
+      case DeliveryStatus.onWay:
+        return 'on_way';
+      case DeliveryStatus.delivered:
+        return 'delivered';
+    }
+  }
+
+  static DeliveryStatus fromString(String value) {
+    switch (value.toLowerCase()) {
+      case 'pending':
+        return DeliveryStatus.pending;
+      case 'picked_up':
+        return DeliveryStatus.pickedUp;
+      case 'on_way':
+        return DeliveryStatus.onWay;
+      case 'delivered':
+        return DeliveryStatus.delivered;
+      default:
+        return DeliveryStatus.pending;
     }
   }
 }

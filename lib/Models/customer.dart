@@ -1,114 +1,84 @@
-// lib/Models/improved_customer.dart
-import 'package:del_pick/Services/image_service.dart';
+// ========================================
+// 3. lib/models/customer_model.dart
+// ========================================
 
-class Customer {
-  final String id;
-  final String name;
-  final String email;
-  final String phoneNumber;
-  final String role;
-  final String? avatar;
-  final String? fcmToken;
-  final DateTime? createdAt;
-  final DateTime? updatedAt;
-  final bool? emailVerified;
+import 'package:del_pick/Models/user.dart';
 
-  Customer({
-    required this.id,
-    required this.name,
-    required this.email,
-    required this.phoneNumber,
-    required this.role,
-    this.avatar,
-    this.fcmToken,
-    this.createdAt,
-    this.updatedAt,
-    this.emailVerified,
+class CustomerModel {
+  final UserModel user;
+  final int totalOrders;
+  final double totalSpent;
+  final bool isEmailVerified;
+  final DateTime? lastOrderDate;
+
+  const CustomerModel({
+    required this.user,
+    this.totalOrders = 0,
+    this.totalSpent = 0.0,
+    this.isEmailVerified = false,
+    this.lastOrderDate,
   });
 
-  // Create a Customer from a JSON map (backend response)
-  factory Customer.fromJson(Map<String, dynamic> json) {
-    String? avatarUrl = json['avatar'];
-
-    // Process the avatar URL if it exists
-    if (avatarUrl != null && avatarUrl.isNotEmpty) {
-      avatarUrl = ImageService.getImageUrl(avatarUrl);
-    }
-
-    return Customer(
-      id: json['id']?.toString() ?? '',
-      name: json['name'] ?? '',
-      phoneNumber: json['phone'] ?? '',  // Backend field name
-      email: json['email'] ?? '',
-      role: json['role'] ?? 'customer',
-      avatar: avatarUrl,
-      fcmToken: json['fcm_token'],
-      emailVerified: json['email_verified'],
-      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,
-      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
+  factory CustomerModel.fromJson(Map<String, dynamic> json) {
+    return CustomerModel(
+      user: UserModel.fromJson(json),
+      totalOrders: json['total_orders'] ?? 0,
+      totalSpent: (json['total_spent'] ?? 0).toDouble(),
+      isEmailVerified: json['is_email_verified'] ?? false,
+      lastOrderDate: json['last_order_date'] != null
+          ? DateTime.parse(json['last_order_date'])
+          : null,
     );
   }
 
-  // Convert Customer to a JSON map (for API requests)
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
-      'name': name,
-      'phone': phoneNumber,  // Backend field name
-      'email': email,
-      'role': role,
-      'avatar': avatar,
-      'fcm_token': fcmToken,
-      'email_verified': emailVerified,
-      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
-      if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+      ...user.toJson(),
+      'total_orders': totalOrders,
+      'total_spent': totalSpent,
+      'is_email_verified': isEmailVerified,
+      if (lastOrderDate != null) 'last_order_date': lastOrderDate!.toIso8601String(),
     };
   }
 
-  // Create a copy of Customer with some fields replaced
-  Customer copyWith({
-    String? id,
-    String? name,
-    String? phoneNumber,
-    String? email,
-    String? role,
-    String? avatar,
-    String? fcmToken,
-    DateTime? createdAt,
-    DateTime? updatedAt,
-    bool? emailVerified,
+  CustomerModel copyWith({
+    UserModel? user,
+    int? totalOrders,
+    double? totalSpent,
+    bool? isEmailVerified,
+    DateTime? lastOrderDate,
   }) {
-    return Customer(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      phoneNumber: phoneNumber ?? this.phoneNumber,
-      email: email ?? this.email,
-      role: role ?? this.role,
-      avatar: avatar ?? this.avatar,
-      fcmToken: fcmToken ?? this.fcmToken,
-      createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-      emailVerified: emailVerified ?? this.emailVerified,
+    return CustomerModel(
+      user: user ?? this.user,
+      totalOrders: totalOrders ?? this.totalOrders,
+      totalSpent: totalSpent ?? this.totalSpent,
+      isEmailVerified: isEmailVerified ?? this.isEmailVerified,
+      lastOrderDate: lastOrderDate ?? this.lastOrderDate,
     );
   }
 
-  // Create empty customer for fallback
-  factory Customer.empty() {
-    return Customer(
-      id: '',
-      name: 'User Not Found',
-      email: '',
-      phoneNumber: '',
-      role: 'customer',
-      avatar: '',
-    );
+  // Convenience getters
+  int get id => user.id;
+  String get name => user.name;
+  String get email => user.email;
+  String get phone => user.phone;
+  String? get avatar => user.avatar;
+  String? get fcmToken => user.fcmToken;
+  DateTime? get createdAt => user.createdAt;
+  DateTime? get updatedAt => user.updatedAt;
+
+  // Utility methods
+  String get customerLevel {
+    if (totalOrders >= 50) return 'VIP';
+    if (totalOrders >= 20) return 'Gold';
+    if (totalOrders >= 10) return 'Silver';
+    return 'Bronze';
   }
 
-  // Get processed profile image URL
-  String? getProcessedImageUrl() {
-    if (avatar == null || avatar!.isEmpty) {
-      return null;
-    }
-    return ImageService.getImageUrl(avatar!);
+  String formatTotalSpent() {
+    return 'Rp ${totalSpent.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]}.',
+    )}';
   }
 }

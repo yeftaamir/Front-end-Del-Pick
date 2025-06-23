@@ -5,7 +5,7 @@ import '../../Models/customer.dart';
 import '../../Models/driver.dart';
 import '../../Models/order_enum.dart';
 import '../Component/driver_bottom_navigation.dart';
-import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/order_review.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';

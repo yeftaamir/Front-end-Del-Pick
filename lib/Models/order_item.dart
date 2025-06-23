@@ -1,72 +1,136 @@
-class OrderItem {
+// ========================================
+// 7. lib/models/order_item_model.dart
+// ========================================
+
+import 'package:del_pick/services/image_service.dart';
+
+import 'menu_item.dart';
+
+class OrderItemModel {
   final int id;
   final int orderId;
+  final int menuItemId;
   final String name;
-  final int price;
-  final int quantity;
+  final String description;
   final String? imageUrl;
+  final String category;
+  final int quantity;
+  final double price;
+  final String? notes;
+  final MenuItemModel? menuItem;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
-  OrderItem({
+  const OrderItemModel({
     required this.id,
     required this.orderId,
+    required this.menuItemId,
     required this.name,
-    required this.price,
     required this.quantity,
+    required this.price,
+    this.description = '',
     this.imageUrl,
+    this.category = '',
+    this.notes,
+    this.menuItem,
+    this.createdAt,
+    this.updatedAt,
   });
 
-  factory OrderItem.fromJson(Map<String, dynamic> json) {
-    return OrderItem(
+  factory OrderItemModel.fromJson(Map<String, dynamic> json) {
+    String? processedImageUrl;
+    if (json['image_url'] != null && json['image_url'].toString().isNotEmpty) {
+      processedImageUrl = ImageService.getImageUrl(json['image_url']);
+    }
+
+    MenuItemModel? menuItem;
+    if (json['menuItem'] != null) {
+      menuItem = MenuItemModel.fromJson(json['menuItem']);
+    }
+
+    return OrderItemModel(
       id: json['id'] ?? 0,
-      orderId: json['orderId'] ?? 0,
+      orderId: json['order_id'] ?? 0,
+      menuItemId: json['menu_item_id'] ?? 0,
       name: json['name'] ?? '',
-      price: json['price'] ?? 0,
-      quantity: json['quantity'] ?? 0,
-      imageUrl: json['imageUrl'],
+      description: json['description'] ?? '',
+      imageUrl: processedImageUrl,
+      category: json['category'] ?? '',
+      quantity: json['quantity'] ?? 1,
+      price: (json['price'] ?? 0).toDouble(),
+      notes: json['notes'],
+      menuItem: menuItem,
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,
+      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'orderId': orderId,
+      'order_id': orderId,
+      'menu_item_id': menuItemId,
       'name': name,
-      'price': price,
+      'description': description,
+      'image_url': imageUrl,
+      'category': category,
       'quantity': quantity,
-      'imageUrl': imageUrl,
+      'price': price,
+      'notes': notes,
+      if (menuItem != null) 'menuItem': menuItem!.toJson(),
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
     };
   }
 
-  OrderItem copyWith({
+  OrderItemModel copyWith({
     int? id,
     int? orderId,
+    int? menuItemId,
     String? name,
-    int? price,
-    int? quantity,
+    String? description,
     String? imageUrl,
+    String? category,
+    int? quantity,
+    double? price,
+    String? notes,
+    MenuItemModel? menuItem,
+    DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
-    return OrderItem(
+    return OrderItemModel(
       id: id ?? this.id,
       orderId: orderId ?? this.orderId,
+      menuItemId: menuItemId ?? this.menuItemId,
       name: name ?? this.name,
-      price: price ?? this.price,
-      quantity: quantity ?? this.quantity,
+      description: description ?? this.description,
       imageUrl: imageUrl ?? this.imageUrl,
+      category: category ?? this.category,
+      quantity: quantity ?? this.quantity,
+      price: price ?? this.price,
+      notes: notes ?? this.notes,
+      menuItem: menuItem ?? this.menuItem,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
-  // Format price for display
+  // Utility methods
+  double get totalPrice => price * quantity;
+
   String formatPrice() {
-    return 'Rp${price.toString().replaceAllMapped(
-        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}';
+    return 'Rp ${price.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]}.',
+    )}';
   }
 
-  // Calculate total price for this item
-  int get totalPrice => price * quantity;
-
-  // Format total price for display
   String formatTotalPrice() {
-    return 'Rp${totalPrice.toString().replaceAllMapped(
-        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}';
+    return 'Rp ${totalPrice.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]}.',
+    )}';
   }
+
+  String? get processedImageUrl => imageUrl != null ? ImageService.getImageUrl(imageUrl!) : null;
 }

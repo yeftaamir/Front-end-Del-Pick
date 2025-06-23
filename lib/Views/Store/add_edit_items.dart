@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../../Common/global_style.dart';
-import '../../Models/item_model.dart';
+import '../../Models/order_review.dart';
 import '../../Models/menu_item.dart';
 import '../../Services/menu_service.dart';
 import '../../Services/image_service.dart';

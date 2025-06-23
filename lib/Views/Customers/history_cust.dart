@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../Models/order_enum.dart';
 import '../Component/cust_bottom_navigation.dart';
-import 'package:del_pick/Models/item_model.dart';
+import 'package:del_pick/Models/order_review.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/tracking.dart';
 import 'package:del_pick/Models/order.dart';
