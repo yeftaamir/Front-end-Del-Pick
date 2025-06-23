@@ -1,210 +1,191 @@
-// lib/services/auth_service.dart
+// lib/Services/auth_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'core/api_constants.dart';
-import 'core/token_service.dart';
+import 'Core/token_service.dart';
+import 'core/base_service.dart';
 import 'image_service.dart';
 
 class AuthService {
-  /// Login user and return user data with token
-  static Future<Map<String, dynamic>> login(String email, String password) async {
+  static const String _baseEndpoint = '/auth';
+
+  /// Login user with email and password
+  /// Returns role-specific user data with nested structures for driver/store
+  static Future<Map<String, dynamic>> login({
+    required String email,
+    required String password,
+  }) async {
     try {
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password}),
+      final response = await BaseService.apiCall(
+        method: 'POST',
+        endpoint: '$_baseEndpoint/login',
+        body: {
+          'email': email,
+          'password': password,
+        },
+        requiresAuth: false,
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        if (jsonData['data'] == null) {
-          throw Exception('Invalid login response: missing data');
-        }
-
-        final data = jsonData['data'];
-        final user = data['user'];
-        final token = data['token'];
+      if (response['data'] != null) {
+        final loginData = response['data'];
+        final user = loginData['user'];
+        final token = loginData['token'];
 
         if (user == null || token == null) {
           throw Exception('Invalid login response: missing user or token');
         }
 
-        // Process user avatar URL if exists
-        if (user['avatar'] != null && user['avatar'].toString().isNotEmpty) {
-          user['avatar'] = ImageService.getImageUrl(user['avatar']);
-        }
-
-        // Process driver data if present
-        if (data['driver'] != null) {
-          final driver = data['driver'];
-          // Process driver profile image if present
-          if (driver['profileImage'] != null && driver['profileImage'].toString().isNotEmpty) {
-            driver['profileImage'] = ImageService.getImageUrl(driver['profileImage']);
-          }
-          // Handle legacy 'image' field
-          if (driver['image'] != null && driver['image'].toString().isNotEmpty) {
-            driver['image'] = ImageService.getImageUrl(driver['image']);
-            // Set profileImage for consistency
-            if (driver['profileImage'] == null) {
-              driver['profileImage'] = driver['image'];
-            }
-          }
-        }
-
-        // Process store data if present
-        if (data['store'] != null) {
-          final store = data['store'];
-          // Process store image if present
-          if (store['imageUrl'] != null && store['imageUrl'].toString().isNotEmpty) {
-            store['imageUrl'] = ImageService.getImageUrl(store['imageUrl']);
-          }
-          if (store['image'] != null && store['image'].toString().isNotEmpty) {
-            store['image'] = ImageService.getImageUrl(store['image']);
-            // For consistency, set imageUrl too if not present
-            if (store['imageUrl'] == null) {
-              store['imageUrl'] = store['image'];
-            }
-          }
-        }
-
         // Save authentication data
         await TokenService.saveToken(token);
-        await TokenService.saveUserRole(user['role'] ?? 'customer');
-        await TokenService.saveUserId(user['id']);
-        await _saveUserData(data);
+        await TokenService.saveUserRole(user['role']);
+        await TokenService.saveUserId(user['id'].toString());
+
+        // Process role-specific data and images
+        await _processLoginData(loginData);
+
+        // Save complete user data
+        await TokenService.saveUserData(loginData);
 
         print('Login successful for user: ${user['name']} (${user['role']})');
-        return data;
-      } else {
-        _handleErrorResponse(response);
+        return loginData;
       }
+
+      throw Exception('Invalid login response format');
     } catch (e) {
-      print('Error during login: $e');
-      if (e.toString().contains('Invalid login response') ||
-          e.toString().contains('Failed to login')) {
-        rethrow;
-      }
+      print('Login error: $e');
       throw Exception('Login failed: $e');
     }
-    return {};
   }
 
-  /// Get user profile data
-  static Future<Map<String, dynamic>> getProfile() async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/auth/profile'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = _parseResponseBody(response.body);
-
-        if (jsonData['data'] != null) {
-          final profileData = jsonData['data'];
-          _processProfileImages(profileData);
-
-          // Update cached user data
-          await _saveUserData({'user': profileData});
-
-          return profileData;
-        }
-        return {};
-      } else if (response.statusCode == 401) {
-        // Handle unauthorized access - token might be expired
-        await _clearAllUserData();
-        throw Exception('Session expired, please login again');
-      } else {
-        _handleErrorResponse(response);
-      }
-    } catch (e) {
-      print('Error fetching profile: $e');
-      if (e.toString().contains('Session expired')) {
-        rethrow;
-      }
-      throw Exception('Failed to get profile: $e');
-    }
-    return {};
-  }
-
-    /// Logout user - removes token and calls logout API
+  /// Logout user - clears all local data and calls server logout
   static Future<bool> logout() async {
     try {
-      final token = await TokenService.getToken();
-
-      // Call server-side logout if token exists
-      if (token != null) {
-        try {
-          final response = await http.post(
-            Uri.parse('${ApiConstants.baseUrl}/auth/logout'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-          );
-
-          print('Server logout response: ${response.statusCode}');
-          // Continue with local cleanup regardless of server response
-        } catch (e) {
-          print('Server-side logout failed, continuing with local cleanup: $e');
-        }
+      // Try to call server-side logout
+      try {
+        await BaseService.apiCall(
+          method: 'POST',
+          endpoint: '$_baseEndpoint/logout',
+          requiresAuth: true,
+        );
+      } catch (e) {
+        print('Server-side logout failed: $e');
+        // Continue with local cleanup even if server call fails
       }
 
-      // Perform local cleanup (most important part)
-      await _clearAllUserData();
-
+      // Clear all local authentication data
+      await TokenService.clearAll();
       print('Logout completed successfully');
       return true;
     } catch (e) {
-      print('Error during logout: $e');
-
-      // Even if there's an error, still try to clear local data
+      print('Logout error: $e');
+      // Still try to clear local data on error
       try {
-        await _clearAllUserData();
+        await TokenService.clearAll();
       } catch (clearError) {
         print('Failed to clear local data: $clearError');
       }
-
       return false;
+    }
+  }
+
+  /// Get current user profile based on role
+  /// Returns different data structure for customer/driver/store
+  static Future<Map<String, dynamic>> getProfile() async {
+    try {
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: '$_baseEndpoint/profile',
+        requiresAuth: true,
+      );
+
+      if (response['data'] != null) {
+        final profileData = response['data'];
+
+        // Process images based on role
+        await _processProfileImages(profileData);
+
+        // Update cached user data
+        await TokenService.saveUserData({'user': profileData});
+
+        return profileData;
+      }
+
+      throw Exception('Invalid profile response format');
+    } catch (e) {
+      print('Get profile error: $e');
+      throw Exception('Failed to get profile: $e');
+    }
+  }
+
+  /// Update user profile - handles role-specific updates
+  static Future<Map<String, dynamic>> updateProfile({
+    required Map<String, dynamic> updateData,
+  }) async {
+    try {
+      final response = await BaseService.apiCall(
+        method: 'PUT',
+        endpoint: '$_baseEndpoint/profile',
+        body: updateData,
+        requiresAuth: true,
+      );
+
+      if (response['data'] != null) {
+        final updatedProfile = response['data'];
+
+        // Process images
+        await _processProfileImages(updatedProfile);
+
+        // Update cached data
+        await TokenService.saveUserData({'user': updatedProfile});
+
+        return updatedProfile;
+      }
+
+      throw Exception('Invalid update profile response format');
+    } catch (e) {
+      print('Update profile error: $e');
+      throw Exception('Failed to update profile: $e');
+    }
+  }
+
+  /// Register new user
+  static Future<Map<String, dynamic>> register({
+    required String name,
+    required String email,
+    required String password,
+    required String phone,
+    required String role, // customer, driver, store
+    Map<String, dynamic>? additionalData,
+  }) async {
+    try {
+      final registerData = {
+        'name': name,
+        'email': email,
+        'password': password,
+        'phone': phone,
+        'role': role,
+        ...?additionalData,
+      };
+
+      final response = await BaseService.apiCall(
+        method: 'POST',
+        endpoint: '$_baseEndpoint/register',
+        body: registerData,
+        requiresAuth: false,
+      );
+
+      return response['data'] ?? {};
+    } catch (e) {
+      print('Registration error: $e');
+      throw Exception('Registration failed: $e');
     }
   }
 
   /// Get cached user data
   static Future<Map<String, dynamic>?> getUserData() async {
     try {
-      final userData = await ApiConstants.storage.read(key: 'user_profile');
-
-      if (userData == null || userData.isEmpty) {
-        return null;
-      }
-
-      try {
-        final parsedData = _parseJson(userData);
-
-        // Ensure image URLs are processed
-        if (parsedData.isNotEmpty) {
-          _processProfileImages(parsedData);
-        }
-
-        return parsedData;
-      } catch (e) {
-        print('Error parsing cached user data: $e');
-
-        // Clean up corrupted data
-        await ApiConstants.storage.delete(key: 'user_profile');
-        return null;
-      }
+      return await TokenService.getUserData();
     } catch (e) {
-      print('Error retrieving cached user data: $e');
+      print('Error getting user data: $e');
       return null;
     }
   }
@@ -232,10 +213,8 @@ class AuthService {
   /// Check if user is authenticated
   static Future<bool> isAuthenticated() async {
     try {
-      final token = await TokenService.getToken();
-      return token != null && token.isNotEmpty;
+      return await TokenService.isAuthenticated();
     } catch (e) {
-      print('Error checking authentication status: $e');
       return false;
     }
   }
@@ -244,152 +223,202 @@ class AuthService {
   static Future<Map<String, dynamic>?> refreshUserData() async {
     try {
       final profile = await getProfile();
-      return profile.isNotEmpty ? profile : null;
+      return profile;
     } catch (e) {
       print('Error refreshing user data: $e');
       return null;
     }
   }
 
+  /// Get role-specific user data structure
+  static Future<Map<String, dynamic>?> getRoleSpecificData() async {
+    try {
+      final userData = await getUserData();
+      if (userData == null) return null;
+
+      final role = await getUserRole();
+      if (role == null) return userData;
+
+      // Return appropriate structure based on role
+      switch (role.toLowerCase()) {
+        case 'driver':
+          return {
+            'user': userData['user'] ?? userData,
+            'driver': userData['driver'],
+          };
+        case 'store':
+          return {
+            'user': userData['user'] ?? userData,
+            'store': userData['store'],
+          };
+        case 'customer':
+          return {
+            'user': userData['user'] ?? userData,
+          };
+        default:
+          return userData;
+      }
+    } catch (e) {
+      print('Error getting role-specific data: $e');
+      return null;
+    }
+  }
+
+  /// Verify email with token
+  static Future<bool> verifyEmail(String token) async {
+    try {
+      await BaseService.apiCall(
+        method: 'POST',
+        endpoint: '$_baseEndpoint/verify-email/$token',
+        requiresAuth: false,
+      );
+      return true;
+    } catch (e) {
+      print('Email verification error: $e');
+      return false;
+    }
+  }
+
+  /// Resend verification email
+  static Future<bool> resendVerification(String email) async {
+    try {
+      await BaseService.apiCall(
+        method: 'POST',
+        endpoint: '$_baseEndpoint/resend-verification',
+        body: {'email': email},
+        requiresAuth: true,
+      );
+      return true;
+    } catch (e) {
+      print('Resend verification error: $e');
+      return false;
+    }
+  }
+
+  /// Forgot password
+  static Future<bool> forgotPassword(String email) async {
+    try {
+      await BaseService.apiCall(
+        method: 'POST',
+        endpoint: '$_baseEndpoint/forgot-password',
+        body: {'email': email},
+        requiresAuth: false,
+      );
+      return true;
+    } catch (e) {
+      print('Forgot password error: $e');
+      return false;
+    }
+  }
+
+  /// Reset password with token
+  static Future<bool> resetPassword({
+    required String token,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    try {
+      await BaseService.apiCall(
+        method: 'POST',
+        endpoint: '$_baseEndpoint/reset-password/$token',
+        body: {
+          'password': newPassword,
+          'confirmPassword': confirmPassword,
+        },
+        requiresAuth: false,
+      );
+      return true;
+    } catch (e) {
+      print('Reset password error: $e');
+      return false;
+    }
+  }
+
   // PRIVATE HELPER METHODS
 
-  /// Save user data to local storage
-  static Future<void> _saveUserData(Map<String, dynamic> data) async {
-    try {
-      // Extract user data
-      final user = data['user'] ?? data;
+  /// Process login data based on user role
+  static Future<void> _processLoginData(Map<String, dynamic> loginData) async {
+    final user = loginData['user'];
+    if (user == null) return;
 
-      // Save user profile
-      final userJson = jsonEncode(user);
-      await ApiConstants.storage.write(key: 'user_profile', value: userJson);
+    final role = user['role']?.toString().toLowerCase();
 
-      // Save role if available
-      if (user['role'] != null) {
-        await TokenService.saveUserRole(user['role']);
-      }
+    // Process user avatar
+    if (user['avatar'] != null && user['avatar'].toString().isNotEmpty) {
+      user['avatar'] = ImageService.getImageUrl(user['avatar']);
+    }
 
-      // Save user ID if available
-      if (user['id'] != null) {
-        await TokenService.saveUserId(user['id']);
-      }
-
-      // Save complete data including driver/store info
-      final completeDataJson = jsonEncode(data);
-      await ApiConstants.storage.write(key: 'user_data', value: completeDataJson);
-
-      print('User data saved successfully');
-    } catch (e) {
-      print('Error saving user data: $e');
-      // Don't throw error to prevent login failure
+    switch (role) {
+      case 'driver':
+        await _processDriverData(loginData);
+        break;
+      case 'store':
+        await _processStoreData(loginData);
+        break;
+      case 'customer':
+      // Customer data is already in user object
+        break;
     }
   }
 
-  /// Clear all user data from local storage
-  static Future<void> _clearAllUserData() async {
-    try {
-      await TokenService.clearAll();
-      print('All user data cleared successfully');
-    } catch (e) {
-      print('Error clearing user data: $e');
-      throw Exception('Failed to clear user data');
+  /// Process driver-specific login data
+  static Future<void> _processDriverData(Map<String, dynamic> loginData) async {
+    if (loginData['driver'] != null) {
+      final driver = loginData['driver'];
+
+      // Ensure all required driver fields with defaults
+      driver['rating'] = driver['rating'] ?? 5.0;
+      driver['reviews_count'] = driver['reviews_count'] ?? 0;
+      driver['status'] = driver['status'] ?? 'inactive';
+      driver['license_number'] = driver['license_number'] ?? '';
+      driver['vehicle_plate'] = driver['vehicle_plate'] ?? '';
+      driver['latitude'] = driver['latitude'];
+      driver['longitude'] = driver['longitude'];
     }
   }
 
-  /// Process images in profile data
-  static void _processProfileImages(Map<String, dynamic> profileData) {
-    try {
-      // Process user avatar
-      if (profileData['avatar'] != null && profileData['avatar'].toString().isNotEmpty) {
-        profileData['avatar'] = ImageService.getImageUrl(profileData['avatar']);
+  /// Process store-specific login data
+  static Future<void> _processStoreData(Map<String, dynamic> loginData) async {
+    if (loginData['store'] != null) {
+      final store = loginData['store'];
+
+      // Process store image
+      if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
+        store['image_url'] = ImageService.getImageUrl(store['image_url']);
       }
 
-      // Process driver data if present
-      if (profileData['driver'] != null) {
-        final driver = profileData['driver'];
-
-        if (driver['profileImage'] != null && driver['profileImage'].toString().isNotEmpty) {
-          driver['profileImage'] = ImageService.getImageUrl(driver['profileImage']);
-        }
-
-        if (driver['image'] != null && driver['image'].toString().isNotEmpty) {
-          driver['image'] = ImageService.getImageUrl(driver['image']);
-          // Set profileImage for consistency if not present
-          if (driver['profileImage'] == null) {
-            driver['profileImage'] = driver['image'];
-          }
-        }
-      }
-
-      // Process store data if present
-      if (profileData['store'] != null) {
-        final store = profileData['store'];
-
-        if (store['imageUrl'] != null && store['imageUrl'].toString().isNotEmpty) {
-          store['imageUrl'] = ImageService.getImageUrl(store['imageUrl']);
-        }
-
-        if (store['image'] != null && store['image'].toString().isNotEmpty) {
-          store['image'] = ImageService.getImageUrl(store['image']);
-          // Set imageUrl for consistency if not present
-          if (store['imageUrl'] == null) {
-            store['imageUrl'] = store['image'];
-          }
-        }
-      }
-    } catch (e) {
-      print('Error processing profile images: $e');
+      // Ensure all required store fields with defaults
+      store['rating'] = store['rating'] ?? 0.0;
+      store['review_count'] = store['review_count'] ?? 0;
+      store['total_products'] = store['total_products'] ?? 0;
+      store['status'] = store['status'] ?? 'active';
     }
   }
 
-  /// Parse response body with better error handling
-  static Map<String, dynamic> _parseResponseBody(String body) {
-    try {
-      return json.decode(body);
-    } catch (e) {
-      print('Error parsing response body: $e');
+  /// Process images in profile data based on role
+  static Future<void> _processProfileImages(Map<String, dynamic> profileData) async {
+    // Process user avatar
+    if (profileData['avatar'] != null && profileData['avatar'].toString().isNotEmpty) {
+      profileData['avatar'] = ImageService.getImageUrl(profileData['avatar']);
+    }
 
-      // Try to clean the string before parsing
-      String cleanedBody = body.trim();
-
-      // Remove BOM if present
-      if (cleanedBody.startsWith('\uFEFF')) {
-        cleanedBody = cleanedBody.substring(1);
-      }
-
-      try {
-        return json.decode(cleanedBody);
-      } catch (e) {
-        throw Exception('Invalid response format: $body');
+    // Process driver data if present
+    if (profileData['driver'] != null) {
+      final driver = profileData['driver'];
+      if (driver['user'] != null && driver['user']['avatar'] != null) {
+        driver['user']['avatar'] = ImageService.getImageUrl(driver['user']['avatar']);
       }
     }
-  }
 
-  /// Parse JSON string with better error handling
-  static Map<String, dynamic> _parseJson(String jsonString) {
-    try {
-      final decoded = json.decode(jsonString);
-      if (decoded is Map<String, dynamic>) {
-        return decoded;
-      } else {
-        throw Exception('Parsed JSON is not a Map');
+    // Process store data if present
+    if (profileData['store'] != null) {
+      final store = profileData['store'];
+      if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
+        store['image_url'] = ImageService.getImageUrl(store['image_url']);
       }
-    } catch (e) {
-      print('Error parsing JSON: $e');
-      throw Exception('Invalid JSON format: $jsonString');
-    }
-  }
-
-  /// Handle error responses consistently
-  static void _handleErrorResponse(http.Response response) {
-    try {
-      final errorData = _parseResponseBody(response.body);
-      final message = errorData['message'] ?? 'Request failed';
-      throw Exception(message);
-    } catch (e) {
-      if (e is Exception && e.toString().contains('Request failed')) {
-        rethrow;
+      if (store['owner'] != null && store['owner']['avatar'] != null) {
+        store['owner']['avatar'] = ImageService.getImageUrl(store['owner']['avatar']);
       }
-      throw Exception('Request failed with status ${response.statusCode}: ${response.body}');
     }
   }
 }

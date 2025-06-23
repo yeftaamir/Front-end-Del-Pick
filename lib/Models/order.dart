@@ -1,6 +1,5 @@
 import 'item_model.dart';
 import 'store.dart';
-import 'tracking.dart';
 import 'order_enum.dart';
 
 class Order {
@@ -17,7 +16,6 @@ class Order {
   final DateTime orderDate;
   final PaymentMethod paymentMethod;
   final PaymentStatus paymentStatus;
-  final Tracking? tracking;
   final String? notes;
   final bool hasGivenRating;
   final int? customerId; // Added to match BE

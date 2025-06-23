@@ -1,222 +1,199 @@
-// lib/services/driver_service.dart
+// lib/Services/driver_service.dart
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'core/api_constants.dart';
-import 'core/token_service.dart';
+import 'core/base_service.dart';
 import 'image_service.dart';
 
 class DriverService {
-  /// Update driver location
-  static Future<Map<String, dynamic>> updateDriverLocation(Map<String, dynamic> locationData) async {
-    try {
-      final token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
+  static const String _baseEndpoint = '/drivers';
 
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/location'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(locationData),
+  /// Get all drivers
+  static Future<Map<String, dynamic>> getAllDrivers({
+    int page = 1,
+    int limit = 10,
+    String? sortBy,
+    String? sortOrder,
+    String? status,
+  }) async {
+    try {
+      final queryParams = {
+        'page': page.toString(),
+        'limit': limit.toString(),
+        if (sortBy != null) 'sortBy': sortBy,
+        if (sortOrder != null) 'sortOrder': sortOrder,
+        if (status != null) 'status': status,
+      };
+
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: _baseEndpoint,
+        queryParams: queryParams,
+        requiresAuth: true,
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
-      } else {
-        throw Exception('Location update failed: ${response.body}');
+      // Process driver images
+      if (response['data'] != null && response['data'] is List) {
+        for (var driver in response['data']) {
+          _processDriverImages(driver);
+        }
       }
+
+      return response;
     } catch (e) {
-      print('Error updating driver location: $e');
-      throw Exception('Failed to update location: $e');
+      print('Get all drivers error: $e');
+      throw Exception('Failed to get drivers: $e');
     }
   }
 
-  /// Update driver status (active/inactive)
-  static Future<Map<String, dynamic>> updateDriverStatus(String status) async {
+  /// Get driver by ID
+  static Future<Map<String, dynamic>> getDriverById(String driverId) async {
     try {
-      if (status != 'active' && status != 'inactive') {
-        throw Exception('Status must be "active" or "inactive"');
-      }
-
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/status'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'status': status}),
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: '$_baseEndpoint/$driverId',
+        requiresAuth: true,
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to change driver status');
+      if (response['data'] != null) {
+        _processDriverImages(response['data']);
       }
+
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error changing driver status: $e');
-      throw Exception('Failed to change driver status: $e');
+      print('Get driver by ID error: $e');
+      throw Exception('Failed to get driver: $e');
     }
   }
 
   /// Get driver location by ID
   static Future<Map<String, dynamic>> getDriverLocation(String driverId) async {
     try {
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
+      final driver = await getDriverById(driverId);
 
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/drivers/$driverId/location'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
-      } else if (response.statusCode == 404) {
-        throw Exception('Driver location not available');
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to retrieve driver location');
-      }
+      return {
+        'latitude': driver['driver']?['latitude'],
+        'longitude': driver['driver']?['longitude'],
+        'status': driver['driver']?['status'],
+        'last_updated': driver['driver']?['updated_at'],
+      };
     } catch (e) {
-      print('Error fetching driver location: $e');
-      throw Exception('Failed to retrieve driver location: $e');
+      print('Get driver location error: $e');
+      throw Exception('Failed to get driver location: $e');
     }
   }
 
-  /// Get all driver requests
-  static Future<Map<String, dynamic>> getDriverRequests() async {
+  /// Update driver status (active, inactive, busy)
+  static Future<Map<String, dynamic>> updateDriverStatus({
+    required String driverId,
+    required String status, // active, inactive, busy
+  }) async {
     try {
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
+      if (!['active', 'inactive', 'busy'].contains(status)) {
+        throw Exception('Invalid status. Must be: active, inactive, or busy');
       }
 
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/driver-requests'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+      final response = await BaseService.apiCall(
+        method: 'PATCH',
+        endpoint: '$_baseEndpoint/$driverId/status',
+        body: {'status': status},
+        requiresAuth: true,
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to load driver requests');
-      }
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error fetching driver requests: $e');
-      throw Exception('Failed to load driver requests: $e');
+      print('Update driver status error: $e');
+      throw Exception('Failed to update driver status: $e');
     }
   }
 
-  /// Get detailed driver request
-  static Future<Map<String, dynamic>> getDriverRequestDetail(String requestId) async {
+  /// Update driver profile
+  static Future<Map<String, dynamic>> updateProfileDriver({
+    required String driverId,
+    required Map<String, dynamic> updateData,
+  }) async {
     try {
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/driver-requests/$requestId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+      final response = await BaseService.apiCall(
+        method: 'PUT',
+        endpoint: '$_baseEndpoint/$driverId',
+        body: updateData,
+        requiresAuth: true,
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-
-        // Process images in order data if needed
-        if (jsonData['data'] != null && jsonData['data']['order'] != null) {
-          // Process store image if present
-          if (jsonData['data']['order']['store'] != null &&
-              jsonData['data']['order']['store']['image'] != null) {
-            jsonData['data']['order']['store']['image'] =
-                ImageService.getImageUrl(jsonData['data']['order']['store']['image']);
-          }
-
-          // Process user profile image if present
-          if (jsonData['data']['order']['user'] != null &&
-              jsonData['data']['order']['user']['avatar'] != null) {
-            jsonData['data']['order']['user']['avatar'] =
-                ImageService.getImageUrl(jsonData['data']['order']['user']['avatar']);
-          }
-
-          // Process images in order items if present
-          if (jsonData['data']['order']['orderItems'] != null &&
-              jsonData['data']['order']['orderItems'] is List) {
-            for (var item in jsonData['data']['order']['orderItems']) {
-              if (item['imageUrl'] != null) {
-                item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
-              }
-            }
-          }
-        }
-
-        return jsonData['data'];
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to load driver request detail');
+      if (response['data'] != null) {
+        _processDriverImages(response['data']);
       }
+
+      return response['data'] ?? {};
     } catch (e) {
-      print('Error fetching driver request detail: $e');
-      throw Exception('Failed to load driver request detail: $e');
+      print('Update driver profile error: $e');
+      throw Exception('Failed to update driver profile: $e');
     }
   }
 
-  /// Respond to driver request (accept/reject)
-  static Future<Map<String, dynamic>> respondToDriverRequest(String requestId, String action) async {
+  /// Get driver orders
+  static Future<Map<String, dynamic>> getDriverOrders({
+    int page = 1,
+    int limit = 10,
+    String? status,
+    String? sortBy,
+    String? sortOrder,
+  }) async {
     try {
-      if (action != 'accept' && action != 'reject') {
-        throw Exception('Action must be "accept" or "reject"');
-      }
+      final queryParams = {
+        'page': page.toString(),
+        'limit': limit.toString(),
+        if (status != null) 'status': status,
+        if (sortBy != null) 'sortBy': sortBy,
+        if (sortOrder != null) 'sortOrder': sortOrder,
+      };
 
-      final String? token = await TokenService.getToken();
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
-
-      final response = await http.put(
-        Uri.parse('${ApiConstants.baseUrl}/driver-requests/$requestId/respond'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'action': action}),
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: '/orders/driver',
+        queryParams: queryParams,
+        requiresAuth: true,
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        return jsonData['data'];
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to respond to driver request');
-      }
+      return response;
     } catch (e) {
-      print('Error responding to driver request: $e');
-      throw Exception('Failed to respond to driver request: $e');
+      print('Get driver orders error: $e');
+      throw Exception('Failed to get driver orders: $e');
+    }
+  }
+
+  /// Update driver location
+  static Future<Map<String, dynamic>> updateDriverLocation({
+    required String driverId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      final response = await BaseService.apiCall(
+        method: 'PATCH',
+        endpoint: '$_baseEndpoint/$driverId/location',
+        body: {
+          'latitude': latitude,
+          'longitude': longitude,
+        },
+        requiresAuth: true,
+      );
+
+      return response['data'] ?? {};
+    } catch (e) {
+      print('Update driver location error: $e');
+      throw Exception('Failed to update driver location: $e');
+    }
+  }
+
+  /// Helper method to process driver images
+  static void _processDriverImages(Map<String, dynamic> driver) {
+    // Process user avatar
+    if (driver['user'] != null && driver['user']['avatar'] != null) {
+      driver['user']['avatar'] = ImageService.getImageUrl(driver['user']['avatar']);
+    }
+
+    // If driver data is nested differently
+    if (driver['avatar'] != null && driver['avatar'].toString().isNotEmpty) {
+      driver['avatar'] = ImageService.getImageUrl(driver['avatar']);
     }
   }
 }
