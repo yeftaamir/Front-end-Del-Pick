@@ -184,7 +184,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // Enhanced: Toggle store status using StoreService
+  // Enhanced: Toggle store status using StoreService.updateStoreStatus
   Future<void> _toggleStoreStatus() async {
     if (_storeId == null) {
       // Show error if store ID is not available
@@ -209,8 +209,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       // Get new status (opposite of current status)
       final newStatus = _isStoreActive ? 'inactive' : 'active';
 
-      // Call StoreService to update store status
-      await StoreService.updateStoreStatus(_storeId!, newStatus);
+      // Call StoreService.updateStoreStatus with correct parameters
+      await StoreService.updateStoreStatus(
+        storeId: _storeId!,
+        status: newStatus,
+      );
 
       // Update local state
       setState(() {
@@ -357,7 +360,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-  // Enhanced: Fetch orders from API with better data processing
+  // Enhanced: Fetch orders from API using OrderService.getOrdersByStore
   Future<void> _fetchOrders() async {
     setState(() {
       _isLoading = true;
@@ -365,47 +368,30 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     });
 
     try {
-      // Use OrderService.getOrdersByStore()
-      final response = await OrderService.getOrdersByStore();
+      // Use OrderService.getOrdersByStore() with correct parameters
+      final response = await OrderService.getOrdersByStore(
+        page: 1,
+        limit: 50, // Get more orders
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+      );
 
       List<Map<String, dynamic>> newPendingOrders = [];
       List<Map<String, dynamic>> newActiveOrders = [];
 
-      // FIXED: Proper handling of response structure
-      if (response is Map<String, dynamic>) {
-        // Check if response has 'orders' key
-        if (response.containsKey('orders') && response['orders'] is List) {
-          final List<dynamic> ordersList = response['orders'];
-          for (var orderItem in ordersList) {
-            if (orderItem is Map<String, dynamic>) {
-              final processedOrder = _processStoreOrder(orderItem);
-              if (processedOrder != null) {
-                // Separate pending and active orders
-                if (processedOrder['status'] == 'pending') {
-                  newPendingOrders.add(processedOrder);
-                } else {
-                  newActiveOrders.add(processedOrder);
-                }
-              }
-            }
-          }
-        }
-        // Check if response has 'data' key containing orders
-        else if (response.containsKey('data') && response['data'] is Map<String, dynamic>) {
-          final data = response['data'] as Map<String, dynamic>;
-          if (data.containsKey('orders') && data['orders'] is List) {
-            final List<dynamic> ordersList = data['orders'];
-            for (var orderItem in ordersList) {
-              if (orderItem is Map<String, dynamic>) {
-                final processedOrder = _processStoreOrder(orderItem);
-                if (processedOrder != null) {
-                  // Separate pending and active orders
-                  if (processedOrder['status'] == 'pending') {
-                    newPendingOrders.add(processedOrder);
-                  } else {
-                    newActiveOrders.add(processedOrder);
-                  }
-                }
+      // Process response structure based on the service implementation
+      if (response is Map<String, dynamic> && response['orders'] is List) {
+        final List<dynamic> ordersList = response['orders'];
+
+        for (var orderItem in ordersList) {
+          if (orderItem is Map<String, dynamic>) {
+            final processedOrder = _processStoreOrder(orderItem);
+            if (processedOrder != null) {
+              // Separate pending and active orders
+              if (processedOrder['status'] == 'pending') {
+                newPendingOrders.add(processedOrder);
+              } else if (!['delivered', 'completed', 'cancelled'].contains(processedOrder['status'])) {
+                newActiveOrders.add(processedOrder);
               }
             }
           }
@@ -602,22 +588,34 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // Enhanced: Process order by store (approve/reject)
+  // Enhanced: Process order by store using OrderService.processOrderByStore
   Future<void> _processOrderByStore(String orderId, String action) async {
     try {
       setState(() {
         _isLoading = true;
       });
 
-      // Use OrderService to process order
-      final response = await OrderService.processOrderByStore(orderId, action);
+      // Convert action to expected format
+      String processAction = action;
+      if (action == 'approve') {
+        processAction = 'accept'; // API expects 'accept' not 'approve'
+      }
+
+      // Use OrderService.processOrderByStore with correct parameters
+      final response = await OrderService.processOrderByStore(
+        orderId: orderId,
+        action: processAction,
+        // Add optional parameters if needed
+        estimatedPreparationTime: processAction == 'accept' ? '15-20 minutes' : null,
+        rejectionReason: processAction == 'reject' ? 'Store tidak dapat memproses pesanan saat ini' : null,
+      );
 
       // Reload orders after processing
       await _fetchOrders();
 
       // Show success message
       if (mounted) {
-        final message = action == 'approve'
+        final message = processAction == 'accept'
             ? 'Pesanan berhasil disetujui!'
             : 'Pesanan berhasil ditolak!';
 
@@ -627,13 +625,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               message,
               style: TextStyle(fontFamily: GlobalStyle.fontFamily),
             ),
-            backgroundColor: action == 'approve' ? Colors.green : Colors.orange,
+            backgroundColor: processAction == 'accept' ? Colors.green : Colors.orange,
             duration: const Duration(seconds: 2),
           ),
         );
 
         // Play sound
-        await _playSound(action == 'approve' ? 'audio/success.mp3' : 'audio/info.mp3');
+        await _playSound(processAction == 'accept' ? 'audio/success.mp3' : 'audio/info.mp3');
       }
 
     } catch (e) {
@@ -971,7 +969,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       context,
       MaterialPageRoute(
         builder: (context) => HistoryStoreDetailPage(
-          orderDetail: order,
           orderId: order['id'],
         ),
       ),

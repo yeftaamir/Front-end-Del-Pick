@@ -10,12 +10,13 @@ import '../../Models/order_review.dart';
 import '../../Models/menu_item.dart';
 import '../../Services/menu_service.dart';
 import '../../Services/image_service.dart';
+import '../../Services/auth_service.dart';
 import 'add_item.dart';
 
 class AddEditItemForm extends StatefulWidget {
   static const String route = '/Store/AddEditItems';
   final Item? item;
-  final MenuItem? menuItem;
+  final MenuItemModel? menuItem;
 
   const AddEditItemForm({Key? key, this.item, this.menuItem}) : super(key: key);
 
@@ -30,14 +31,14 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   final _priceController = TextEditingController();
   final _stockController = TextEditingController();
 
-  // Status options for order status
-  final List<String> _statusOptions = ['available', 'out_of_stock', 'limited'];
+  // Status options for menu item
+  final List<String> _statusOptions = ['available', 'unavailable'];
   String _selectedStatus = 'available';
 
   // Image handling
-  final ImagePicker _picker = ImagePicker();
+  XFile? _selectedImageFile;
   String? _selectedImageUrl;
-  Map<String, dynamic>? _imageData;
+  String? _imageBase64;
   bool _isUploading = false;
 
   // Form state
@@ -46,7 +47,8 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   bool _hasError = false;
   String _errorMessage = '';
 
-  // Save the original item ID
+  // Store ID and item ID
+  String? _storeId;
   String? _originalItemId;
 
   // Animation controllers
@@ -98,12 +100,8 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       }
     });
 
-    // Initialize with existing item data if available
-    if (widget.menuItem != null) {
-      _initializeFromMenuItem(widget.menuItem!);
-    } else if (widget.item != null) {
-      _initializeFromItem(widget.item!);
-    }
+    // Initialize store ID and item data
+    _initializeData();
 
     // Add listeners to track changes
     _nameController.addListener(_onChange);
@@ -112,15 +110,35 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _stockController.addListener(_onChange);
   }
 
-  void _initializeFromMenuItem(MenuItem menuItem) {
+  Future<void> _initializeData() async {
+    try {
+      // Get store ID from user data
+      final userData = await AuthService.getUserData();
+      if (userData != null && userData['store'] != null) {
+        _storeId = userData['store']['id'].toString();
+      }
+
+      // Initialize with existing item data if available
+      if (widget.menuItem != null) {
+        _initializeFromMenuItem(widget.menuItem!);
+      } else if (widget.item != null) {
+        _initializeFromItem(widget.item!);
+      }
+    } catch (e) {
+      print('Error initializing data: $e');
+    }
+  }
+
+  void _initializeFromMenuItem(MenuItemModel menuItem) {
     _nameController.text = menuItem.name;
-    _descriptionController.text = menuItem.description ?? '';
+    _descriptionController.text = menuItem.description;
     _priceController.text = menuItem.price.toString();
-    _stockController.text = menuItem.quantity.toString();
-    _quantity = menuItem.quantity;
+    _stockController.text = '1'; // Default quantity
+    _quantity = 1;
     _selectedImageUrl = menuItem.imageUrl;
-    _selectedStatus = menuItem.status.toLowerCase();
+    _selectedStatus = menuItem.isAvailable ? 'available' : 'unavailable';
     _originalItemId = menuItem.id.toString();
+    _storeId = menuItem.storeId.toString();
   }
 
   void _initializeFromItem(Item item) {
@@ -130,7 +148,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _stockController.text = item.quantity.toString();
     _quantity = item.quantity;
     _selectedImageUrl = item.imageUrl;
-    _selectedStatus = item.status.toLowerCase();
+    _selectedStatus = item.isAvailable ? 'available' : 'unavailable';
     _originalItemId = item.id;
   }
 
@@ -163,18 +181,29 @@ class _AddEditItemFormState extends State<AddEditItemForm>
         _isUploading = true;
       });
 
-      // Use updated ImageService to pick and encode image
-      final imageData = await ImageService.pickAndEncodeImage(
-          source: ImageSource.gallery
+      // Use ImageService.pickImage method
+      final XFile? imageFile = await ImageService.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+        maxWidth: 1024,
+        maxHeight: 1024,
       );
 
-      if (imageData != null) {
-        setState(() {
-          _imageData = imageData;
-          _selectedImageUrl = imageData['base64'];
-          _isUploading = false;
-          _hasChanges = true;
-        });
+      if (imageFile != null) {
+        // Convert image to base64 using ImageService
+        final String? base64String = await ImageService.imageToBase64(imageFile);
+
+        if (base64String != null) {
+          setState(() {
+            _selectedImageFile = imageFile;
+            _imageBase64 = base64String;
+            _selectedImageUrl = imageFile.path; // For display purposes
+            _isUploading = false;
+            _hasChanges = true;
+          });
+        } else {
+          throw Exception('Failed to convert image to base64');
+        }
       } else {
         setState(() {
           _isUploading = false;
@@ -209,6 +238,13 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     if (_priceController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Harga harus diisi')),
+      );
+      return;
+    }
+
+    if (_storeId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Store ID tidak ditemukan')),
       );
       return;
     }
@@ -301,44 +337,47 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       final String name = _nameController.text;
       final String description = _descriptionController.text;
       final double price = double.tryParse(_priceController.text.replaceAll(',', '').replaceAll('.', '')) ?? 0.0;
-      final int stock = int.tryParse(_stockController.text) ?? 0;
+      final int stock = int.tryParse(_stockController.text) ?? 1;
       final bool isAvailable = _selectedStatus == 'available';
 
-      // Prepare item data
-      Map<String, dynamic> menuItemData = {
-        'name': name,
-        'description': description,
-        'price': price,
-        'quantity': stock,
-        'isAvailable': isAvailable,
-        'status': _selectedStatus,
-      };
-
       if (_originalItemId != null) {
-        // Update existing item using updated MenuService.updateMenuItem method
-        final updatedItem = await MenuService.updateMenuItem(_originalItemId!, menuItemData);
+        // Update existing item using MenuItemService.updateMenuItem
+        Map<String, dynamic> updateData = {
+          'name': name,
+          'description': description,
+          'price': price,
+          'isAvailable': isAvailable,
+        };
 
-        // If we have a new image, upload it separately
-        if (_imageData != null && updatedItem != null) {
-          // Create a new data object just for the image
-          Map<String, dynamic> imageUpdateData = {
-            'imageUrl': _imageData!['base64'],
-          };
-
-          // Update the item with the new image
-          await MenuService.updateMenuItem(_originalItemId!, imageUpdateData);
+        // Add image if new image is selected
+        if (_imageBase64 != null) {
+          updateData['image'] = _imageBase64;
         }
 
-        _showSuccessAnimation();
+        final updatedItem = await MenuItemService.updateMenuItem(
+          menuItemId: _originalItemId!,
+          updateData: updateData,
+        );
+
+        if (updatedItem.isNotEmpty) {
+          _showSuccessAnimation();
+        } else {
+          throw Exception('Failed to update menu item');
+        }
       } else {
-        // Add new item using updated MenuService.createMenuItem method
-        if (_selectedImageUrl != null && _selectedImageUrl!.isNotEmpty) {
-          menuItemData['imageUrl'] = _selectedImageUrl;
-        }
+        // Create new item using MenuItemService.createMenuItem
+        final newItem = await MenuItemService.createMenuItem(
+          name: name,
+          price: price,
+          storeId: _storeId!,
+          category: 'general', // Default category
+          description: description,
+          imageBase64: _imageBase64,
+          quantity: stock,
+          isAvailable: isAvailable,
+        );
 
-        final createdItem = await MenuService.createMenuItem(menuItemData);
-
-        if (createdItem != null) {
+        if (newItem.isNotEmpty) {
           _showSuccessAnimation();
         } else {
           throw Exception('Failed to create menu item');
@@ -359,7 +398,11 @@ class _AddEditItemFormState extends State<AddEditItemForm>
 
   Future<void> _showSuccessAnimation() async {
     // Play sound from assets/audio/alert.wav
-    await _audioPlayer.play(AssetSource('audio/alert.wav'));
+    try {
+      await _audioPlayer.play(AssetSource('audio/alert.wav'));
+    } catch (e) {
+      print('Error playing sound: $e');
+    }
 
     // Show success animation dialog
     showDialog(
@@ -501,7 +544,14 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                   child: InteractiveViewer(
                     minScale: 0.5,
                     maxScale: 4.0,
-                    child: ImageService.displayImage(
+                    child: _selectedImageFile != null
+                        ? Image.file(
+                      File(_selectedImageFile!.path),
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.contain,
+                    )
+                        : ImageService.displayImage(
                       imageSource: _selectedImageUrl!,
                       width: double.infinity,
                       height: double.infinity,
@@ -667,14 +717,6 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                           },
                         ),
                         const SizedBox(height: 16),
-                        _buildInputField(
-                          label: 'Stok',
-                          controller: _stockController,
-                          keyboardType: TextInputType.number,
-                          hint: '0',
-                          icon: Icons.inventory_2_outlined,
-                        ),
-                        const SizedBox(height: 16),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -712,8 +754,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                   icon: Icon(Icons.arrow_drop_down,
                                       color: GlobalStyle.primaryColor),
                                   items: _statusOptions.map((String status) {
-                                    String displayStatus = status.split('_').map((s) =>
-                                    s[0].toUpperCase() + s.substring(1)).join(' ');
+                                    String displayStatus = status == 'available' ? 'Available' : 'Unavailable';
 
                                     return DropdownMenuItem<String>(
                                       value: status,
@@ -726,9 +767,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                               shape: BoxShape.circle,
                                               color: status == 'available'
                                                   ? Colors.green
-                                                  : status == 'out_of_stock'
-                                                  ? Colors.red
-                                                  : Colors.orange,
+                                                  : Colors.red,
                                             ),
                                           ),
                                           const SizedBox(width: 8),
@@ -787,7 +826,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                             ],
                           ),
                         )
-                            : _selectedImageUrl != null
+                            : (_selectedImageFile != null || _selectedImageUrl != null)
                             ? Column(
                           children: [
                             GestureDetector(
@@ -809,7 +848,14 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                   ),
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(12),
-                                    child: ImageService.displayImage(
+                                    child: _selectedImageFile != null
+                                        ? Image.file(
+                                      File(_selectedImageFile!.path),
+                                      width: double.infinity,
+                                      height: 250,
+                                      fit: BoxFit.cover,
+                                    )
+                                        : ImageService.displayImage(
                                       imageSource: _selectedImageUrl!,
                                       width: double.infinity,
                                       height: 250,
