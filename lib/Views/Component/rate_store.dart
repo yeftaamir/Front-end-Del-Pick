@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Services/image_service.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
 class RateStore extends StatefulWidget {
   final StoreModel store;
@@ -24,13 +23,54 @@ class RateStore extends StatefulWidget {
   State<RateStore> createState() => _RateStoreState();
 }
 
-class _RateStoreState extends State<RateStore> {
+class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
   late double _storeRating;
+  late AnimationController _starAnimationController;
+  late AnimationController _storeImageController;
+  late Animation<double> _starScaleAnimation;
+  late Animation<double> _storeImageScaleAnimation;
 
   @override
   void initState() {
     super.initState();
     _storeRating = widget.initialRating;
+
+    // Initialize animations
+    _starAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _storeImageController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _starScaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.2,
+    ).animate(CurvedAnimation(
+      parent: _starAnimationController,
+      curve: Curves.elasticOut,
+    ));
+
+    _storeImageScaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.05,
+    ).animate(CurvedAnimation(
+      parent: _storeImageController,
+      curve: Curves.elasticOut,
+    ));
+
+    // Start store image animation
+    _storeImageController.forward();
+  }
+
+  @override
+  void dispose() {
+    _starAnimationController.dispose();
+    _storeImageController.dispose();
+    super.dispose();
   }
 
   @override
@@ -41,6 +81,34 @@ class _RateStoreState extends State<RateStore> {
         _storeRating = widget.initialRating;
       });
     }
+  }
+
+  void _onStarTapped(int starIndex) {
+    setState(() {
+      _storeRating = starIndex + 1.0;
+    });
+    widget.onRatingChanged(starIndex + 1.0);
+
+    // Trigger star animation
+    _starAnimationController.forward().then((_) {
+      _starAnimationController.reverse();
+    });
+  }
+
+  String _getRatingLabel(double rating) {
+    if (rating >= 5) return 'Sangat Puas';
+    if (rating >= 4) return 'Puas';
+    if (rating >= 3) return 'Cukup';
+    if (rating >= 2) return 'Kurang';
+    if (rating >= 1) return 'Sangat Kurang';
+    return 'Belum dinilai';
+  }
+
+  Color _getRatingColor(double rating) {
+    if (rating >= 4) return Colors.green;
+    if (rating >= 3) return Colors.orange;
+    if (rating >= 2) return Colors.red;
+    return Colors.grey;
   }
 
   Widget _buildInfoSection({
@@ -55,6 +123,13 @@ class _RateStoreState extends State<RateStore> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: GlobalStyle.borderColor.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: (customColor ?? GlobalStyle.primaryColor).withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -108,58 +183,74 @@ class _RateStoreState extends State<RateStore> {
           ),
         ),
         const SizedBox(height: 16),
+
+        // Rating Stars with Animation
         AbsorbPointer(
           absorbing: widget.isLoading,
           child: Opacity(
             opacity: widget.isLoading ? 0.7 : 1.0,
             child: Container(
               decoration: BoxDecoration(
-                color: GlobalStyle.lightColor.withOpacity(0.3),
+                color: GlobalStyle.primaryColor.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: GlobalStyle.primaryColor.withOpacity(0.1),
+                  color: GlobalStyle.primaryColor.withOpacity(0.2),
                   width: 1,
                 ),
               ),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(5, (index) {
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _storeRating = index + 1.0;
-                      });
-                      onRatingChanged(index + 1.0);
-                    },
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween<double>(
-                        begin: 0.0,
-                        end: index < rating ? 1.0 : 0.0,
-                      ),
-                      duration: const Duration(milliseconds: 300),
-                      builder: (context, value, _) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Icon(
-                            index < rating ? Icons.star : Icons.star_border,
-                            color: Color.lerp(
-                              Colors.grey[400],
-                              Colors.amber,
-                              value,
-                            ),
-                            size: 40 + (value * 5),
-                          ),
-                        );
-                      },
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      return GestureDetector(
+                        onTap: () => _onStarTapped(index),
+                        child: AnimatedBuilder(
+                          animation: _starScaleAnimation,
+                          builder: (context, child) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 6),
+                              child: Transform.scale(
+                                scale: index < rating ? _starScaleAnimation.value : 1.0,
+                                child: Icon(
+                                  index < rating ? Icons.star : Icons.star_border,
+                                  color: index < rating ? Colors.amber : Colors.grey[400],
+                                  size: 40,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  // Rating Label
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _getRatingColor(rating).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                  );
-                }),
+                    child: Text(
+                      _getRatingLabel(rating),
+                      style: TextStyle(
+                        color: _getRatingColor(rating),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ),
+
         const SizedBox(height: 20),
+
+        // Review Text Field
         AbsorbPointer(
           absorbing: widget.isLoading,
           child: Opacity(
@@ -179,7 +270,7 @@ class _RateStoreState extends State<RateStore> {
                 controller: controller,
                 maxLines: 3,
                 decoration: InputDecoration(
-                  hintText: 'Tulis ulasan anda disini...',
+                  hintText: 'Tulis ulasan anda untuk toko disini...',
                   hintStyle: TextStyle(
                     color: Colors.grey[400],
                     fontSize: 14,
@@ -214,9 +305,13 @@ class _RateStoreState extends State<RateStore> {
 
   @override
   Widget build(BuildContext context) {
+    // Get store data using the model properties
     final String storeName = widget.store.name.isNotEmpty
         ? widget.store.name
         : 'Store';
+
+    // Use processed image URL from the model
+    final String? storeImageUrl = widget.store.imageUrl;
 
     return _buildInfoSection(
       title: 'Informasi Toko',
@@ -231,41 +326,65 @@ class _RateStoreState extends State<RateStore> {
           ),
           child: Row(
             children: [
-              // Store image
-              ClipRRect(
-                borderRadius: BorderRadius.circular(30),
-                child: SizedBox(
-                  width: 60,
-                  height: 60,
-                  child: widget.store.imageUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                    imageUrl: ImageService.getImageUrl(widget.store.imageUrl),
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(
+              // Store image with animation
+              AnimatedBuilder(
+                animation: _storeImageScaleAnimation,
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: _storeImageScaleAnimation.value,
+                    child: Container(
+                      width: 70,
+                      height: 70,
                       decoration: BoxDecoration(
-                        color: Colors.indigo.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.indigo.withOpacity(0.3),
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.indigo.withOpacity(0.2),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
-                      child: const Center(
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo),
-                          strokeWidth: 2,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: storeImageUrl != null && storeImageUrl.isNotEmpty
+                            ? ImageService.displayImage(
+                          imageSource: storeImageUrl,
+                          width: 70,
+                          height: 70,
+                          fit: BoxFit.cover,
+                          placeholder: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.withOpacity(0.2),
+                            ),
+                            child: const Center(
+                              child: CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo),
+                                strokeWidth: 2,
+                              ),
+                            ),
+                          ),
+                          errorWidget: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.withOpacity(0.2),
+                            ),
+                            child: const Icon(Icons.store, color: Colors.indigo, size: 35),
+                          ),
+                        )
+                            : Container(
+                          decoration: BoxDecoration(
+                            color: Colors.indigo.withOpacity(0.2),
+                          ),
+                          child: const Icon(Icons.store, color: Colors.indigo, size: 35),
                         ),
                       ),
                     ),
-                    errorWidget: (context, url, error) => Container(
-                      decoration: BoxDecoration(
-                        color: Colors.indigo.withOpacity(0.2),
-                      ),
-                      child: const Icon(Icons.store, color: Colors.indigo, size: 30),
-                    ),
-                  )
-                      : Container(
-                    decoration: BoxDecoration(
-                      color: Colors.indigo.withOpacity(0.2),
-                    ),
-                    child: const Icon(Icons.store, color: Colors.indigo, size: 30),
-                  ),
-                ),
+                  );
+                },
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -278,44 +397,110 @@ class _RateStoreState extends State<RateStore> {
                         fontWeight: FontWeight.bold,
                         fontSize: 18,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
-                    if (widget.store.rating > 0)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 4.0),
+                    const SizedBox(height: 6),
+
+                    // Store Address
+                    if (widget.store.address.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.star, color: Colors.amber, size: 14),
+                            Icon(Icons.location_on, size: 14, color: Colors.grey[600]),
                             const SizedBox(width: 4),
-                            Text(
-                              '${widget.store.rating.toStringAsFixed(1)} (${widget.store.reviewCount} reviews)',
-                              style: TextStyle(
-                                color: Colors.grey[700],
-                                fontSize: 12,
+                            Flexible(
+                              child: Text(
+                                widget.store.address,
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 11,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
                       ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.indigo.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        widget.store.openHours.isNotEmpty
-                            ? widget.store.openHours
-                            : 'Buka',
-                        style: const TextStyle(
-                          color: Colors.indigo,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
+
+                    const SizedBox(height: 6),
+
+                    // Store Rating Display
+                    if (widget.store.rating > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star, color: Colors.amber, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${widget.store.rating.toStringAsFixed(1)} (${widget.store.reviewCount} reviews)',
+                              style: TextStyle(
+                                color: Colors.amber[800],
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+
+                    const SizedBox(height: 6),
+
+                    // Store Open Hours
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: widget.store.isOpen ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            size: 14,
+                            color: widget.store.isOpen ? Colors.green[700] : Colors.red[700],
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            widget.store.openHours.isNotEmpty
+                                ? widget.store.openHours
+                                : widget.store.statusDisplayName,
+                            style: TextStyle(
+                              color: widget.store.isOpen ? Colors.green[700] : Colors.red[700],
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+
+                    const SizedBox(height: 4),
+
+                    // Product Count
+                    if (widget.store.totalProducts > 0)
+                      Text(
+                        '${widget.store.totalProducts} produk tersedia',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
                   ],
                 ),
               ),

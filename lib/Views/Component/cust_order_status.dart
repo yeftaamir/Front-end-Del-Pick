@@ -1,18 +1,23 @@
-// customer_order_status_card.dart
+// cust_order_status.dart
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
+import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/image_service.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'dart:async';
 
 class CustomerOrderStatusCard extends StatefulWidget {
-  final Map<String, dynamic> orderData;
+  final String? orderId;
+  final Map<String, dynamic>? initialOrderData;
   final Animation<Offset>? animation;
 
   const CustomerOrderStatusCard({
     Key? key,
-    required this.orderData,
+    this.orderId,
+    this.initialOrderData,
     this.animation,
   }) : super(key: key);
 
@@ -23,7 +28,12 @@ class CustomerOrderStatusCard extends StatefulWidget {
 class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     with TickerProviderStateMixin {
   final AudioPlayer _audioPlayer = AudioPlayer();
+  OrderModel? _currentOrder;
   OrderStatus? _previousStatus;
+  bool _isLoading = false;
+  String? _errorMessage;
+  Timer? _statusUpdateTimer;
+
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -42,7 +52,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       'animation': 'assets/animations/loading_animation.json'
     },
     {
-      'status': OrderStatus.approved,
+      'status': OrderStatus.confirmed,
       'label': 'Dikonfirmasi',
       'description': 'Pesanan dikonfirmasi toko',
       'icon': Icons.check_circle_outline,
@@ -58,7 +68,15 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       'animation': 'assets/animations/diambil.json'
     },
     {
-      'status': OrderStatus.on_delivery,
+      'status': OrderStatus.readyForPickup,
+      'label': 'Siap Diambil',
+      'description': 'Pesanan siap diambil driver',
+      'icon': Icons.shopping_bag,
+      'color': Colors.indigo,
+      'animation': 'assets/animations/diambil.json'
+    },
+    {
+      'status': OrderStatus.onDelivery,
       'label': 'Dikirim',
       'description': 'Pesanan dalam perjalanan',
       'icon': Icons.delivery_dining,
@@ -78,6 +96,12 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
+    _loadOrderData();
+    _startStatusPolling();
+  }
+
+  void _initializeAnimations() {
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
@@ -85,63 +109,147 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+  }
 
-    final currentStatus = _getCurrentOrderStatus();
-    _previousStatus = currentStatus;
-
-    if (currentStatus == OrderStatus.cancelled) {
-      _playCancelSound();
+  Future<void> _loadOrderData() async {
+    if (widget.initialOrderData != null) {
+      _processOrderData(widget.initialOrderData!);
+      return;
     }
 
-    // Start pulse animation for pending status
-    if (currentStatus == OrderStatus.pending) {
+    if (widget.orderId == null) {
+      setState(() {
+        _errorMessage = 'Order ID tidak tersedia';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Menggunakan OrderService.getOrdersByUser() untuk mendapatkan data order customer
+      final response = await OrderService.getOrdersByUser(
+        page: 1,
+        limit: 50,
+        status: null,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+      );
+
+      final orders = response['orders'] as List? ?? [];
+      final targetOrder = orders.firstWhere(
+            (order) => order['id'].toString() == widget.orderId,
+        orElse: () => null,
+      );
+
+      if (targetOrder != null) {
+        _processOrderData(targetOrder);
+      } else {
+        // Fallback ke getOrderById jika tidak ditemukan di list
+        final orderData = await OrderService.getOrderById(widget.orderId!);
+        _processOrderData(orderData);
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Gagal memuat data pesanan: $e';
+      });
+      print('Error loading customer order data: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _processOrderData(Map<String, dynamic> orderData) {
+    try {
+      final newOrder = OrderModel.fromJson(orderData);
+      final previousStatus = _currentOrder?.orderStatus;
+
+      setState(() {
+        _currentOrder = newOrder;
+      });
+
+      // Handle status change animations and sounds
+      if (previousStatus != null && previousStatus != newOrder.orderStatus) {
+        _handleStatusChange(newOrder.orderStatus);
+      } else if (_previousStatus == null) {
+        // Initial load
+        _handleInitialStatus(newOrder.orderStatus);
+      }
+
+      _previousStatus = newOrder.orderStatus;
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error memproses data pesanan: $e';
+      });
+      print('Error processing order data: $e');
+    }
+  }
+
+  void _handleInitialStatus(OrderStatus status) {
+    if (status == OrderStatus.cancelled) {
+      _playCancelSound();
+    } else if (status == OrderStatus.pending) {
       _pulseController.repeat(reverse: true);
     }
   }
 
-  @override
-  void didUpdateWidget(CustomerOrderStatusCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    final currentStatus = _getCurrentOrderStatus();
-    if (_previousStatus != currentStatus) {
-      if (currentStatus == OrderStatus.cancelled) {
-        _playCancelSound();
-        _pulseController.stop();
+  void _handleStatusChange(OrderStatus newStatus) {
+    if (newStatus == OrderStatus.cancelled) {
+      _playCancelSound();
+      _pulseController.stop();
+    } else {
+      _playStatusChangeSound();
+      if (newStatus == OrderStatus.pending) {
+        _pulseController.repeat(reverse: true);
       } else {
-        _playStatusChangeSound();
-        if (currentStatus == OrderStatus.pending) {
-          _pulseController.repeat(reverse: true);
-        } else {
-          _pulseController.stop();
-        }
+        _pulseController.stop();
       }
-      _previousStatus = currentStatus;
     }
+  }
+
+  void _startStatusPolling() {
+    _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted && widget.orderId != null) {
+        _loadOrderData();
+      }
+    });
   }
 
   @override
   void dispose() {
     _audioPlayer.dispose();
     _pulseController.dispose();
+    _statusUpdateTimer?.cancel();
     super.dispose();
   }
 
-  OrderStatus _getCurrentOrderStatus() {
-    final statusString = widget.orderData['order_status'] ?? 'pending';
-    return OrderStatus.fromString(statusString);
-  }
-
   void _playStatusChangeSound() async {
-    await _audioPlayer.play(AssetSource('audio/kring.mp3'));
+    try {
+      await _audioPlayer.play(AssetSource('audio/kring.mp3'));
+    } catch (e) {
+      print('Error playing status change sound: $e');
+    }
   }
 
   void _playCancelSound() async {
-    await _audioPlayer.play(AssetSource('audio/found.wav'));
+    try {
+      await _audioPlayer.play(AssetSource('audio/wrong.mp3'));
+    } catch (e) {
+      print('Error playing cancel sound: $e');
+    }
   }
 
   Map<String, dynamic> _getCurrentStatusInfo() {
-    final currentStatus = _getCurrentOrderStatus();
+    if (_currentOrder == null) {
+      return _statusTimeline[0];
+    }
+
+    final currentStatus = _currentOrder!.orderStatus;
 
     if (currentStatus == OrderStatus.cancelled) {
       return {
@@ -150,7 +258,18 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
         'description': 'Pesanan telah dibatalkan',
         'icon': Icons.cancel_outlined,
         'color': Colors.red,
-        'animation': 'assets/animations/cancel.json'
+        'animation': 'assets/animations/caution.json'
+      };
+    }
+
+    if (currentStatus == OrderStatus.rejected) {
+      return {
+        'status': OrderStatus.rejected,
+        'label': 'Ditolak',
+        'description': 'Pesanan ditolak oleh toko',
+        'icon': Icons.block,
+        'color': Colors.red,
+        'animation': 'assets/animations/caution.json'
       };
     }
 
@@ -161,27 +280,33 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
   }
 
   int _getCurrentStatusIndex() {
-    final currentStatus = _getCurrentOrderStatus();
+    if (_currentOrder == null) return 0;
+    final currentStatus = _currentOrder!.orderStatus;
     return _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return _buildLoadingCard();
+    }
+
+    if (_errorMessage != null) {
+      return _buildErrorCard();
+    }
+
+    if (_currentOrder == null) {
+      return _buildNoDataCard();
+    }
+
     final currentStatusInfo = _getCurrentStatusInfo();
-    final currentStatus = _getCurrentOrderStatus();
+    final currentStatus = _currentOrder!.orderStatus;
     final currentIndex = _getCurrentStatusIndex();
 
     Widget content = Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            _primaryColor.withOpacity(0.02),
-          ],
-        ),
+        color: Colors.white, // Background putih sesuai requirement
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -233,7 +358,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
                           ),
                         ),
                         Text(
-                          'Order #${widget.orderData['id']}',
+                          'Order #${_currentOrder!.id}',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.white.withOpacity(0.9),
@@ -243,12 +368,30 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
                       ],
                     ),
                   ),
+                  // Order total
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _currentOrder!.formatTotalAmount(),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
 
             // Content
-            Padding(
+            Container(
+              color: Colors.white, // Background putih untuk content
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
@@ -280,8 +423,8 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
 
                   const SizedBox(height: 20),
 
-                  // Status Timeline (only for non-cancelled orders)
-                  if (currentStatus != OrderStatus.cancelled)
+                  // Status Timeline (only for non-cancelled/rejected orders)
+                  if (currentStatus != OrderStatus.cancelled && currentStatus != OrderStatus.rejected)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
@@ -401,10 +544,78 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
                     ),
                   ),
 
+                  // Store info
+                  if (_currentOrder!.store != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.grey.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            // Store image
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: ImageService.displayImage(
+                                imageSource: _currentOrder!.store!.imageUrl ?? '',
+                                width: 40,
+                                height: 40,
+                                fit: BoxFit.cover,
+                                placeholder: Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: Colors.grey[300],
+                                  child: Icon(Icons.store, color: Colors.grey[600], size: 20),
+                                ),
+                                errorWidget: Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: Colors.grey[300],
+                                  child: Icon(Icons.store, color: Colors.grey[600], size: 20),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _currentOrder!.store!.name,
+                                    style: TextStyle(
+                                      color: Colors.grey[800],
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      fontFamily: GlobalStyle.fontFamily,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${_currentOrder!.totalItems} item',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
+                                      fontFamily: GlobalStyle.fontFamily,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                   // Estimated delivery time (if available)
-                  if (widget.orderData['estimatedDeliveryTime'] != null &&
+                  if (_currentOrder!.estimatedDeliveryTime != null &&
                       currentStatus != OrderStatus.delivered &&
-                      currentStatus != OrderStatus.cancelled)
+                      currentStatus != OrderStatus.cancelled &&
+                      currentStatus != OrderStatus.rejected)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Container(
@@ -451,9 +662,122 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     return content;
   }
 
+  Widget _buildLoadingCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Column(
+          children: [
+            Lottie.asset(
+              'assets/animations/loading_animation.json',
+              height: 100,
+              width: 100,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Memuat status pesanan...',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.red.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.error_outline, color: Colors.red, size: 60),
+          const SizedBox(height: 16),
+          Text(
+            'Error',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.red,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage!,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoDataCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.inbox_outlined, color: Colors.grey, size: 60),
+          const SizedBox(height: 16),
+          Text(
+            'Tidak ada data pesanan',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[600],
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatEstimatedTime() {
+    if (_currentOrder?.estimatedDeliveryTime == null) return 'Segera';
+
     try {
-      final estimatedTime = DateTime.parse(widget.orderData['estimatedDeliveryTime']);
+      final estimatedTime = _currentOrder!.estimatedDeliveryTime!;
       final now = DateTime.now();
       final difference = estimatedTime.difference(now);
 

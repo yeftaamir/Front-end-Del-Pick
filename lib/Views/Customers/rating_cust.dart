@@ -1,17 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:lottie/lottie.dart';
-import 'package:del_pick/Views/Component/rate_store.dart';
-import 'package:del_pick/Views/Component/rate_driver.dart';
+
+// Import Models
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/driver.dart';
+import 'package:del_pick/Models/store.dart';
+
+// Import Services
 import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/driver_service.dart';
+import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
+
+// Import Components
+import 'package:del_pick/Views/Component/rate_store.dart';
+import 'package:del_pick/Views/Component/rate_driver.dart';
 
 class RatingCustomerPage extends StatefulWidget {
   static const String route = "/Customers/RatingCustomerPage";
 
-  final Order order;
+  final OrderModel order;
 
   const RatingCustomerPage({
     Key? key,
@@ -23,6 +32,7 @@ class RatingCustomerPage extends StatefulWidget {
 }
 
 class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProviderStateMixin {
+  // Rating values
   double _storeRating = 0;
   double _driverRating = 0;
   final TextEditingController _storeReviewController = TextEditingController();
@@ -33,18 +43,23 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
   late List<Animation<Offset>> _cardAnimations;
 
   // State management
-  bool _isLoading = false;
+  bool _isLoading = true;
   bool _isSubmitting = false;
   String? _errorMessage;
 
-  // Driver data
-  Map<String, dynamic>? _driver;
-  bool _isLoadingDriver = false;
+  // Data objects
+  StoreModel? _storeDetail;
+  DriverModel? _driverDetail;
+  Map<String, dynamic>? _orderTrackingData;
 
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
+    _loadRequiredData();
+  }
 
+  void _initializeAnimations() {
     // Initialize animation controllers for each card section
     _cardControllers = List.generate(
       3, // Number of card sections
@@ -64,16 +79,6 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
         curve: Curves.easeOutCubic,
       ));
     }).toList();
-
-    // Start animations sequentially
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (var controller in _cardControllers) {
-        controller.forward();
-      }
-    });
-
-    // Fetch the driver data
-    _fetchDriverData();
   }
 
   @override
@@ -86,42 +91,97 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     super.dispose();
   }
 
-  // Fetch driver data if available
-  Future<void> _fetchDriverData() async {
-    if (widget.order.driverId == null) {
-      return;
-    }
-
+  // Load required data using proper services
+  Future<void> _loadRequiredData() async {
     setState(() {
-      _isLoadingDriver = true;
+      _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
-      // Using TrackingService to get order details which includes driver
-      final orderDetailData = await TrackingService.getOrderDetail(widget.order.id);
+      // Load data in parallel for better performance
+      await Future.wait([
+        _loadStoreDetail(),
+        _loadDriverDetail(),
+        _loadOrderTrackingData(),
+      ]);
 
-      if (orderDetailData != null && orderDetailData['driver'] != null) {
-        setState(() {
-          _driver = orderDetailData['driver'];
-          _isLoadingDriver = false;
-        });
-      } else {
-        setState(() {
-          _isLoadingDriver = false;
-          _errorMessage = 'Driver information not available.';
-        });
-      }
+      setState(() {
+        _isLoading = false;
+      });
+
+      // Start animations sequentially after data is loaded
+      Future.delayed(const Duration(milliseconds: 100), () {
+        for (var controller in _cardControllers) {
+          controller.forward();
+        }
+      });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to load driver data: $e';
-        _isLoadingDriver = false;
+        _isLoading = false;
+        _errorMessage = 'Failed to load rating data: $e';
       });
+      print('Error loading rating data: $e');
     }
   }
 
-  // Submit reviews to backend
+  // Load store detail using StoreService.getStoreById()
+  Future<void> _loadStoreDetail() async {
+    try {
+      final storeData = await StoreService.getStoreById(widget.order.storeId.toString());
+      _storeDetail = StoreModel.fromJson(storeData);
+    } catch (e) {
+      print('Error loading store detail: $e');
+      // Create fallback store model from order data
+      _storeDetail = widget.order.store;
+    }
+  }
+
+  // Load driver detail using DriverService.getDriverById()
+  Future<void> _loadDriverDetail() async {
+    if (widget.order.driverId == null) {
+      print('No driver assigned to this order');
+      return;
+    }
+
+    try {
+      final driverData = await DriverService.getDriverById(widget.order.driverId.toString());
+      _driverDetail = DriverModel.fromJson(driverData);
+    } catch (e) {
+      print('Error loading driver detail: $e');
+      // Try to get driver from tracking data as fallback
+      try {
+        final trackingData = await TrackingService.getTrackingData(widget.order.id.toString());
+        if (trackingData['driver'] != null) {
+          _driverDetail = DriverModel.fromJson(trackingData['driver']);
+        }
+      } catch (trackingError) {
+        print('Error loading driver from tracking: $trackingError');
+        // Use driver from order data if available
+        _driverDetail = widget.order.driver;
+      }
+    }
+  }
+
+  // Load order tracking data using TrackingService.getTrackingData()
+  Future<void> _loadOrderTrackingData() async {
+    try {
+      _orderTrackingData = await TrackingService.getTrackingData(widget.order.id.toString());
+    } catch (e) {
+      print('Error loading tracking data: $e');
+      // This is optional data, so we don't need to fail if it's not available
+    }
+  }
+
+  // Submit reviews using OrderService.createReview()
   Future<void> _submitReviews() async {
     if (_isSubmitting) return;
+
+    // Validate that at least one rating is given
+    if (_storeRating <= 0 && _driverRating <= 0) {
+      _showErrorSnackBar('Mohon berikan rating untuk toko atau driver');
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -129,52 +189,42 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     });
 
     try {
-      // Convert ratings to integer values (1-5)
-      final int storeRatingInt = _storeRating.round();
-      final int driverRatingInt = _driverRating.round();
-
       // Prepare review data
-      Map<String, dynamic> reviewData = {
-        'orderId': widget.order.id,
+      final Map<String, dynamic> orderReview = {
+        'rating': _storeRating.round(),
+        'comment': _storeReviewController.text.trim(),
       };
 
-      // Only add ratings that have been set
-      if (storeRatingInt > 0) {
-        reviewData['storeRating'] = storeRatingInt;
-        if (_storeReviewController.text.isNotEmpty) {
-          reviewData['storeComment'] = _storeReviewController.text;
-        }
-      }
+      final Map<String, dynamic> driverReview = {
+        'rating': _driverRating.round(),
+        'comment': _driverReviewController.text.trim(),
+      };
 
-      if (_driver != null && driverRatingInt > 0) {
-        reviewData['driverRating'] = driverRatingInt;
-        if (_driverReviewController.text.isNotEmpty) {
-          reviewData['driverComment'] = _driverReviewController.text;
-        }
-      }
-
-      // Use OrderService.createReview() from the updated services
-      final result = await OrderService.createReview(reviewData);
-
-      setState(() {
-        _isSubmitting = false;
-      });
+      // Submit review using OrderService.createReview()
+      final result = await OrderService.createReview(
+        orderId: widget.order.id.toString(),
+        orderReview: orderReview,
+        driverReview: driverReview,
+      );
 
       if (result != null) {
         await _showSuccessDialog();
       } else {
-        setState(() {
-          _errorMessage = 'Failed to submit review. Please try again.';
-        });
+        throw Exception('Failed to submit review - no response data');
       }
     } catch (e) {
       setState(() {
+        _errorMessage = 'Failed to submit review: $e';
+      });
+      _showErrorSnackBar(_errorMessage!);
+    } finally {
+      setState(() {
         _isSubmitting = false;
-        _errorMessage = 'Error: $e';
       });
     }
   }
 
+  // Show success dialog with animation
   Future<void> _showSuccessDialog() async {
     await showDialog(
       context: context,
@@ -225,7 +275,12 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                   ),
                   onPressed: () {
                     Navigator.pop(context); // Close dialog
-                    Navigator.pushReplacementNamed(context, '/Customers/HistoryCustomer');
+                    Navigator.pop(context, {
+                      'storeRating': _storeRating.round(),
+                      'storeComment': _storeReviewController.text.trim(),
+                      'driverRating': _driverRating.round(),
+                      'driverComment': _driverReviewController.text.trim(),
+                    }); // Return to previous screen with review data
                   },
                   child: const Text(
                     "OK",
@@ -241,6 +296,19 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
           ),
         );
       },
+    );
+  }
+
+  // Show error snackbar
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 4),
+      ),
     );
   }
 
@@ -287,20 +355,16 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.red),
-            onPressed: () {
-              setState(() {
-                _errorMessage = null;
-              });
-            },
+            icon: const Icon(Icons.refresh, color: Colors.red),
+            onPressed: _loadRequiredData,
           ),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  // Build loading state
+  Widget _buildLoadingState() {
     return Scaffold(
       backgroundColor: const Color(0xffF5F8FB),
       appBar: AppBar(
@@ -332,9 +396,68 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
           ),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Lottie.asset(
+              'assets/animations/loading_animation.json',
+              width: 150,
+              height: 150,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              "Memuat Data Rating...",
+              style: TextStyle(
+                color: GlobalStyle.primaryColor,
+                fontWeight: FontWeight.w500,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return _buildLoadingState();
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xffF5F8FB),
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        leadingWidth: 70,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 16.0),
+          child: IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(8.0),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: GlobalStyle.primaryColor.withOpacity(0.1),
+                border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
+              ),
+              child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+            ),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+        title: Text(
+          'Beri Ulasan',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+      ),
+      body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
@@ -370,38 +493,24 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                 _buildErrorCard(),
 
               // Store Rating Section
-              _buildCard(
-                index: 0,
-                child: RateStore(
-                  store: widget.order.store,
-                  initialRating: _storeRating,
-                  onRatingChanged: (value) => setState(() => _storeRating = value),
-                  reviewController: _storeReviewController,
-                  isLoading: _isSubmitting,
+              if (_storeDetail != null)
+                _buildCard(
+                  index: 0,
+                  child: RateStore(
+                    store: _storeDetail!,
+                    initialRating: _storeRating,
+                    onRatingChanged: (value) => setState(() => _storeRating = value),
+                    reviewController: _storeReviewController,
+                    isLoading: _isSubmitting,
+                  ),
                 ),
-              ),
 
               // Driver Rating Section (only shown if there's driver info)
-              if (_isLoadingDriver)
-                _buildCard(
-                  index: 1,
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    alignment: Alignment.center,
-                    child: const Column(
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('Loading driver data...'),
-                      ],
-                    ),
-                  ),
-                )
-              else if (_driver != null)
+              if (_driverDetail != null)
                 _buildCard(
                   index: 1,
                   child: RateDriver(
-                    driver: Driver.fromJson(_driver!),
+                    driver: _driverDetail!,
                     initialRating: _driverRating,
                     onRatingChanged: (value) => setState(() => _driverRating = value),
                     reviewController: _driverReviewController,
@@ -438,7 +547,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Pesanan #${widget.order.code} telah selesai',
+                        'Pesanan #${widget.order.id} telah selesai',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 14,
@@ -446,7 +555,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Total: ${widget.order.formatTotal()}',
+                        'Total: ${widget.order.formatTotalAmount()}',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 14,
@@ -491,12 +600,12 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                               ),
                             ],
                           )
-                              : Row(
+                              : const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.send_rounded),
-                              const SizedBox(width: 8),
-                              const Text(
+                              Icon(Icons.send_rounded),
+                              SizedBox(width: 8),
+                              Text(
                                 'Kirim Ulasan',
                                 style: TextStyle(
                                   fontSize: 16,

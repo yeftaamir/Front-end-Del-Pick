@@ -1,16 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../Models/order_enum.dart';
-import '../Component/cust_bottom_navigation.dart';
-import 'package:del_pick/Models/order_review.dart';
-import 'package:del_pick/Models/store.dart';
-import 'package:del_pick/Models/tracking.dart';
+import 'package:lottie/lottie.dart';
+
+// Import Models
 import 'package:del_pick/Models/order.dart';
-import 'package:del_pick/Views/Customers/history_detail.dart';
+import 'package:del_pick/Models/order_enum.dart';
+import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/Models/menu_item.dart';
+
+// Import Services
 import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/image_service.dart';
+
+// Import Components and Screens
+import '../Component/cust_bottom_navigation.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'home_cust.dart';
+import 'history_detail.dart';
 
 class HistoryCustomer extends StatefulWidget {
   static const String route = "/Customers/HistoryCustomer";
@@ -29,94 +36,193 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
 
-  // List for storing orders from API
-  List<Order> orders = [];
+  // Data state variables
+  List<OrderModel> orders = [];
+  Map<int, List<MenuItemModel>> storeMenuItems = {}; // Cache menu items by store ID
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   String? _errorMessage;
+
+  // Pagination variables
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalItems = 0;
+  static const int _pageSize = 10;
+  bool _hasMoreData = true;
+
+  // Scroll controller for pagination
+  late ScrollController _scrollController;
 
   @override
   void initState() {
     super.initState();
 
     _tabController = TabController(length: 4, vsync: this);
+    _scrollController = ScrollController();
 
-    // Initialize with placeholders, will be updated when data is fetched
+    // Initialize with empty controllers, will be updated when data is fetched
     _cardControllers = [];
     _cardAnimations = [];
 
-    // Fetch orders on init
-    _fetchOrders();
+    // Setup scroll listener for pagination
+    _scrollController.addListener(_onScroll);
+
+    // Fetch initial orders
+    _fetchOrders(isRefresh: true);
   }
 
-  // Fetch orders from API
-  Future<void> _fetchOrders() async {
-    try {
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _scrollController.dispose();
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  // Scroll listener for pagination
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent * 0.8) {
+      _loadMoreOrders();
+    }
+  }
+
+  // Fetch orders from API using OrderService.getOrdersByUser()
+  Future<void> _fetchOrders({bool isRefresh = false}) async {
+    if (isRefresh) {
       setState(() {
+        _currentPage = 1;
+        _hasMoreData = true;
         _isLoading = true;
         _errorMessage = null;
       });
+    }
 
-      // Call the API service to get customer orders - update to use getOrdersByUser()
-      final orderData = await OrderService.getOrdersByUser();
+    try {
+      // Get current tab filter
+      String? statusFilter = _getStatusFilter(_tabController.index);
 
-      // Parse order data into Order objects
-      List<Order> fetchedOrders = [];
+      // Call OrderService.getOrdersByUser() with proper parameters
+      final orderData = await OrderService.getOrdersByUser(
+        page: _currentPage,
+        limit: _pageSize,
+        status: statusFilter,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+      );
 
-      // Check if orderData has the expected structure
-      if (orderData.isNotEmpty) {
-        if (orderData['orders'] is List) {
-          // If the API returns orders in a 'orders' key
-          for (var orderJson in orderData['orders']) {
-            try {
-              final order = Order.fromJson(orderJson);
-              fetchedOrders.add(order);
-            } catch (e) {
-              print('Error parsing order: $e');
-              // Continue with next order if one fails to parse
-            }
-          }
-        } else {
-          // Alternative structure: Orders might be at the root level
+      // Parse the response according to the service structure
+      List<OrderModel> fetchedOrders = [];
+      if (orderData['orders'] != null && orderData['orders'] is List) {
+        for (var orderJson in orderData['orders']) {
           try {
-            // Try to iterate over the main data
-            for (var key in orderData.keys) {
-              if (orderData[key] is List) {
-                for (var orderJson in orderData[key]) {
-                  try {
-                    final order = Order.fromJson(orderJson);
-                    fetchedOrders.add(order);
-                  } catch (e) {
-                    print('Error parsing order in $key: $e');
-                  }
-                }
-              }
-            }
+            final order = OrderModel.fromJson(orderJson);
+            fetchedOrders.add(order);
           } catch (e) {
-            print('Error iterating order data: $e');
+            print('Error parsing order: $e');
+            // Continue with next order if one fails to parse
           }
         }
       }
 
-      // Setup animations after data is fetched
-      _setupAnimations(fetchedOrders.length);
+      // Load menu items for stores if needed
+      await _loadMenuItemsForOrders(fetchedOrders);
+
+      // Update pagination info
+      _totalItems = orderData['totalItems'] ?? 0;
+      _totalPages = orderData['totalPages'] ?? 1;
+      _hasMoreData = _currentPage < _totalPages;
 
       setState(() {
-        orders = fetchedOrders;
+        if (isRefresh) {
+          orders = fetchedOrders;
+        } else {
+          orders.addAll(fetchedOrders);
+        }
         _isLoading = false;
+        _isLoadingMore = false;
       });
 
-      // Start animations
-      Future.delayed(const Duration(milliseconds: 100), () {
-        for (var controller in _cardControllers) {
-          controller.forward();
-        }
-      });
+      // Setup animations after data is fetched
+      if (isRefresh) {
+        _setupAnimations(orders.length);
+        _startAnimations();
+      }
     } catch (e) {
       setState(() {
         _isLoading = false;
+        _isLoadingMore = false;
         _errorMessage = 'Failed to load orders: $e';
       });
       print('Error fetching orders: $e');
+    }
+  }
+
+  // Load more orders for pagination
+  Future<void> _loadMoreOrders() async {
+    if (_isLoadingMore || !_hasMoreData) return;
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    _currentPage++;
+    await _fetchOrders(isRefresh: false);
+  }
+
+  // Load menu items for stores using MenuItemService.getMenuItemsByStore()
+  Future<void> _loadMenuItemsForOrders(List<OrderModel> ordersList) async {
+    // Get unique store IDs that we don't have menu items for yet
+    Set<int> storeIds = {};
+    for (var order in ordersList) {
+      if (!storeMenuItems.containsKey(order.storeId)) {
+        storeIds.add(order.storeId);
+      }
+    }
+
+    // Load menu items for each store
+    for (int storeId in storeIds) {
+      try {
+        final menuData = await MenuItemService.getMenuItemsByStore(
+          storeId: storeId.toString(),
+          page: 1,
+          limit: 50, // Get enough items to cover order items
+          isAvailable: null, // Get all items regardless of availability
+        );
+
+        if (menuData['data'] != null && menuData['data'] is List) {
+          List<MenuItemModel> menuItems = [];
+          for (var menuJson in menuData['data']) {
+            try {
+              final menuItem = MenuItemModel.fromJson(menuJson);
+              menuItems.add(menuItem);
+            } catch (e) {
+              print('Error parsing menu item: $e');
+            }
+          }
+          storeMenuItems[storeId] = menuItems;
+        }
+      } catch (e) {
+        print('Error loading menu items for store $storeId: $e');
+        // Continue with other stores if one fails
+      }
+    }
+  }
+
+  // Get status filter based on tab index
+  String? _getStatusFilter(int tabIndex) {
+    switch (tabIndex) {
+      case 0: // All orders
+        return null;
+      case 1: // In progress
+        return 'pending,confirmed,preparing,ready_for_pickup,on_delivery';
+      case 2: // Completed
+        return 'delivered';
+      case 3: // Cancelled
+        return 'cancelled';
+      default:
+        return null;
     }
   }
 
@@ -148,29 +254,30 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     }).toList();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    for (var controller in _cardControllers) {
-      controller.dispose();
-    }
-    super.dispose();
+  // Start animations
+  void _startAnimations() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (var controller in _cardControllers) {
+        controller.forward();
+      }
+    });
   }
 
-  // Get filtered orders based on tab index
-  List<Order> getFilteredOrders(int tabIndex) {
+  // Get filtered orders based on tab index (client-side filtering for better UX)
+  List<OrderModel> getFilteredOrders(int tabIndex) {
     switch (tabIndex) {
       case 0: // All orders
         return orders;
       case 1: // In progress
-        return orders.where((order) =>
-        !order.status.isCompleted
-        ).toList();
+        return orders.where((order) => !order.orderStatus.isCompleted).toList();
       case 2: // Completed
-        return orders.where((order) => order.status == OrderStatus.completed ||
-            order.status == OrderStatus.delivered).toList();
+        return orders.where((order) =>
+        order.orderStatus == OrderStatus.delivered
+        ).toList();
       case 3: // Cancelled
-        return orders.where((order) => order.status == OrderStatus.cancelled).toList();
+        return orders.where((order) =>
+        order.orderStatus == OrderStatus.cancelled
+        ).toList();
       default:
         return orders;
     }
@@ -178,48 +285,42 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
 
   // Get status color based on order status
   Color getStatusColor(OrderStatus status) {
-    if (status == OrderStatus.completed || status == OrderStatus.delivered) {
-      return Colors.green;
-    } else if (status == OrderStatus.cancelled) {
-      return Colors.red;
-    } else if (status == OrderStatus.on_delivery ||
-        status == OrderStatus.driverHeadingToCustomer) {
-      return Colors.blue;
-    } else if (status == OrderStatus.preparing ||
-        status == OrderStatus.driverAtStore) {
-      return Colors.orange;
-    } else {
-      return Colors.blue.shade300; // Default for other statuses
+    switch (status) {
+      case OrderStatus.delivered:
+        return Colors.green;
+      case OrderStatus.cancelled:
+      case OrderStatus.rejected:
+        return Colors.red;
+      case OrderStatus.onDelivery:
+        return Colors.blue;
+      case OrderStatus.preparing:
+        return Colors.orange;
+      case OrderStatus.confirmed:
+        return Colors.indigo;
+      default:
+        return GlobalStyle.primaryColor;
     }
   }
 
   // Get human-readable status text
   String getStatusText(OrderStatus status) {
     switch (status) {
-      case OrderStatus.completed:
-        return 'Selesai';
-      case OrderStatus.delivered:
-        return 'Terkirim';
-      case OrderStatus.cancelled:
-        return 'Dibatalkan';
       case OrderStatus.pending:
         return 'Menunggu';
-      case OrderStatus.approved:
-        return 'Disetujui';
+      case OrderStatus.confirmed:
+        return 'Dikonfirmasi';
       case OrderStatus.preparing:
         return 'Diproses';
-      case OrderStatus.on_delivery:
+      case OrderStatus.readyForPickup:
+        return 'Siap Diambil';
+      case OrderStatus.onDelivery:
         return 'Diantar';
-      case OrderStatus.driverAssigned:
-        return 'Driver Ditugaskan';
-      case OrderStatus.driverHeadingToStore:
-        return 'Driver Menuju Toko';
-      case OrderStatus.driverAtStore:
-        return 'Driver Di Toko';
-      case OrderStatus.driverHeadingToCustomer:
-        return 'Driver Menuju Anda';
-      case OrderStatus.driverArrived:
-        return 'Driver Tiba';
+      case OrderStatus.delivered:
+        return 'Selesai';
+      case OrderStatus.cancelled:
+        return 'Dibatalkan';
+      case OrderStatus.rejected:
+        return 'Ditolak';
       default:
         return 'Diproses';
     }
@@ -235,7 +336,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   }
 
   // Create a summary of items for display
-  String getOrderItemsText(Order order) {
+  String getOrderItemsText(OrderModel order) {
     if (order.items.isEmpty) {
       return "Tidak ada item";
     }
@@ -246,6 +347,14 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
       final otherItemsCount = order.items.length - 1;
       return '$firstItem, +$otherItemsCount item lainnya';
     }
+  }
+
+  // Get first item image URL
+  String? getFirstItemImageUrl(OrderModel order) {
+    if (order.items.isNotEmpty && order.items[0].imageUrl != null) {
+      return order.items[0].imageUrl;
+    }
+    return null;
   }
 
   Widget _buildStatusChip(String text, Color color) {
@@ -266,23 +375,30 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     );
   }
 
-  Widget _buildOrderCard(Order order, int index) {
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.orderDate);
-    final statusColor = getStatusColor(order.status);
-    final statusText = getStatusText(order.status);
+  Widget _buildOrderCard(OrderModel order, int index) {
+    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt);
+    final statusColor = getStatusColor(order.orderStatus);
+    final statusText = getStatusText(order.orderStatus);
     final itemsText = getOrderItemsText(order);
+    final firstImageUrl = getFirstItemImageUrl(order);
 
     return SlideTransition(
       position: index < _cardAnimations.length ? _cardAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
-      child: Card(
-        elevation: 3,
+      child: Container(
         margin: const EdgeInsets.only(bottom: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        color: Colors.white,
         child: InkWell(
-          borderRadius: BorderRadius.circular(15),
+          borderRadius: BorderRadius.circular(16),
           onTap: () {
             Navigator.push(
               context,
@@ -291,7 +407,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                   order: order,
                 ),
               ),
-            ).then((_) => _fetchOrders()); // Refresh when returning from detail page
+            ).then((_) => _fetchOrders(isRefresh: true)); // Refresh when returning
           },
           child: Container(
             padding: const EdgeInsets.all(16),
@@ -301,12 +417,12 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Use ImageService to display the image
+                    // Order item image
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: order.items.isNotEmpty && order.items.first.imageUrl.isNotEmpty
+                      child: firstImageUrl != null
                           ? ImageService.displayImage(
-                        imageSource: order.items.first.imageUrl,
+                        imageSource: firstImageUrl,
                         width: 60,
                         height: 60,
                         fit: BoxFit.cover,
@@ -316,11 +432,20 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                           color: Colors.grey[200],
                           child: const Icon(Icons.restaurant_menu, color: Colors.grey),
                         ),
+                        errorWidget: Container(
+                          width: 60,
+                          height: 60,
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                        ),
                       )
                           : Container(
                         width: 60,
                         height: 60,
-                        color: Colors.grey[200],
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         child: const Icon(Icons.restaurant_menu, color: Colors.grey),
                       ),
                     ),
@@ -334,7 +459,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                             children: [
                               Expanded(
                                 child: Text(
-                                  order.store.name,
+                                  order.store?.name ?? 'Unknown Store',
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
@@ -351,9 +476,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            order.code != null && order.code!.isNotEmpty
-                                ? 'Order #${order.code}'
-                                : 'Order #${order.id}',
+                            'Order #${order.id}',
                             style: TextStyle(
                               fontSize: 13,
                               color: GlobalStyle.primaryColor,
@@ -402,7 +525,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          order.formatTotal(),
+                          order.formatTotalAmount(),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -421,7 +544,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                               order: order,
                             ),
                           ),
-                        ).then((_) => _fetchOrders()); // Refresh when returning from detail page
+                        ).then((_) => _fetchOrders(isRefresh: true));
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: GlobalStyle.primaryColor,
@@ -453,7 +576,11 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.receipt_long, size: 70, color: Colors.grey[400]),
+            Lottie.asset(
+              'assets/animations/empty_cart.json',
+              width: 200,
+              height: 200,
+            ),
             const SizedBox(height: 16),
             Text(
               message,
@@ -476,21 +603,19 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: () {
                 Navigator.pushReplacementNamed(context, HomePage.route);
               },
+              icon: const Icon(Icons.shopping_bag),
+              label: const Text('Mulai Belanja'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
-              ),
-              child: const Text(
-                'Pesan Sekarang',
-                style: TextStyle(fontWeight: FontWeight.w500),
               ),
             ),
           ],
@@ -504,13 +629,18 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: GlobalStyle.primaryColor),
+          Lottie.asset(
+            'assets/animations/loading_animation.json',
+            width: 150,
+            height: 150,
+          ),
           const SizedBox(height: 16),
           Text(
             'Memuat riwayat pesanan...',
             style: TextStyle(
               fontSize: 16,
-              color: Colors.grey[600],
+              color: GlobalStyle.primaryColor,
+              fontWeight: FontWeight.w500,
               fontFamily: GlobalStyle.fontFamily,
             ),
           ),
@@ -524,21 +654,40 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.error_outline, size: 70, color: Colors.red[300]),
+          Lottie.asset(
+            'assets/animations/caution.json',
+            width: 150,
+            height: 150,
+          ),
           const SizedBox(height: 16),
           Text(
-            _errorMessage ?? 'Terjadi kesalahan',
+            'Gagal Memuat Data',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 18,
               color: Colors.red[600],
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.bold,
               fontFamily: GlobalStyle.fontFamily,
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              _errorMessage ?? 'Terjadi kesalahan saat memuat data',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
           const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: _fetchOrders,
+          ElevatedButton.icon(
+            onPressed: () => _fetchOrders(isRefresh: true),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Coba Lagi'),
             style: ElevatedButton.styleFrom(
               backgroundColor: GlobalStyle.primaryColor,
               foregroundColor: Colors.white,
@@ -547,7 +696,34 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-            child: const Text('Coba Lagi'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreIndicator() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      alignment: Alignment.center,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(GlobalStyle.primaryColor),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            'Memuat lebih banyak...',
+            style: TextStyle(
+              color: GlobalStyle.primaryColor,
+              fontSize: 14,
+            ),
           ),
         ],
       ),
@@ -568,7 +744,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
       child: Scaffold(
         backgroundColor: const Color(0xffF5F7FA),
         appBar: AppBar(
-          elevation: 0,
+          elevation: 0.5,
           backgroundColor: Colors.white,
           title: Text(
             'Riwayat Pesanan',
@@ -604,11 +780,39 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
             labelStyle: const TextStyle(fontWeight: FontWeight.w600),
             indicatorColor: GlobalStyle.primaryColor,
             indicatorWeight: 3,
-            tabs: const [
-              Tab(text: 'Semua'),
-              Tab(text: 'Diproses'),
-              Tab(text: 'Selesai'),
-              Tab(text: 'Dibatalkan'),
+            onTap: (index) {
+              // Refresh data when tab changes
+              _fetchOrders(isRefresh: true);
+            },
+            tabs: [
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Semua'),
+                    if (_totalItems > 0)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _totalItems.toString(),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: GlobalStyle.primaryColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const Tab(text: 'Diproses'),
+              const Tab(text: 'Selesai'),
+              const Tab(text: 'Dibatalkan'),
             ],
           ),
         ),
@@ -617,22 +821,29 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
             : _errorMessage != null
             ? _buildErrorState()
             : RefreshIndicator(
-          onRefresh: _fetchOrders,
+          onRefresh: () => _fetchOrders(isRefresh: true),
           color: GlobalStyle.primaryColor,
           child: TabBarView(
             controller: _tabController,
             children: List.generate(4, (tabIndex) {
               final filteredOrders = getFilteredOrders(tabIndex);
 
-              if (filteredOrders.isEmpty) {
-                return _buildEmptyState('Tidak ada pesanan ${tabIndex == 0 ? '' : tabIndex == 1 ? 'diproses' : tabIndex == 2 ? 'selesai' : 'dibatalkan'}');
+              if (filteredOrders.isEmpty && !_isLoading) {
+                return _buildEmptyState(
+                    'Tidak ada pesanan ${tabIndex == 0 ? '' : tabIndex == 1 ? 'yang sedang diproses' : tabIndex == 2 ? 'yang selesai' : 'yang dibatalkan'}'
+                );
               }
 
               return ListView.builder(
+                controller: _scrollController,
                 padding: const EdgeInsets.all(16),
-                itemCount: filteredOrders.length,
+                itemCount: filteredOrders.length + (_isLoadingMore ? 1 : 0),
                 itemBuilder: (context, index) {
-                  return _buildOrderCard(filteredOrders[index], index);
+                  if (index < filteredOrders.length) {
+                    return _buildOrderCard(filteredOrders[index], index);
+                  } else {
+                    return _buildLoadMoreIndicator();
+                  }
                 },
               );
             }),

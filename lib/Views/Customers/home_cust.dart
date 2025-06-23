@@ -1,15 +1,18 @@
 import 'dart:convert';
 
 import 'package:del_pick/Models/store.dart';
+import 'package:del_pick/Models/driver.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Customers/profile_cust.dart';
 import 'package:del_pick/Views/Customers/store_detail.dart';
+import 'package:del_pick/Views/Customers/contact_driver.dart';
 import '../Component/cust_bottom_navigation.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:del_pick/Services/store_service.dart';
+import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/core/token_service.dart';
@@ -34,10 +37,12 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _fadeController;
   late AnimationController _slideController;
   late AnimationController _scaleController;
+  late AnimationController _driverSearchController;
 
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _scaleAnimation;
+  late Animation<double> _driverSearchAnimation;
 
   final List<String> _promotionalPhrases = [
     "Lapar? Pilih makanan favoritmu sekarang!",
@@ -49,21 +54,21 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     "Ingin makan enak tanpa ribet? Del Pick solusinya!",
   ];
 
-  List<StoreModel> _stores = [];
+  List<StoreModel> _allStores = [];
+  List<StoreModel> _nearbyStores = [];
+  List<StoreModel> _topRatedStores = [];
   bool _isLoading = true;
+  bool _isSearchingDriver = false;
   String _errorMessage = '';
   String? _userName = '';
   Position? _currentPosition;
   bool _isLoadingLocation = false;
 
-  // Keep track of calculated distances separately
-  Map<int, double> _storeDistances = {};
-
   List<StoreModel> get _filteredStores {
     if (_searchQuery.isEmpty && !_isSearching) {
-      return _stores;
+      return _allStores;
     }
-    return _stores
+    return _allStores
         .where((store) =>
     store.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
         store.address.toLowerCase().contains(_searchQuery.toLowerCase()))
@@ -199,28 +204,38 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
 
     try {
-      // Get all stores using the updated StoreService
-      final storesData = await StoreService.getAllStores();
+      // Get all stores
+      final allStoresResponse = await StoreService.getAllStores(
+        page: 1,
+        limit: 50,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+      );
 
-      // Convert the dynamic list to a list of StoreModel objects
-      List<StoreModel> stores = [];
-      for (var storeData in storesData) {
-        stores.add(StoreModel.fromJson(storeData));
+      List<StoreModel> allStores = [];
+      if (allStoresResponse['data'] != null) {
+        final storesData = allStoresResponse['data'] as List;
+        allStores = storesData.map((store) => StoreModel.fromJson(store)).toList();
       }
 
-      // Calculate distances if we have location
-      _calculateDistances(stores);
+      // Get nearby stores
+      List<StoreModel> nearbyStores = (await StoreService.getNearbyStores(
+        latitude: _currentPosition!.latitude,
+        longitude: _currentPosition!.longitude,
+        radius: 10.0, // 10 km radius
+        limit: 5,
+      )).map<StoreModel>((store) => StoreModel.fromJson(store)).toList();
 
-      // Sort stores by distance
-      stores.sort((a, b) {
-        final distanceA = _storeDistances[a.id] ?? double.infinity;
-        final distanceB = _storeDistances[b.id] ?? double.infinity;
-        return distanceA.compareTo(distanceB);
-      });
+      // Get top rated stores (simulate by sorting by rating)
+      List<StoreModel> topRatedStores = List.from(allStores);
+      topRatedStores.sort((a, b) => b.rating.compareTo(a.rating));
+      topRatedStores = topRatedStores.take(5).toList();
 
       if (mounted) {
         setState(() {
-          _stores = stores;
+          _allStores = allStores;
+          _nearbyStores = nearbyStores;
+          _topRatedStores = topRatedStores;
           _isLoading = false;
         });
       }
@@ -235,25 +250,6 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  // Calculate distances to stores
-  void _calculateDistances(List<StoreModel> stores) {
-    if (_currentPosition == null) return;
-
-    for (var store in stores) {
-      if (store.latitude != null && store.longitude != null) {
-        double distanceInMeters = Geolocator.distanceBetween(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-          store.latitude!,
-          store.longitude!,
-        );
-
-        // Convert to kilometers and store
-        _storeDistances[store.id] = distanceInMeters / 1000;
-      }
-    }
-  }
-
   // Fetch stores without location information
   Future<void> _fetchStores() async {
     setState(() {
@@ -262,18 +258,30 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
 
     try {
-      // Using the updated StoreService to get all stores
-      final storesData = await StoreService.getAllStores();
+      // Get all stores
+      final allStoresResponse = await StoreService.getAllStores(
+        page: 1,
+        limit: 50,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+      );
 
-      // Convert the dynamic list to a list of StoreModel objects
-      List<StoreModel> stores = [];
-      for (var storeData in storesData) {
-        stores.add(StoreModel.fromJson(storeData));
+      List<StoreModel> allStores = [];
+      if (allStoresResponse['data'] != null) {
+        final storesData = allStoresResponse['data'] as List;
+        allStores = storesData.map((store) => StoreModel.fromJson(store)).toList();
       }
+
+      // Get top rated stores
+      List<StoreModel> topRatedStores = List.from(allStores);
+      topRatedStores.sort((a, b) => b.rating.compareTo(a.rating));
+      topRatedStores = topRatedStores.take(5).toList();
 
       if (mounted) {
         setState(() {
-          _stores = stores;
+          _allStores = allStores;
+          _nearbyStores = []; // No nearby stores without location
+          _topRatedStores = topRatedStores;
           _isLoading = false;
         });
       }
@@ -286,6 +294,115 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         print('Error fetching stores: $e');
       }
     }
+  }
+
+  // Search for active drivers
+  Future<void> _searchForDriver() async {
+    setState(() {
+      _isSearchingDriver = true;
+    });
+
+    _driverSearchController.forward();
+
+    try {
+      // Get all active drivers
+      final driversResponse = await DriverService.getAllDrivers(
+        status: 'active',
+        page: 1,
+        limit: 20,
+      );
+
+      // Simulate search time
+      await Future.delayed(const Duration(seconds: 3));
+
+      if (driversResponse['data'] != null && driversResponse['data'].isNotEmpty) {
+        final driversData = driversResponse['data'] as List;
+
+        // Get the first available driver
+        final driverData = driversData.first;
+        final driver = DriverModel.fromJson(driverData);
+
+        if (mounted) {
+          setState(() {
+            _isSearchingDriver = false;
+          });
+
+          // Navigate to contact driver page
+          Navigator.pushNamed(
+            context,
+            ContactDriverPage.route,
+            arguments: {
+              'driver': driver,
+              'serviceType': 'jastip',
+            },
+          );
+        }
+      } else {
+        // No drivers available
+        if (mounted) {
+          setState(() {
+            _isSearchingDriver = false;
+          });
+
+          _showNoDriverAvailableDialog();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSearchingDriver = false;
+        });
+
+        _showDriverSearchErrorDialog(e.toString());
+      }
+      print('Error searching for driver: $e');
+    }
+  }
+
+  void _showNoDriverAvailableDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+        title: const Text('Driver Tidak Tersedia'),
+        content: const Text(
+          'Maaf, saat ini tidak ada driver yang tersedia. Silakan coba lagi nanti.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'OK',
+              style: TextStyle(color: GlobalStyle.primaryColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDriverSearchErrorDialog(String error) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+        title: const Text('Error'),
+        content: Text('Gagal mencari driver: $error'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'OK',
+              style: TextStyle(color: GlobalStyle.primaryColor),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // Get user profile data using updated AuthService
@@ -302,9 +419,9 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       } catch (e) {
         // If profile fetch fails, try from cached data
         final userData = await AuthService.getUserData();
-        if (userData != null) {
+        if (userData != null && userData['user'] != null) {
           setState(() {
-            _userName = userData['name'] ?? '';
+            _userName = userData['user']['name'] ?? '';
           });
         }
       }
@@ -344,6 +461,11 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       vsync: this,
     );
 
+    _driverSearchController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _fadeController,
@@ -368,6 +490,13 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
 
+    _driverSearchAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _driverSearchController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
     _fadeController.forward();
     _slideController.forward();
     _scaleController.forward();
@@ -384,6 +513,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _fadeController.dispose();
     _slideController.dispose();
     _scaleController.dispose();
+    _driverSearchController.dispose();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -401,8 +531,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             padding: const EdgeInsets.all(7.0),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border:
-              Border.all(color: GlobalStyle.primaryColor, width: 1.0),
+              border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
             ),
             child: Icon(Icons.arrow_back_ios_new,
                 color: GlobalStyle.primaryColor, size: 18),
@@ -447,14 +576,16 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
             ),
             if (_userName != null && _userName!.isNotEmpty)
-              Text(
-                ' • Hi, $_userName',
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 14,
-                  fontFamily: GlobalStyle.fontFamily,
+              Flexible(
+                child: Text(
+                  ' • Hi, $_userName',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 14,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
           ],
         ),
@@ -572,7 +703,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   ],
                 ),
               )
-                  : _filteredStores.isEmpty
+                  : _filteredStores.isEmpty && _isSearching
                   ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -602,36 +733,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   }
                 },
                 color: GlobalStyle.primaryColor,
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16.0),
-                  itemCount: _filteredStores.length,
-                  itemBuilder: (context, index) {
-                    final store = _filteredStores[index];
-                    return AnimatedBuilder(
-                      animation: _slideController,
-                      builder: (context, child) {
-                        final delay = index * 0.2;
-                        final slideAnimation = Tween<Offset>(
-                          begin: const Offset(1.0, 0.0),
-                          end: Offset.zero,
-                        ).animate(
-                          CurvedAnimation(
-                            parent: _slideController,
-                            curve: Interval(
-                              delay.clamp(0.0, 1.0),
-                              (delay + 0.4).clamp(0.0, 1.0),
-                              curve: Curves.elasticOut,
-                            ),
-                          ),
-                        );
-                        return SlideTransition(
-                          position: slideAnimation,
-                          child: _buildStoreCard(store),
-                        );
-                      },
-                    );
-                  },
-                ),
+                child: _buildMainContent(),
               ),
             ),
         ],
@@ -643,10 +745,347 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildStoreCard(StoreModel store) {
-    // Get distance for this store if available
-    double? storeDistance = _storeDistances[store.id];
+  Widget _buildMainContent() {
+    if (_isSearching) {
+      return ListView.builder(
+        padding: const EdgeInsets.all(16.0),
+        itemCount: _filteredStores.length,
+        itemBuilder: (context, index) {
+          final store = _filteredStores[index];
+          return AnimatedBuilder(
+            animation: _slideController,
+            builder: (context, child) {
+              final delay = index * 0.2;
+              final slideAnimation = Tween<Offset>(
+                begin: const Offset(1.0, 0.0),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(
+                  parent: _slideController,
+                  curve: Interval(
+                    delay.clamp(0.0, 1.0),
+                    (delay + 0.4).clamp(0.0, 1.0),
+                    curve: Curves.elasticOut,
+                  ),
+                ),
+              );
+              return SlideTransition(
+                position: slideAnimation,
+                child: _buildStoreCard(store),
+              );
+            },
+          );
+        },
+      );
+    }
 
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Jasa Titip Card
+          _buildJasaTitipCard(),
+          const SizedBox(height: 16),
+
+          // Nearby Stores Section
+          if (_nearbyStores.isNotEmpty) ...[
+            _buildSectionTitle('Toko Terdekat'),
+            const SizedBox(height: 12),
+            _buildHorizontalStoreList(_nearbyStores),
+            const SizedBox(height: 24),
+          ],
+
+          // Top Rated Stores Section
+          if (_topRatedStores.isNotEmpty) ...[
+            _buildSectionTitle('Toko Rating Terbaik'),
+            const SizedBox(height: 12),
+            _buildHorizontalStoreList(_topRatedStores),
+            const SizedBox(height: 24),
+          ],
+
+          // All Stores Section
+          _buildSectionTitle('Semua Toko'),
+          const SizedBox(height: 12),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _allStores.length,
+            itemBuilder: (context, index) {
+              final store = _allStores[index];
+              return AnimatedBuilder(
+                animation: _slideController,
+                builder: (context, child) {
+                  final delay = index * 0.1;
+                  final slideAnimation = Tween<Offset>(
+                    begin: const Offset(1.0, 0.0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(
+                      parent: _slideController,
+                      curve: Interval(
+                        delay.clamp(0.0, 1.0),
+                        (delay + 0.4).clamp(0.0, 1.0),
+                        curve: Curves.elasticOut,
+                      ),
+                    ),
+                  );
+                  return SlideTransition(
+                    position: slideAnimation,
+                    child: _buildStoreCard(store),
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJasaTitipCard() {
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12.0),
+      ),
+      elevation: 2,
+      child: Container(
+        padding: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.0),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Jasa Titip',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: GlobalStyle.primaryColor,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Barang yang kamu cari tidak ada di aplikasi? Pesan melalui driver aja!',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: 80,
+                  height: 80,
+                  child: Lottie.asset(
+                    'assets/animations/driver.json',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_isSearchingDriver) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    RotationTransition(
+                      turns: _driverSearchAnimation,
+                      child: Icon(
+                        LucideIcons.loader,
+                        color: GlobalStyle.primaryColor,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Mencari driver...',
+                      style: TextStyle(
+                        color: GlobalStyle.primaryColor,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _searchForDriver,
+                  icon: const Icon(LucideIcons.search, size: 18),
+                  label: const Text('Cari Driver'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+        fontFamily: GlobalStyle.fontFamily,
+      ),
+    );
+  }
+
+  Widget _buildHorizontalStoreList(List<StoreModel> stores) {
+    return SizedBox(
+      height: 280,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: stores.length,
+        itemBuilder: (context, index) {
+          final store = stores[index];
+          return Container(
+            width: 200,
+            margin: EdgeInsets.only(right: index == stores.length - 1 ? 0 : 12),
+            child: _buildCompactStoreCard(store),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCompactStoreCard(StoreModel store) {
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12.0),
+      ),
+      elevation: 2,
+      child: InkWell(
+        onTap: () {
+          Navigator.pushNamed(context, StoreDetail.route, arguments: store.storeId);
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Stack(
+              children: [
+                Hero(
+                  tag: 'store-compact-${store.storeId}',
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(12.0)),
+                    child: _buildStoreImage(store.imageUrl, height: 120),
+                  ),
+                ),
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: GlobalStyle.primaryColor,
+                      borderRadius: BorderRadius.circular(12.0),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star, color: Colors.white, size: 12),
+                        const SizedBox(width: 2),
+                        Text(
+                          store.rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      store.name,
+                      style: TextStyle(
+                        fontSize: 14.0,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${store.reviewCount} ulasan',
+                      style: TextStyle(
+                        fontSize: 12.0,
+                        color: Colors.grey[600],
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        Icon(Icons.location_on, size: 12, color: Colors.grey[600]),
+                        const SizedBox(width: 2),
+                        Expanded(
+                          child: Text(
+                            store.address,
+                            style: TextStyle(
+                              fontSize: 10.0,
+                              color: Colors.grey[600],
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStoreCard(StoreModel store) {
     return ScaleTransition(
       scale: _scaleAnimation,
       child: FadeTransition(
@@ -659,8 +1098,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
           elevation: 2,
           child: InkWell(
             onTap: () {
-              Navigator.pushNamed(context, StoreDetail.route,
-                  arguments: store.id);
+              Navigator.pushNamed(context, StoreDetail.route, arguments: store.storeId);
             },
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -668,10 +1106,9 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 Stack(
                   children: [
                     Hero(
-                      tag: 'store-${store.id}',
+                      tag: 'store-${store.storeId}',
                       child: ClipRRect(
-                        borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(12.0)),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(12.0)),
                         child: _buildStoreImage(store.imageUrl),
                       ),
                     ),
@@ -697,7 +1134,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              store.rating.toString(),
+                              store.rating.toStringAsFixed(1),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -709,7 +1146,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ),
                     ),
                     // Show distance if available
-                    if (storeDistance != null)
+                    if (store.distance != null)
                       Positioned(
                         top: 12,
                         right: 12,
@@ -732,9 +1169,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                storeDistance < 1
-                                    ? '${(storeDistance * 1000).toInt()} m'
-                                    : '${storeDistance.toStringAsFixed(1)} km',
+                                store.formattedDistance ?? '',
                                 style: TextStyle(
                                   color: GlobalStyle.primaryColor,
                                   fontWeight: FontWeight.bold,
@@ -771,7 +1206,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            '${store.reviewCount} ulasan • ${store.productCount} menu',
+                            '${store.reviewCount} ulasan • ${store.totalProducts} menu',
                             style: TextStyle(
                               fontSize: 14.0,
                               color: Colors.grey[600],
@@ -843,24 +1278,24 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildStoreImage(String? imageUrl) {
+  Widget _buildStoreImage(String? imageUrl, {double height = 200}) {
     if (imageUrl == null || imageUrl.isEmpty) {
-      return _buildPlaceholderImage();
+      return _buildPlaceholderImage(height);
     }
 
     return ImageService.displayImage(
       imageSource: imageUrl,
       width: double.infinity,
-      height: 200,
+      height: height,
       fit: BoxFit.cover,
-      placeholder: _buildPlaceholderImage(),
-      errorWidget: _buildPlaceholderImage(),
+      placeholder: _buildPlaceholderImage(height),
+      errorWidget: _buildPlaceholderImage(height),
     );
   }
 
-  Widget _buildPlaceholderImage() {
+  Widget _buildPlaceholderImage(double height) {
     return Container(
-      height: 200,
+      height: height,
       width: double.infinity,
       color: Colors.grey[300],
       child: Center(
