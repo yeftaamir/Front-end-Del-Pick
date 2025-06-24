@@ -51,6 +51,7 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
   MenuItemModel? _lastAddedItem;
 
   StoreModel? _storeDetail;
+  int? _storeId; // Store the storeId as class variable
 
   Future<void> fetchMenuItems(String storeId) async {
     setState(() {
@@ -84,44 +85,11 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
 
         // Store original stock quantities and initialize cart quantities
         for (var item in menuItems) {
-          // Create a mutable copy for cart functionality
-          final cartItem = MenuItemModel(
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            description: item.description,
-            imageUrl: item.imageUrl,
-            storeId: item.storeId,
-            category: item.category,
-            isAvailable: item.isAvailable,
-            createdAt: item.createdAt,
-            updatedAt: item.updatedAt,
-          );
-
           // Store original stock and initialize cart quantity
           originalStockMap[item.id] = 10; // Default stock since it's not in the model
-          _setItemQuantity(cartItem, 0); // Initialize cart quantity to 0
+          _setItemQuantity(item, 0); // Initialize cart quantity to 0
         }
 
-        // Update the lists with cart-enabled items
-        menuItems = menuItems.map((item) {
-          final cartItem = MenuItemModel(
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            description: item.description,
-            imageUrl: item.imageUrl,
-            storeId: item.storeId,
-            category: item.category,
-            isAvailable: item.isAvailable,
-            createdAt: item.createdAt,
-            updatedAt: item.updatedAt,
-          );
-          _setItemQuantity(cartItem, 0);
-          return cartItem;
-        }).toList();
-
-        filteredItems = List<MenuItemModel>.from(menuItems);
         _isLoadingMenuItems = false;
       });
     } catch (e) {
@@ -133,7 +101,7 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
     }
   }
 
-  Future<void> getDetailStore(int storeId) async {
+  Future<void> getDetailStore(String storeId) async {
     setState(() {
       _isLoading = true;
       _errorMessage = '';
@@ -141,7 +109,12 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
 
     try {
       // Use the correct service method
-      final storeData = await StoreService.getStoreById(storeId.toString());
+      final storeData = await StoreService.getStoreById(storeId);
+
+      // Check if storeData is valid and contains expected data
+      if (storeData.isEmpty) {
+        throw Exception('Store data is empty');
+      }
 
       // Convert the returned data to a StoreModel object
       final storeDetail = StoreModel.fromJson(storeData);
@@ -255,14 +228,31 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    final int storeId = ModalRoute.of(context)!.settings.arguments as int? ?? 0;
-    if (storeId > 0) {
-      fetchMenuItems(storeId.toString());
-      getDetailStore(storeId);
+    // Safely get the store ID from route arguments
+    final arguments = ModalRoute.of(context)?.settings.arguments;
+    int? storeId;
+
+    if (arguments != null) {
+      if (arguments is int) {
+        storeId = arguments;
+      } else if (arguments is String) {
+        storeId = int.tryParse(arguments);
+      } else if (arguments is Map) {
+        // Handle case where arguments is a map
+        storeId = arguments['storeId'] as int?;
+      }
+    }
+
+    // Set the storeId and validate
+    _storeId = storeId;
+
+    if (_storeId != null && _storeId! > 0) {
+      fetchMenuItems(_storeId.toString());
+      getDetailStore(_storeId.toString());
       _getCurrentLocation();
     } else {
       setState(() {
-        _errorMessage = 'Invalid store ID';
+        _errorMessage = 'Invalid store ID. Expected integer but got: ${arguments.runtimeType}';
         _isLoading = false;
         _isLoadingMenuItems = false;
       });
@@ -695,12 +685,15 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
                 color: Colors.red[400],
               ),
               const SizedBox(height: 16),
-              Text(
-                _errorMessage,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  _errorMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey,
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -1552,22 +1545,22 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
                   for (var item in menuItems) {
                     final quantity = _getItemQuantity(item);
                     if (quantity > 0) {
-                      // Create a copy with the cart quantity (we need to pass this info to cart screen)
                       cartItems.add(item);
                     }
                   }
 
-                  final int storeId = ModalRoute.of(context)!.settings.arguments as int? ?? 0;
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => CartScreen(
-                        cartItems: cartItems,
-                        storeId: storeId,
-                        itemQuantities: Map<int, int>.from(_itemQuantities),
+                  if (_storeId != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CartScreen(
+                          cartItems: cartItems,
+                          storeId: _storeId!,
+                          itemQuantities: Map<int, int>.from(_itemQuantities),
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,

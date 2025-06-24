@@ -1,5 +1,6 @@
 import 'dart:convert';
-
+import 'dart:math' as math;
+import 'package:geocoding/geocoding.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Customers/profile_cust.dart';
 import 'package:del_pick/Views/Customers/store_detail.dart';
 import 'package:del_pick/Views/Customers/contact_driver.dart';
+import '../../Services/Core/token_service.dart';
 import '../Component/cust_bottom_navigation.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -15,7 +17,6 @@ import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
-import 'package:del_pick/Services/core/token_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -59,97 +60,140 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   List<StoreModel> _topRatedStores = [];
   bool _isLoading = true;
   bool _isSearchingDriver = false;
+  bool _isLoadingLocation = false;
   String _errorMessage = '';
   String? _userName = '';
+  String? _userLocation = '';
+  Map<String, dynamic>? _userData;
   Position? _currentPosition;
-  bool _isLoadingLocation = false;
+  bool _hasLocationPermission = false;
 
-  List<StoreModel> get _filteredStores {
-    if (_searchQuery.isEmpty && !_isSearching) {
-      return _allStores;
-    }
-    return _allStores
-        .where((store) =>
-    store.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-        store.address.toLowerCase().contains(_searchQuery.toLowerCase()))
-        .toList();
+  @override
+  void initState() {
+    super.initState();
+    _initializeAnimations();
+    _initializeData();
   }
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-      if (index == 1) {
-        _startSearch();
-      }
-    });
-  }
+  void _initializeAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+    _scaleController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _driverSearchController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    );
 
-  void _startSearch() {
-    setState(() {
-      _isSearching = true;
-    });
-    _fadeController.reset();
-    _slideController.reset();
-    _scaleController.reset();
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeIn),
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOut));
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _scaleController, curve: Curves.elasticOut),
+    );
+    _driverSearchAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _driverSearchController, curve: Curves.easeInOut),
+    );
+
     _fadeController.forward();
     _slideController.forward();
     _scaleController.forward();
   }
 
-  void _showPromoDialog() {
-    // Play sound
-    _audioPlayer.play(AssetSource('audio/kring.mp3'));
+  void _initializeData() {
+    _loadUserData();
+    _getCurrentLocation();
+  }
 
-    // Get random promotional phrase
-    final randomPhrase = _promotionalPhrases[
-    DateTime.now().millisecondsSinceEpoch % _promotionalPhrases.length];
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _slideController.dispose();
+    _scaleController.dispose();
+    _driverSearchController.dispose();
+    _searchController.dispose();
+    _audioPlayer.dispose();
+    super.dispose();
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.topRight,
-                child: IconButton(
-                  icon: const Icon(Icons.close, color: Colors.grey),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                ),
-              ),
-              Lottie.asset(
-                'assets/animations/pilih_pesanan.json',
-                height: 200,
-                width: 200,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(height: 20),
-              Text(
-                randomPhrase,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-            ],
-          ),
-        ),
-      ),
-    );
+  // Helper method to safely convert dynamic values to double
+  double _safeToDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  // Helper method to safely convert dynamic values to int
+  int _safeToInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
+
+  // Helper method to safely convert dynamic values to string
+  String _safeToString(dynamic value) {
+    if (value == null) return '';
+    if (value is String) return value;
+    if (value is int || value is double || value is bool) {
+      return value.toString();
+    }
+    return '';
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      // Get user data from AuthService
+      final userData = await AuthService.getUserData();
+      if (userData != null) {
+        setState(() {
+          _userData = userData;
+          _userName = userData['user']?['name'] ?? userData['name'] ?? '';
+        });
+      } else {
+        // Fallback to TokenService if AuthService fails
+        final tokenUserData = await TokenService.getUserData();
+        if (tokenUserData != null) {
+          setState(() {
+            _userData = tokenUserData;
+            _userName = tokenUserData['user']?['name'] ?? tokenUserData['name'] ?? '';
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading user data: $e');
+      // Try to get from token service as fallback
+      try {
+        final tokenUserData = await TokenService.getUserData();
+        if (tokenUserData != null) {
+          setState(() {
+            _userData = tokenUserData;
+            _userName = tokenUserData['user']?['name'] ?? tokenUserData['name'] ?? '';
+          });
+        }
+      } catch (tokenError) {
+        print('Error loading user data from token: $tokenError');
+      }
+    }
   }
 
   // Get user's current location
@@ -173,16 +217,23 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         desiredAccuracy: LocationAccuracy.high,
       );
 
+      // Get address from coordinates
+      String locationText = await _getAddressFromCoordinates(position);
+
       setState(() {
         _currentPosition = position;
+        _userLocation = locationText;
+        _hasLocationPermission = true;
         _isLoadingLocation = false;
       });
 
       // Now fetch stores with location info
-      await _fetchStoresWithLocation();
+      await _fetchStores();
     } catch (e) {
       print('Error getting location: $e');
       setState(() {
+        _hasLocationPermission = false;
+        _userLocation = 'Lokasi tidak tersedia';
         _isLoadingLocation = false;
       });
 
@@ -191,66 +242,25 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  // Fetch stores with location information
-  Future<void> _fetchStoresWithLocation() async {
-    if (_currentPosition == null) {
-      await _fetchStores();
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
-
+// Get address from coordinates
+  Future<String> _getAddressFromCoordinates(Position position) async {
     try {
-      // Get all stores
-      final allStoresResponse = await StoreService.getAllStores(
-        page: 1,
-        limit: 50,
-        sortBy: 'created_at',
-        sortOrder: 'desc',
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
       );
 
-      List<StoreModel> allStores = [];
-      if (allStoresResponse['data'] != null) {
-        final storesData = allStoresResponse['data'] as List;
-        allStores = storesData.map((store) => StoreModel.fromJson(store)).toList();
-      }
-
-      // Get nearby stores
-      List<StoreModel> nearbyStores = (await StoreService.getNearbyStores(
-        latitude: _currentPosition!.latitude,
-        longitude: _currentPosition!.longitude,
-        radius: 10.0, // 10 km radius
-        limit: 5,
-      )).map<StoreModel>((store) => StoreModel.fromJson(store)).toList();
-
-      // Get top rated stores (simulate by sorting by rating)
-      List<StoreModel> topRatedStores = List.from(allStores);
-      topRatedStores.sort((a, b) => b.rating.compareTo(a.rating));
-      topRatedStores = topRatedStores.take(5).toList();
-
-      if (mounted) {
-        setState(() {
-          _allStores = allStores;
-          _nearbyStores = nearbyStores;
-          _topRatedStores = topRatedStores;
-          _isLoading = false;
-        });
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks[0];
+        return '${place.locality ?? ''}, ${place.subAdministrativeArea ?? ''}';
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'Failed to load stores: $e';
-          _isLoading = false;
-        });
-        print('Error fetching stores with location: $e');
-      }
+      print('Error getting address: $e');
     }
+    return 'Balige, North Sumatra'; // Default fallback
   }
 
-  // Fetch stores without location information
+  // Fetch all stores and process them
   Future<void> _fetchStores() async {
     setState(() {
       _isLoading = true;
@@ -258,486 +268,345 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
 
     try {
-      // Get all stores
-      final allStoresResponse = await StoreService.getAllStores(
+      print('Fetching stores...');
+
+      // Get all stores from service with correct response structure
+      final storesResponse = await StoreService.getAllStores(
         page: 1,
-        limit: 50,
+        limit: 100, // Get more stores
         sortBy: 'created_at',
         sortOrder: 'desc',
       );
 
+      print('Stores response: $storesResponse');
+
       List<StoreModel> allStores = [];
-      if (allStoresResponse['data'] != null) {
-        final storesData = allStoresResponse['data'] as List;
-        allStores = storesData.map((store) => StoreModel.fromJson(store)).toList();
+
+      // The response structure is now: {'stores': [...], 'totalItems': x, ...}
+      if (storesResponse['stores'] != null) {
+        final storesData = storesResponse['stores'] as List;
+        print('Found ${storesData.length} stores');
+
+        for (var storeJson in storesData) {
+          try {
+            // Create StoreModel with proper error handling
+            final store = _createSafeStoreModel(storeJson as Map<String, dynamic>);
+            if (store != null) {
+              allStores.add(store);
+            }
+          } catch (e) {
+            print('Error parsing store: $e');
+            print('Store data: $storeJson');
+            // Continue with other stores
+          }
+        }
       }
 
-      // Get top rated stores
-      List<StoreModel> topRatedStores = List.from(allStores);
-      topRatedStores.sort((a, b) => b.rating.compareTo(a.rating));
-      topRatedStores = topRatedStores.take(5).toList();
+      print('Successfully parsed ${allStores.length} stores');
+
+      // Process stores for different categories
+      List<StoreModel> topRatedStores = _getTopRatedStores(allStores);
+      List<StoreModel> nearbyStores = _getNearbyStores(allStores);
+
+      print('Top rated stores: ${topRatedStores.length}');
+      print('Nearby stores: ${nearbyStores.length}');
 
       if (mounted) {
         setState(() {
           _allStores = allStores;
-          _nearbyStores = []; // No nearby stores without location
           _topRatedStores = topRatedStores;
+          _nearbyStores = nearbyStores;
           _isLoading = false;
         });
       }
     } catch (e) {
+      print('Error fetching stores: $e');
       if (mounted) {
         setState(() {
           _errorMessage = 'Failed to load stores: $e';
           _isLoading = false;
         });
-        print('Error fetching stores: $e');
       }
     }
   }
 
-  // Search for active drivers
-  Future<void> _searchForDriver() async {
+  // Helper method to create safe StoreModel from JSON with better error handling
+  StoreModel? _createSafeStoreModel(Map<String, dynamic> storeData) {
+    try {
+      // Process the store data with safe conversions
+      final processedData = <String, dynamic>{
+        ...storeData,
+      };
+
+      // Handle nested store data structure if present
+      if (storeData.containsKey('store')) {
+        final nestedStore = storeData['store'] as Map<String, dynamic>? ?? {};
+        processedData.addAll(nestedStore);
+      }
+
+      // Safe conversion for numeric fields
+      if (processedData['latitude'] != null) {
+        processedData['latitude'] = _safeToDouble(processedData['latitude']);
+      }
+      if (processedData['longitude'] != null) {
+        processedData['longitude'] = _safeToDouble(processedData['longitude']);
+      }
+      if (processedData['rating'] != null) {
+        processedData['rating'] = _safeToDouble(processedData['rating']);
+      }
+      if (processedData['distance'] != null) {
+        processedData['distance'] = _safeToDouble(processedData['distance']);
+      }
+      if (processedData['review_count'] != null) {
+        processedData['review_count'] = _safeToInt(processedData['review_count']);
+      }
+      if (processedData['total_products'] != null) {
+        processedData['total_products'] = _safeToInt(processedData['total_products']);
+      }
+
+      // Ensure required string fields are present
+      processedData['name'] = processedData['name']?.toString() ?? '';
+      processedData['address'] = processedData['address']?.toString() ?? '';
+      processedData['description'] = processedData['description']?.toString() ?? '';
+      processedData['phone'] = processedData['phone']?.toString() ?? '';
+      processedData['open_time'] = processedData['open_time']?.toString() ?? '08:00';
+      processedData['close_time'] = processedData['close_time']?.toString() ?? '22:00';
+      processedData['status'] = processedData['status']?.toString() ?? 'active';
+
+      // Handle image URL
+      if (processedData['image_url'] != null && processedData['image_url'].toString().isNotEmpty) {
+        processedData['image_url'] = ImageService.getImageUrl(processedData['image_url'].toString());
+      }
+
+      // Create owner data if not present
+      if (processedData['owner'] == null) {
+        processedData['owner'] = {
+          'id': processedData['user_id'] ?? 0,
+          'name': processedData['owner_name'] ?? 'Unknown Owner',
+          'email': processedData['owner_email'] ?? '',
+          'phone': processedData['phone'] ?? '',
+          'role': 'store',
+          'avatar': null,
+          'fcm_token': null,
+          'created_at': null,
+          'updated_at': null,
+        };
+      }
+
+      return StoreModel.fromJson(processedData);
+    } catch (e) {
+      print('Error creating StoreModel: $e');
+      print('Store data: $storeData');
+      return null;
+    }
+  }
+
+  // Get top rated stores
+  List<StoreModel> _getTopRatedStores(List<StoreModel> allStores) {
+    List<StoreModel> topRated = List.from(allStores);
+    topRated.sort((a, b) => b.rating.compareTo(a.rating));
+    return topRated.where((store) => store.rating > 0).take(5).toList();
+  }
+
+  // Get nearby stores based on current location
+  List<StoreModel> _getNearbyStores(List<StoreModel> allStores) {
+    if (_currentPosition == null) {
+      // If no location, return stores sorted by rating
+      List<StoreModel> fallback = List.from(allStores);
+      fallback.sort((a, b) => b.rating.compareTo(a.rating));
+      return fallback.take(5).toList();
+    }
+
+    List<MapEntry<StoreModel, double>> storesWithDistance = [];
+
+    for (var store in allStores) {
+      if (store.latitude != null && store.longitude != null) {
+        try {
+          double distance = Geolocator.distanceBetween(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+            store.latitude!,
+            store.longitude!,
+          ) / 1000; // Convert to kilometers
+
+          // Create a new store with distance
+          final storeWithDistance = store.copyWith(distance: distance);
+          storesWithDistance.add(MapEntry(storeWithDistance, distance));
+        } catch (e) {
+          print('Error calculating distance for store ${store.name}: $e');
+        }
+      }
+    }
+
+    // Sort by distance and take the closest 5
+    storesWithDistance.sort((a, b) => a.value.compareTo(b.value));
+    return storesWithDistance
+        .where((entry) => entry.value <= 10.0) // Within 10km
+        .take(5)
+        .map((entry) => entry.key)
+        .toList();
+  }
+
+  void _searchDriver() async {
     setState(() {
       _isSearchingDriver = true;
     });
 
-    _driverSearchController.forward();
+    _driverSearchController.repeat();
 
     try {
-      // Get all active drivers
-      final driversResponse = await DriverService.getAllDrivers(
-        status: 'active',
-        page: 1,
-        limit: 20,
+      // Play search sound
+      try {
+        await _audioPlayer.play(AssetSource('audio/search_beep.mp3'));
+      } catch (e) {
+        print('Sound file not found: $e');
+      }
+
+      // Show modal with loading animation
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _buildDriverSearchModal(),
       );
 
-      // Simulate search time
+      // Simulate driver search
       await Future.delayed(const Duration(seconds: 3));
 
-      if (driversResponse['data'] != null && driversResponse['data'].isNotEmpty) {
-        final driversData = driversResponse['data'] as List;
+      if (mounted) {
+        Navigator.of(context).pop(); // Close modal
 
-        // Get the first available driver
-        final driverData = driversData.first;
-        final driver = DriverModel.fromJson(driverData);
-
-        if (mounted) {
-          setState(() {
-            _isSearchingDriver = false;
-          });
-
-          // Navigate to contact driver page
-          Navigator.pushNamed(
-            context,
-            ContactDriverPage.route,
-            arguments: {
-              'driver': driver,
-              'serviceType': 'jastip',
-            },
+        // Check if ContactDriverPage route exists
+        try {
+          Navigator.pushNamed(context, '/contact-driver');
+        } catch (e) {
+          // If route doesn't exist, show a placeholder dialog
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Driver Ditemukan'),
+              content: const Text('Fitur contact driver belum tersedia.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
           );
-        }
-      } else {
-        // No drivers available
-        if (mounted) {
-          setState(() {
-            _isSearchingDriver = false;
-          });
-
-          _showNoDriverAvailableDialog();
         }
       }
     } catch (e) {
+      print('Error searching driver: $e');
+      if (mounted) {
+        Navigator.of(context).pop(); // Close modal
+      }
+    } finally {
       if (mounted) {
         setState(() {
           _isSearchingDriver = false;
         });
-
-        _showDriverSearchErrorDialog(e.toString());
+        _driverSearchController.stop();
+        _driverSearchController.reset();
       }
-      print('Error searching for driver: $e');
     }
   }
 
-  void _showNoDriverAvailableDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
+  Widget _buildDriverSearchModal() {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
         ),
-        title: const Text('Driver Tidak Tersedia'),
-        content: const Text(
-          'Maaf, saat ini tidak ada driver yang tersedia. Silakan coba lagi nanti.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'OK',
-              style: TextStyle(color: GlobalStyle.primaryColor),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Loading animation
+            SizedBox(
+              width: 150,
+              height: 150,
+              child: Lottie.asset(
+                'assets/animations/loading_animation.json',
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      color: GlobalStyle.primaryColor.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      LucideIcons.car,
+                      size: 60,
+                      color: GlobalStyle.primaryColor,
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 20),
+            Text(
+              'Mencari Driver Terdekat...',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: GlobalStyle.primaryColor,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tunggu sebentar, kami sedang\nmencarikan driver terbaik untuk Anda',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                setState(() {
+                  _isSearchingDriver = false;
+                });
+                _driverSearchController.stop();
+                _driverSearchController.reset();
+              },
+              child: Text(
+                'Batalkan',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  void _showDriverSearchErrorDialog(String error) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-        title: const Text('Error'),
-        content: Text('Gagal mencari driver: $error'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'OK',
-              style: TextStyle(color: GlobalStyle.primaryColor),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Get user profile data using updated AuthService
-  Future<void> _getUserData() async {
-    try {
-      // Check if user is logged in and fetch profile data
-      try {
-        final profileData = await AuthService.getProfile();
-        if (profileData.isNotEmpty) {
-          setState(() {
-            _userName = profileData['name'] ?? '';
-          });
-        }
-      } catch (e) {
-        // If profile fetch fails, try from cached data
-        final userData = await AuthService.getUserData();
-        if (userData != null && userData['user'] != null) {
-          setState(() {
-            _userName = userData['user']['name'] ?? '';
-          });
-        }
-      }
-    } catch (e) {
-      print('Error getting user data: $e');
+  List<StoreModel> _getFilteredStores() {
+    if (_searchQuery.isEmpty) {
+      return _allStores;
     }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-
-    // Get user data
-    _getUserData();
-
-    // Get location and fetch stores
-    _getCurrentLocation();
-
-    _searchController.addListener(() {
-      setState(() {
-        _searchQuery = _searchController.text;
-      });
-    });
-
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _scaleController = AnimationController(
-      duration: const Duration(milliseconds: 500),
-      vsync: this,
-    );
-
-    _driverSearchController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _fadeController,
-        curve: Curves.easeInOut,
-      ),
-    );
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(1.0, 0.0),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _slideController,
-        curve: Curves.elasticOut,
-      ),
-    );
-
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _scaleController,
-        curve: Curves.easeOutBack,
-      ),
-    );
-
-    _driverSearchAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _driverSearchController,
-        curve: Curves.easeInOut,
-      ),
-    );
-
-    _fadeController.forward();
-    _slideController.forward();
-    _scaleController.forward();
-
-    // Show dialog once when the page is opened
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showPromoDialog();
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _fadeController.dispose();
-    _slideController.dispose();
-    _scaleController.dispose();
-    _driverSearchController.dispose();
-    _audioPlayer.dispose();
-    super.dispose();
+    return _allStores.where((store) {
+      return store.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          store.address.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          store.description.toLowerCase().contains(_searchQuery.toLowerCase());
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xffD6E6F2),
-      appBar: AppBar(
-        elevation: 0.5,
-        backgroundColor: Colors.white,
-        leading: _isSearching
-            ? IconButton(
-          icon: Container(
-            padding: const EdgeInsets.all(7.0),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
-            ),
-            child: Icon(Icons.arrow_back_ios_new,
-                color: GlobalStyle.primaryColor, size: 18),
-          ),
-          onPressed: () {
-            setState(() {
-              _isSearching = false;
-              _searchController.clear();
-              _searchQuery = '';
-            });
-          },
-        )
-            : IconButton(
-          icon: const Icon(Icons.search, color: Colors.black54),
-          onPressed: _startSearch,
-        ),
-        title: _isSearching
-            ? TextField(
-          controller: _searchController,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: 'Cari toko...',
-            border: InputBorder.none,
-            hintStyle: TextStyle(
-              color: GlobalStyle.fontColor,
-              fontSize: GlobalStyle.fontSize,
-            ),
-          ),
-          style: TextStyle(
-            color: GlobalStyle.fontColor,
-            fontSize: GlobalStyle.fontSize,
-          ),
-        )
-            : Row(
-          children: [
-            Text(
-              'Del Pick',
-              style: TextStyle(
-                color: Colors.black87,
-                fontWeight: FontWeight.bold,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-            if (_userName != null && _userName!.isNotEmpty)
-              Flexible(
-                child: Text(
-                  ' • Hi, $_userName',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: IconButton(
-              icon: const Icon(LucideIcons.user, color: Colors.black54),
-              onPressed: () {
-                Navigator.pushNamed(context, ProfilePage.route);
-              },
-            ),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (_isLoadingLocation && !_isLoading)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-              color: Colors.blue.shade50,
-              width: double.infinity,
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: GlobalStyle.primaryColor,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Mendapatkan lokasi terdekat...',
-                    style: TextStyle(
-                      color: GlobalStyle.primaryColor,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          if (_isSearching && _searchQuery.isEmpty)
-            const Expanded(
-              child: Center(
-                child: Text(
-                  'Ketik untuk mencari toko...',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ),
-          if (!_isSearching || _searchQuery.isNotEmpty)
-            Expanded(
-              child: _isLoading
-                  ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: GlobalStyle.primaryColor),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Memuat daftar toko...',
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 16,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-                  : _errorMessage.isNotEmpty
-                  ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      LucideIcons.alertTriangle,
-                      color: Colors.orange,
-                      size: 50,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _errorMessage,
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 16,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () {
-                        _currentPosition != null
-                            ? _fetchStoresWithLocation()
-                            : _fetchStores();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: GlobalStyle.primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
-                      ),
-                      child: const Text('Coba Lagi'),
-                    ),
-                  ],
-                ),
-              )
-                  : _filteredStores.isEmpty && _isSearching
-                  ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      LucideIcons.store,
-                      color: Colors.grey[400],
-                      size: 50,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Tidak ada toko yang ditemukan',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-                  : RefreshIndicator(
-                onRefresh: () async {
-                  if (_currentPosition != null) {
-                    await _fetchStoresWithLocation();
-                  } else {
-                    await _getCurrentLocation();
-                  }
-                },
-                color: GlobalStyle.primaryColor,
-                child: _buildMainContent(),
-              ),
-            ),
-        ],
-      ),
+      backgroundColor: Colors.grey[50],
+      body: _buildMainContent(),
       bottomNavigationBar: CustomBottomNavigation(
         selectedIndex: _selectedIndex,
         onItemTapped: _onItemTapped,
@@ -746,207 +615,419 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildMainContent() {
-    if (_isSearching) {
-      return ListView.builder(
-        padding: const EdgeInsets.all(16.0),
-        itemCount: _filteredStores.length,
-        itemBuilder: (context, index) {
-          final store = _filteredStores[index];
-          return AnimatedBuilder(
-            animation: _slideController,
-            builder: (context, child) {
-              final delay = index * 0.2;
-              final slideAnimation = Tween<Offset>(
-                begin: const Offset(1.0, 0.0),
-                end: Offset.zero,
-              ).animate(
-                CurvedAnimation(
-                  parent: _slideController,
-                  curve: Interval(
-                    delay.clamp(0.0, 1.0),
-                    (delay + 0.4).clamp(0.0, 1.0),
-                    curve: Curves.elasticOut,
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: CustomScrollView(
+          slivers: [
+            _buildAppBar(),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildLocationCard(),
+                    const SizedBox(height: 16),
+                    _buildDriverSearchCard(),
+                    const SizedBox(height: 24),
+                    _buildSearchBar(),
+                    const SizedBox(height: 24),
+                    if (_isSearching) ...[
+                      _buildSearchResults(),
+                    ] else ...[
+                      if (_nearbyStores.isNotEmpty) ...[
+                        _buildSectionTitle('Toko Terdekat'),
+                        const SizedBox(height: 16),
+                        _buildHorizontalStoreList(_nearbyStores),
+                        const SizedBox(height: 24),
+                      ],
+                      if (_topRatedStores.isNotEmpty) ...[
+                        _buildSectionTitle('Toko Terpopuler'),
+                        const SizedBox(height: 16),
+                        _buildHorizontalStoreList(_topRatedStores),
+                        const SizedBox(height: 24),
+                      ],
+                      _buildSectionTitle('Semua Toko (${_allStores.length})'),
+                      const SizedBox(height: 16),
+                      _buildAllStoresList(),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppBar() {
+    return SliverAppBar(
+      floating: true,
+      snap: true,
+      elevation: 0,
+      backgroundColor: Colors.white,
+      title: Text(
+        'Del Pick',
+        style: TextStyle(
+          color: GlobalStyle.primaryColor,
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          fontFamily: GlobalStyle.fontFamily,
+        ),
+      ),
+      actions: [
+        IconButton(
+          icon: Icon(LucideIcons.bell, color: GlobalStyle.primaryColor),
+          onPressed: () {
+            // Handle notifications
+          },
+        ),
+        IconButton(
+          icon: Icon(LucideIcons.user, color: GlobalStyle.primaryColor),
+          onPressed: () {
+            Navigator.pushNamed(context, ProfilePage.route);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: GlobalStyle.primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              LucideIcons.mapPin,
+              color: GlobalStyle.primaryColor,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Lokasi Anda',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
                   ),
                 ),
-              );
-              return SlideTransition(
-                position: slideAnimation,
-                child: _buildStoreCard(store),
-              );
-            },
-          );
-        },
-      );
-    }
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Jasa Titip Card
-          _buildJasaTitipCard(),
-          const SizedBox(height: 16),
-
-          // Nearby Stores Section
-          if (_nearbyStores.isNotEmpty) ...[
-            _buildSectionTitle('Toko Terdekat'),
-            const SizedBox(height: 12),
-            _buildHorizontalStoreList(_nearbyStores),
-            const SizedBox(height: 24),
-          ],
-
-          // Top Rated Stores Section
-          if (_topRatedStores.isNotEmpty) ...[
-            _buildSectionTitle('Toko Rating Terbaik'),
-            const SizedBox(height: 12),
-            _buildHorizontalStoreList(_topRatedStores),
-            const SizedBox(height: 24),
-          ],
-
-          // All Stores Section
-          _buildSectionTitle('Semua Toko'),
-          const SizedBox(height: 12),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _allStores.length,
-            itemBuilder: (context, index) {
-              final store = _allStores[index];
-              return AnimatedBuilder(
-                animation: _slideController,
-                builder: (context, child) {
-                  final delay = index * 0.1;
-                  final slideAnimation = Tween<Offset>(
-                    begin: const Offset(1.0, 0.0),
-                    end: Offset.zero,
-                  ).animate(
-                    CurvedAnimation(
-                      parent: _slideController,
-                      curve: Interval(
-                        delay.clamp(0.0, 1.0),
-                        (delay + 0.4).clamp(0.0, 1.0),
-                        curve: Curves.elasticOut,
-                      ),
+                const SizedBox(height: 4),
+                Text(
+                  _userLocation ?? 'Memuat lokasi...',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black87,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                if (_hasLocationPermission && _currentPosition != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Lat: ${_currentPosition!.latitude.toStringAsFixed(4)}, Lng: ${_currentPosition!.longitude.toStringAsFixed(4)}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey[500],
+                      fontFamily: GlobalStyle.fontFamily,
                     ),
-                  );
-                  return SlideTransition(
-                    position: slideAnimation,
-                    child: _buildStoreCard(store),
-                  );
-                },
-              );
-            },
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (_isLoadingLocation)
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (!_hasLocationPermission)
+            IconButton(
+              onPressed: _getCurrentLocation,
+              icon: Icon(
+                LucideIcons.refreshCw,
+                color: GlobalStyle.primaryColor,
+                size: 20,
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    LucideIcons.checkCircle,
+                    color: Colors.green[700],
+                    size: 14,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Aktif',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDriverSearchCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            GlobalStyle.primaryColor,
+            GlobalStyle.primaryColor.withOpacity(0.8),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: GlobalStyle.primaryColor.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Driver animation
+          SizedBox(
+            width: 80,
+            height: 80,
+            child: Lottie.asset(
+              'assets/animations/driver.json',
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    LucideIcons.car,
+                    color: Colors.white,
+                    size: 40,
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_userName?.isNotEmpty == true) ...[
+                  Text(
+                    'Halo, $_userName!',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+                Text(
+                  _promotionalPhrases[math.Random().nextInt(_promotionalPhrases.length)],
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: _searchDriver,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: GlobalStyle.primaryColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(LucideIcons.car, size: 16),
+                      SizedBox(width: 8),
+                      Text(
+                        'Cari Driver',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildJasaTitipCard() {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12.0),
+  Widget _buildSearchBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      elevation: 2,
-      child: Container(
-        padding: const EdgeInsets.all(16.0),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12.0),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (value) {
+          setState(() {
+            _searchQuery = value;
+            _isSearching = value.isNotEmpty;
+          });
+        },
+        decoration: InputDecoration(
+          hintText: 'Cari toko atau makanan...',
+          hintStyle: TextStyle(
+            color: Colors.grey[400],
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+          prefixIcon: Icon(
+            LucideIcons.search,
+            color: Colors.grey[400],
+          ),
+          suffixIcon: _isSearching
+              ? IconButton(
+            icon: Icon(
+              LucideIcons.x,
+              color: Colors.grey[400],
+            ),
+            onPressed: () {
+              _searchController.clear();
+              setState(() {
+                _searchQuery = '';
+                _isSearching = false;
+              });
+            },
+          )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    final filteredStores = _getFilteredStores();
+
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (filteredStores.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(32),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Jasa Titip',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: GlobalStyle.primaryColor,
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Barang yang kamu cari tidak ada di aplikasi? Pesan melalui driver aja!',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 16),
-                SizedBox(
-                  width: 80,
-                  height: 80,
-                  child: Lottie.asset(
-                    'assets/animations/driver.json',
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ],
+            Icon(
+              LucideIcons.searchX,
+              size: 64,
+              color: Colors.grey[400],
             ),
             const SizedBox(height: 16),
-            if (_isSearchingDriver) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    RotationTransition(
-                      turns: _driverSearchAnimation,
-                      child: Icon(
-                        LucideIcons.loader,
-                        color: GlobalStyle.primaryColor,
-                        size: 32,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Mencari driver...',
-                      style: TextStyle(
-                        color: GlobalStyle.primaryColor,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+            Text(
+              'Tidak ada toko yang ditemukan',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
               ),
-            ] else ...[
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _searchForDriver,
-                  icon: const Icon(LucideIcons.search, size: 18),
-                  label: const Text('Cari Driver'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: GlobalStyle.primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Coba gunakan kata kunci yang berbeda',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
+                fontFamily: GlobalStyle.fontFamily,
               ),
-            ],
+            ),
           ],
         ),
-      ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Hasil Pencarian (${filteredStores.length})',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+        const SizedBox(height: 16),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: filteredStores.length,
+          itemBuilder: (context, index) {
+            return _buildStoreCard(filteredStores[index]);
+          },
+        ),
+      ],
     );
   }
 
@@ -972,63 +1053,143 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
           final store = stores[index];
           return Container(
             width: 200,
-            margin: EdgeInsets.only(right: index == stores.length - 1 ? 0 : 12),
-            child: _buildCompactStoreCard(store),
+            margin: EdgeInsets.only(right: index == stores.length - 1 ? 0 : 16),
+            child: _buildHorizontalStoreCard(store),
           );
         },
       ),
     );
   }
 
-  Widget _buildCompactStoreCard(StoreModel store) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12.0),
-      ),
-      elevation: 2,
-      child: InkWell(
-        onTap: () {
-          Navigator.pushNamed(context, StoreDetail.route, arguments: store.storeId);
-        },
+  Widget _buildHorizontalStoreCard(StoreModel store) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.pushNamed(
+          context,
+          StoreDetail.route,
+          arguments: {'store': store},
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Stack(
-              children: [
-                Hero(
-                  tag: 'store-compact-${store.storeId}',
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(12.0)),
-                    child: _buildStoreImage(store.imageUrl, height: 120),
-                  ),
-                ),
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: GlobalStyle.primaryColor,
-                      borderRadius: BorderRadius.circular(12.0),
+            Container(
+              height: 120,
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                color: Colors.grey[300],
+              ),
+              child: Stack(
+                children: [
+                  if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                      child: Image.network(
+                        store.imageUrl!,
+                        width: double.infinity,
+                        height: 120,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: double.infinity,
+                            height: 120,
+                            color: Colors.grey[300],
+                            child: Icon(
+                              LucideIcons.imageOff,
+                              color: Colors.grey[600],
+                              size: 40,
+                            ),
+                          );
+                        },
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            width: double.infinity,
+                            height: 120,
+                            color: Colors.grey[300],
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      height: 120,
+                      color: Colors.grey[300],
+                      child: Icon(
+                        LucideIcons.store,
+                        color: Colors.grey[600],
+                        size: 40,
+                      ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.star, color: Colors.white, size: 12),
-                        const SizedBox(width: 2),
-                        Text(
-                          store.rating.toStringAsFixed(1),
+                  if (store.rating > 0)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.star,
+                              color: Colors.yellow,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              store.rating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (store.distance != null)
+                    Positioned(
+                      bottom: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.primaryColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${store.distance!.toStringAsFixed(1)} km',
                           style: const TextStyle(
                             color: Colors.white,
+                            fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            fontSize: 10,
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
             Expanded(
               child: Padding(
@@ -1039,38 +1200,52 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     Text(
                       store.name,
                       style: TextStyle(
-                        fontSize: 14.0,
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Colors.black87,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      store.address,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
                         fontFamily: GlobalStyle.fontFamily,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${store.reviewCount} ulasan',
-                      style: TextStyle(
-                        fontSize: 12.0,
-                        color: Colors.grey[600],
-                        fontFamily: GlobalStyle.fontFamily,
+                    const SizedBox(height: 8),
+                    if (store.description.isNotEmpty)
+                      Text(
+                        store.description,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[500],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
                     const Spacer(),
                     Row(
                       children: [
-                        Icon(Icons.location_on, size: 12, color: Colors.grey[600]),
-                        const SizedBox(width: 2),
-                        Expanded(
-                          child: Text(
-                            store.address,
-                            style: TextStyle(
-                              fontSize: 10.0,
-                              color: Colors.grey[600],
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                        Icon(
+                          LucideIcons.clock,
+                          size: 12,
+                          color: Colors.grey[600],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${store.openTime} - ${store.closeTime}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[600],
+                            fontFamily: GlobalStyle.fontFamily,
                           ),
                         ),
                       ],
@@ -1085,222 +1260,359 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildAllStoresList() {
+    if (_isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32.0),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          children: [
+            Icon(
+              LucideIcons.alertCircle,
+              size: 64,
+              color: Colors.red[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Terjadi Kesalahan',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.red[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _fetchStores,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GlobalStyle.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('Coba Lagi'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_allStores.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          children: [
+            Icon(
+              LucideIcons.store,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Belum Ada Toko',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Saat ini belum ada toko yang tersedia',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _allStores.length,
+      itemBuilder: (context, index) {
+        return _buildStoreCard(_allStores[index]);
+      },
+    );
+  }
+
   Widget _buildStoreCard(StoreModel store) {
-    return ScaleTransition(
-      scale: _scaleAnimation,
-      child: FadeTransition(
-        opacity: _fadeAnimation,
-        child: Card(
-          margin: const EdgeInsets.only(bottom: 16.0),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12.0),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-          elevation: 2,
-          child: InkWell(
-            onTap: () {
-              Navigator.pushNamed(context, StoreDetail.route, arguments: store.storeId);
-            },
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Stack(
-                  children: [
-                    Hero(
-                      tag: 'store-${store.storeId}',
-                      child: ClipRRect(
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(12.0)),
-                        child: _buildStoreImage(store.imageUrl),
+        ],
+      ),
+      child: InkWell(
+        onTap: () {
+          Navigator.pushNamed(
+            context,
+            StoreDetail.route,
+            arguments: {'store': store},
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 180,
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                color: Colors.grey[300],
+              ),
+              child: Stack(
+                children: [
+                  if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                      child: Image.network(
+                        store.imageUrl!,
+                        width: double.infinity,
+                        height: 180,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: double.infinity,
+                            height: 180,
+                            color: Colors.grey[300],
+                            child: Icon(
+                              LucideIcons.imageOff,
+                              color: Colors.grey[600],
+                              size: 50,
+                            ),
+                          );
+                        },
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            width: double.infinity,
+                            height: 180,
+                            color: Colors.grey[300],
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      height: 180,
+                      color: Colors.grey[300],
+                      child: Icon(
+                        LucideIcons.store,
+                        color: Colors.grey[600],
+                        size: 50,
                       ),
                     ),
+                  if (store.rating > 0)
                     Positioned(
                       top: 12,
-                      left: 12,
+                      right: 12,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8.0,
-                          vertical: 4.0,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: GlobalStyle.primaryColor,
-                          borderRadius: BorderRadius.circular(16.0),
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Icon(
                               Icons.star,
-                              color: Colors.white,
-                              size: 16,
+                              color: Colors.yellow,
+                              size: 14,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               store.rating.toStringAsFixed(1),
                               style: const TextStyle(
                                 color: Colors.white,
+                                fontSize: 12,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    // Show distance if available
-                    if (store.distance != null)
-                      Positioned(
-                        top: 12,
-                        right: 12,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8.0,
-                            vertical: 4.0,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(16.0),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                LucideIcons.mapPin,
-                                color: GlobalStyle.primaryColor,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                store.formattedDistance ?? '',
-                                style: TextStyle(
-                                  color: GlobalStyle.primaryColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
+                  if (store.distance != null)
+                    Positioned(
+                      bottom: 12,
+                      left: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.primaryColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${store.distance!.toStringAsFixed(1)} km',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    store.name,
+                    style: TextStyle(
+                      fontSize: 18.0,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
                     children: [
+                      Icon(
+                        Icons.store,
+                        size: 14,
+                        color: Colors.grey[600],
+                      ),
+                      const SizedBox(width: 4),
                       Text(
-                        store.name,
+                        '${store.reviewCount} ulasan • ${store.totalProducts} menu',
                         style: TextStyle(
-                          fontSize: 18.0,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                          fontSize: 14.0,
+                          color: Colors.grey[600],
                           fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.store,
-                            size: 14,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${store.reviewCount} ulasan • ${store.totalProducts} menu',
-                            style: TextStyle(
-                              fontSize: 14.0,
-                              color: Colors.grey[600],
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                        ],
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  if (store.description.isNotEmpty)
+                    Text(
+                      store.description,
+                      style: TextStyle(
+                        fontSize: 14.0,
+                        color: Colors.grey[600],
+                        fontFamily: GlobalStyle.fontFamily,
                       ),
-                      const SizedBox(height: 6),
-                      if (store.description.isNotEmpty)
-                        Text(
-                          store.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        size: 16,
+                        color: Colors.grey[600],
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          store.address,
                           style: TextStyle(
                             fontSize: 14.0,
                             color: Colors.grey[600],
                             fontFamily: GlobalStyle.fontFamily,
                           ),
-                          maxLines: 2,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.location_on,
-                            size: 16,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              store.address,
-                              style: TextStyle(
-                                fontSize: 14.0,
-                                color: Colors.grey[600],
-                                fontFamily: GlobalStyle.fontFamily,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.access_time,
-                            size: 16,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            store.openHours,
-                            style: TextStyle(
-                              fontSize: 14.0,
-                              color: Colors.grey[600],
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        LucideIcons.clock,
+                        size: 16,
+                        color: Colors.grey[600],
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${store.openTime} - ${store.closeTime}',
+                        style: TextStyle(
+                          fontSize: 14.0,
+                          color: Colors.grey[600],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: store.status.name == 'active'
+                              ? Colors.green.withOpacity(0.1)
+                              : Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          store.status.name == 'active' ? 'Buka' : 'Tutup',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: store.status.name == 'active'
+                                ? Colors.green[700]
+                                : Colors.red[700],
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildStoreImage(String? imageUrl, {double height = 200}) {
-    if (imageUrl == null || imageUrl.isEmpty) {
-      return _buildPlaceholderImage(height);
-    }
-
-    return ImageService.displayImage(
-      imageSource: imageUrl,
-      width: double.infinity,
-      height: height,
-      fit: BoxFit.cover,
-      placeholder: _buildPlaceholderImage(height),
-      errorWidget: _buildPlaceholderImage(height),
-    );
-  }
-
-  Widget _buildPlaceholderImage(double height) {
-    return Container(
-      height: height,
-      width: double.infinity,
-      color: Colors.grey[300],
-      child: Center(
-        child: Icon(LucideIcons.imageOff, size: 40, color: Colors.grey[500]),
-      ),
-    );
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
   }
 }

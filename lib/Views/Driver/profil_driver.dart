@@ -72,6 +72,32 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
     super.dispose();
   }
 
+  // Helper methods for safe type conversion
+  double _safeToDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  int _safeToInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
+
+  String _safeToString(dynamic value) {
+    if (value == null) return '';
+    return value.toString();
+  }
+
   /// Load driver profile using AuthService.getProfile()
   Future<void> _loadDriverProfile() async {
     if (!mounted) return;
@@ -95,7 +121,7 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
 
       if (profileData != null && profileData.isNotEmpty) {
         // For driver, the structure should be different - check for driver data
-        if (profileData.containsKey('driver') || profileData['role'] == 'driver') {
+        if (profileData.containsKey('driver') || _safeToString(profileData['role']).toLowerCase() == 'driver') {
           if (mounted) {
             setState(() {
               _userProfile = profileData;
@@ -118,7 +144,7 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
         final cachedData = await AuthService.getUserData();
         if (cachedData != null) {
           // Check if cached data has driver info
-          if (cachedData.containsKey('driver') || cachedData['user']?['role'] == 'driver') {
+          if (cachedData.containsKey('driver') || _safeToString(cachedData['user']?['role']).toLowerCase() == 'driver') {
             if (mounted) {
               setState(() {
                 _userProfile = cachedData['user'] ?? cachedData;
@@ -242,7 +268,7 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
     });
 
     try {
-      final driverId = _driverData!['id']?.toString() ?? '';
+      final driverId = _safeToString(_driverData!['id']);
       if (driverId.isEmpty) {
         throw Exception('Driver ID not found');
       }
@@ -323,9 +349,9 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
   /// View profile image in full screen
   void _viewProfileImage() {
     final avatar = _userProfile?['avatar'];
-    if (avatar == null || avatar.toString().isEmpty) return;
+    if (avatar == null || _safeToString(avatar).isEmpty) return;
 
-    final imageUrl = ImageService.getImageUrl(avatar);
+    final imageUrl = ImageService.getImageUrl(_safeToString(avatar));
     if (imageUrl.isEmpty) return;
 
     showDialog(
@@ -404,7 +430,9 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
 
   /// Show status update dialog
   void _showStatusUpdateDialog() {
-    final currentStatus = _driverData?['status'] ?? 'inactive';
+    final currentStatus = _safeToString(_driverData?['status']).isNotEmpty
+        ? _safeToString(_driverData?['status'])
+        : 'inactive';
 
     showDialog(
       context: context,
@@ -515,22 +543,26 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
     );
   }
 
-  // Getters for user data
-  String get userName => _userProfile?['name'] ?? 'Driver';
-  String get userEmail => _userProfile?['email'] ?? '';
-  String get userPhone => _userProfile?['phone'] ?? '';
-  String get userId => _userProfile?['id']?.toString() ?? '';
+  // Safe getters for user data
+  String get userName => _safeToString(_userProfile?['name']).isNotEmpty
+      ? _safeToString(_userProfile?['name'])
+      : 'Driver';
+  String get userEmail => _safeToString(_userProfile?['email']);
+  String get userPhone => _safeToString(_userProfile?['phone']);
+  String get userId => _safeToString(_userProfile?['id']);
   String? get userAvatar => _userProfile?['avatar'];
 
-  // Getters for driver data
-  String get driverStatus => _driverData?['status'] ?? 'inactive';
-  double get driverRating => (_driverData?['rating'] ?? 0.0).toDouble();
-  int get reviewsCount => _driverData?['reviews_count'] ?? 0;
-  String get licenseNumber => _driverData?['license_number'] ?? '';
-  String get vehiclePlate => _driverData?['vehicle_plate'] ?? '';
+  // Safe getters for driver data
+  String get driverStatus => _safeToString(_driverData?['status']).isNotEmpty
+      ? _safeToString(_driverData?['status'])
+      : 'inactive';
+  double get driverRating => _safeToDouble(_driverData?['rating']);
+  int get reviewsCount => _safeToInt(_driverData?['reviews_count']);
+  String get licenseNumber => _safeToString(_driverData?['license_number']);
+  String get vehiclePlate => _safeToString(_driverData?['vehicle_plate']);
 
   String _getStatusText(String? status) {
-    switch (status?.toLowerCase()) {
+    switch (_safeToString(status).toLowerCase()) {
       case 'active':
         return 'Available';
       case 'inactive':
@@ -543,7 +575,7 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
   }
 
   Color _getStatusColor(String? status) {
-    switch (status?.toLowerCase()) {
+    switch (_safeToString(status).toLowerCase()) {
       case 'active':
         return Colors.green;
       case 'inactive':
@@ -840,9 +872,9 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
                 ],
               ),
               child: ClipOval(
-                child: userAvatar != null && userAvatar!.isNotEmpty
+                child: userAvatar != null && _safeToString(userAvatar).isNotEmpty
                     ? ImageService.displayImage(
-                  imageSource: userAvatar!,
+                  imageSource: _safeToString(userAvatar),
                   width: 120,
                   height: 120,
                   fit: BoxFit.cover,
@@ -942,7 +974,7 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
                   const Icon(Icons.star, color: Colors.white, size: 14),
                   const SizedBox(width: 2),
                   Text(
-                    '$driverRating',
+                    driverRating.toStringAsFixed(1),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
@@ -1124,7 +1156,7 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
             _buildInfoItem(
               icon: FontAwesomeIcons.star,
               title: 'Rating',
-              value: driverRating > 0 ? '$driverRating ($reviewsCount reviews)' : 'No ratings yet',
+              value: driverRating > 0 ? '${driverRating.toStringAsFixed(1)} ($reviewsCount reviews)' : 'No ratings yet',
               iconColor: Colors.amber[600]!,
             ),
             _buildDivider(),
@@ -1189,12 +1221,18 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
         padding: const EdgeInsets.symmetric(vertical: 32.0),
         child: Column(
           children: [
-            Image.asset(
-              'assets/images/delpick_image.png',
+            Container(
               width: 80,
               height: 80,
-              color: Colors.grey[400],
-              colorBlendMode: BlendMode.modulate,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                Icons.delivery_dining,
+                size: 40,
+                color: Colors.grey[600],
+              ),
             ),
             const SizedBox(height: 12),
             Text(

@@ -230,37 +230,148 @@ class AuthService {
     }
   }
 
-  /// Get role-specific user data structure
+  /// Enhanced method to get role-specific user data structure
   static Future<Map<String, dynamic>?> getRoleSpecificData() async {
     try {
-      final userData = await getUserData();
-      if (userData == null) return null;
+      print('Getting role-specific data...');
 
-      final role = await getUserRole();
-      if (role == null) return userData;
+      // First, get the user role
+      final userRole = await getUserRole();
+      print('User role: $userRole');
 
-      // Return appropriate structure based on role
-      switch (role.toLowerCase()) {
-        case 'driver':
-          return {
-            'user': userData['user'] ?? userData,
-            'driver': userData['driver'],
-          };
-        case 'store':
-          return {
-            'user': userData['user'] ?? userData,
-            'store': userData['store'],
-          };
-        case 'customer':
-          return {
-            'user': userData['user'] ?? userData,
-          };
-        default:
-          return userData;
+      if (userRole == null) {
+        print('No user role found');
+        return null;
       }
+
+      // Get cached user data
+      final userData = await getUserData();
+      print('Cached user data: $userData');
+
+      if (userData == null) {
+        print('No cached user data, fetching from server...');
+        // If no cached data, try to get fresh data from server
+        final freshData = await refreshUserData();
+        if (freshData != null) {
+          // Process the fresh data based on role
+          final processedData = await _processRoleSpecificData(freshData, userRole);
+          return processedData;
+        }
+        return null;
+      }
+
+      // Process existing data based on role
+      final processedData = await _processRoleSpecificData(userData, userRole);
+      return processedData;
+
     } catch (e) {
       print('Error getting role-specific data: $e');
       return null;
+    }
+  }
+
+  /// Process data based on user role and ensure proper structure
+  static Future<Map<String, dynamic>?> _processRoleSpecificData(
+      Map<String, dynamic> data, String role) async {
+    try {
+      print('Processing role-specific data for role: $role');
+      print('Input data: $data');
+
+      switch (role.toLowerCase()) {
+        case 'store':
+          return await _processStoreSpecificData(data);
+        case 'driver':
+          return await _processDriverSpecificData(data);
+        case 'customer':
+          return await _processCustomerSpecificData(data);
+        default:
+          print('Unknown role: $role, returning data as-is');
+          return data;
+      }
+    } catch (e) {
+      print('Error processing role-specific data: $e');
+      return data;
+    }
+  }
+
+  /// Process store-specific data and ensure store info is available
+  static Future<Map<String, dynamic>> _processStoreSpecificData(
+      Map<String, dynamic> data) async {
+    try {
+      print('Processing store-specific data...');
+
+      // If store data is already at the root level
+      if (data['store'] != null) {
+        print('Store data found at root level');
+        await _processStoreData(data);
+        return data;
+      }
+
+      // If user data contains store info
+      if (data['user'] != null && data['user']['store'] != null) {
+        print('Store data found in user object');
+        final storeData = data['user']['store'];
+        await _processStoreData({'store': storeData});
+        return {
+          'user': data['user'],
+          'store': storeData,
+        };
+      }
+
+      // If we need to fetch store data from server
+      print('No store data found, attempting to fetch from server...');
+      final freshProfile = await getProfile();
+      if (freshProfile != null && freshProfile['store'] != null) {
+        print('Store data fetched from server');
+        await _processStoreData({'store': freshProfile['store']});
+        return {
+          'user': freshProfile,
+          'store': freshProfile['store'],
+        };
+      }
+
+      print('No store data available');
+      return data;
+    } catch (e) {
+      print('Error processing store-specific data: $e');
+      return data;
+    }
+  }
+
+  /// Process driver-specific data
+  static Future<Map<String, dynamic>> _processDriverSpecificData(
+      Map<String, dynamic> data) async {
+    try {
+      if (data['driver'] != null) {
+        await _processDriverData(data);
+        return data;
+      }
+
+      if (data['user'] != null && data['user']['driver'] != null) {
+        return {
+          'user': data['user'],
+          'driver': data['user']['driver'],
+        };
+      }
+
+      return data;
+    } catch (e) {
+      print('Error processing driver-specific data: $e');
+      return data;
+    }
+  }
+
+  /// Process customer-specific data
+  static Future<Map<String, dynamic>> _processCustomerSpecificData(
+      Map<String, dynamic> data) async {
+    try {
+      // For customers, the user data is usually sufficient
+      return {
+        'user': data['user'] ?? data,
+      };
+    } catch (e) {
+      print('Error processing customer-specific data: $e');
+      return data;
     }
   }
 
@@ -361,8 +472,10 @@ class AuthService {
     }
   }
 
-  /// Process driver-specific login data
+  /// Enhanced driver-specific login data processing
   static Future<void> _processDriverData(Map<String, dynamic> loginData) async {
+    print('Processing driver data...');
+
     if (loginData['driver'] != null) {
       final driver = loginData['driver'];
 
@@ -374,11 +487,15 @@ class AuthService {
       driver['vehicle_plate'] = driver['vehicle_plate'] ?? '';
       driver['latitude'] = driver['latitude'];
       driver['longitude'] = driver['longitude'];
+
+      print('Driver data processed: $driver');
     }
   }
 
-  /// Process store-specific login data
+  /// Enhanced store-specific login data processing
   static Future<void> _processStoreData(Map<String, dynamic> loginData) async {
+    print('Processing store data...');
+
     if (loginData['store'] != null) {
       final store = loginData['store'];
 
@@ -392,6 +509,17 @@ class AuthService {
       store['review_count'] = store['review_count'] ?? 0;
       store['total_products'] = store['total_products'] ?? 0;
       store['status'] = store['status'] ?? 'active';
+
+      // Ensure store ID is available
+      if (store['id'] == null) {
+        print('WARNING: Store ID is null!');
+      } else {
+        print('Store ID found: ${store['id']}');
+      }
+
+      print('Store data processed: $store');
+    } else {
+      print('WARNING: No store data found in loginData');
     }
   }
 
@@ -419,6 +547,26 @@ class AuthService {
       if (store['owner'] != null && store['owner']['avatar'] != null) {
         store['owner']['avatar'] = ImageService.getImageUrl(store['owner']['avatar']);
       }
+    }
+  }
+
+  /// Debug method to print current user data structure
+  static Future<void> debugUserData() async {
+    try {
+      print('=== DEBUG USER DATA ===');
+
+      final role = await getUserRole();
+      print('User role: $role');
+
+      final userData = await getUserData();
+      print('User data: $userData');
+
+      final roleSpecificData = await getRoleSpecificData();
+      print('Role-specific data: $roleSpecificData');
+
+      print('=== END DEBUG ===');
+    } catch (e) {
+      print('Debug error: $e');
     }
   }
 }

@@ -17,10 +17,12 @@ import 'package:del_pick/Services/driver_request_service.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
+import 'package:del_pick/Services/user_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
+import '../../Services/Core/token_service.dart';
 
 class HomeDriverPage extends StatefulWidget {
   static const String route = '/Driver/HomePage';
@@ -46,9 +48,14 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   String _driverStatus = 'inactive'; // active, inactive, busy
   bool _isUpdatingStatus = false;
 
-  // Driver Profile
+  // Driver & User Data
   DriverModel? _driverProfile;
   Map<String, dynamic>? _driverData;
+  Map<String, dynamic>? _userData;
+  String? _userId;
+  String? _userRole;
+  String? _authToken;
+  String? _driverId; // Store driver ID separately
 
   // Orders Data
   List<Map<String, dynamic>> _regularOrders = [];
@@ -174,15 +181,27 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     });
 
     try {
-      // Load driver profile
-      await _loadDriverProfile();
+      // First verify authentication
+      if (!await _verifyAuthentication()) {
+        _handleAuthenticationError();
+        return;
+      }
 
-      // Load orders and requests
-      await Future.wait([
-        _loadRegularOrders(),
-        _loadJasaTitipRequests(),
-        _loadDriverRequests(),
-      ]);
+      // Load user and driver profile data using AuthService properly
+      await _loadUserAndDriverProfileWithAuthService();
+
+      // Load orders and requests only if we have valid driver data
+      if (_driverId != null) {
+        await Future.wait([
+          _loadRegularOrders(),
+          _loadJasaTitipRequests(),
+          _loadDriverRequests(),
+        ]);
+      } else {
+        setState(() {
+          _errorMessage = 'Data driver tidak ditemukan. Silakan login ulang.';
+        });
+      }
 
     } catch (e) {
       setState(() {
@@ -196,27 +215,235 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // Load driver profile using AuthService
-  Future<void> _loadDriverProfile() async {
+  // Verify authentication using TokenService
+  Future<bool> _verifyAuthentication() async {
     try {
-      final userData = await AuthService.getRoleSpecificData();
-      if (userData != null) {
-        setState(() {
-          _driverData = userData;
-          if (userData['driver'] != null) {
-            _driverProfile = DriverModel.fromJson(userData);
-            _driverStatus = userData['driver']['status'] ?? 'inactive';
-          }
-        });
+      // Check if user is authenticated
+      final isAuthenticated = await TokenService.isAuthenticated();
+      if (!isAuthenticated) {
+        print('User is not authenticated');
+        return false;
+      }
+
+      // Get authentication token
+      _authToken = await TokenService.getToken();
+      if (_authToken == null) {
+        print('No authentication token found');
+        return false;
+      }
+
+      // Get user role and verify it's driver
+      _userRole = await TokenService.getUserRole();
+      if (_userRole?.toLowerCase() != 'driver') {
+        print('User role is not driver: $_userRole');
+        return false;
+      }
+
+      // Get user ID
+      _userId = await TokenService.getUserId();
+      if (_userId == null) {
+        print('No user ID found');
+        return false;
+      }
+
+      print('Authentication verified - User ID: $_userId, Role: $_userRole');
+      return true;
+
+    } catch (e) {
+      print('Error verifying authentication: $e');
+      return false;
+    }
+  }
+
+  // Load user and driver profile using AuthService properly with role-specific data
+  Future<void> _loadUserAndDriverProfileWithAuthService() async {
+    try {
+      print('Loading user and driver profile with AuthService...');
+
+      // Step 1: Try to get role-specific data first
+      final roleSpecificData = await AuthService.getRoleSpecificData();
+      if (roleSpecificData != null) {
+        _userData = roleSpecificData;
+        print('Role-specific data loaded: ${roleSpecificData.keys}');
+
+        // Process role-specific data
+        await _processRoleSpecificData(roleSpecificData);
+      } else {
+        // Step 2: If no role-specific data, try fresh profile
+        await _refreshProfileData();
+      }
+
+      // Step 3: Extract driver information
+      await _extractDriverInformation();
+
+      // Step 4: Create DriverModel if possible
+      _createDriverModel();
+
+      // Step 5: Verify we have driver data
+      if (_driverId == null) {
+        throw Exception('Driver ID tidak ditemukan setelah memuat profil');
+      }
+
+      print('Successfully loaded driver profile - Driver ID: $_driverId');
+
+    } catch (e) {
+      print('Error loading user and driver profile with AuthService: $e');
+      throw Exception('Gagal memuat profil driver: $e');
+    }
+  }
+
+  // Process role-specific data from AuthService
+  Future<void> _processRoleSpecificData(Map<String, dynamic> roleData) async {
+    try {
+      // Check if this is driver role-specific data
+      if (roleData['driver'] != null) {
+        await _processDriverData(roleData['driver']);
+      }
+
+      // Process user data
+      if (roleData['user'] != null) {
+        final userData = roleData['user'];
+        _userId = userData['id']?.toString();
+        _userRole = userData['role'];
+      }
+
+      print('Role-specific data processed successfully');
+    } catch (e) {
+      print('Error processing role-specific data: $e');
+      throw Exception('Gagal memproses data role-specific: $e');
+    }
+  }
+
+  // Process driver data specifically
+  Future<void> _processDriverData(Map<String, dynamic> driverData) async {
+    try {
+      _driverData = driverData;
+      _driverId = driverData['id']?.toString();
+      _driverStatus = driverData['status'] ?? 'inactive';
+
+      print('Driver data processed - Driver ID: $_driverId, Status: $_driverStatus');
+    } catch (e) {
+      print('Error processing driver data: $e');
+      throw Exception('Gagal memproses data driver: $e');
+    }
+  }
+
+  // Refresh profile data using AuthService
+  Future<void> _refreshProfileData() async {
+    try {
+      print('Refreshing profile data...');
+
+      final freshProfileData = await AuthService.refreshUserData();
+      if (freshProfileData != null) {
+        _userData = {'user': freshProfileData};
+
+        // Check if fresh data contains driver info
+        if (freshProfileData['driver'] != null) {
+          _userData!['driver'] = freshProfileData['driver'];
+          await _processDriverData(freshProfileData['driver']);
+        }
+
+        print('Fresh profile data loaded');
+      } else {
+        throw Exception('Gagal mendapatkan data profil fresh');
       }
     } catch (e) {
-      print('Error loading driver profile: $e');
+      print('Error refreshing profile data: $e');
+      throw Exception('Gagal refresh data profil: $e');
     }
+  }
+
+  // Extract driver information from user data
+  Future<void> _extractDriverInformation() async {
+    try {
+      // Check if driver data exists in user data
+      if (_userData != null && _userData!['driver'] != null) {
+        _driverData = _userData!['driver'];
+        _driverId = _driverData!['id']?.toString();
+        _driverStatus = _driverData!['status'] ?? 'inactive';
+
+        print('Driver data found in user data - Driver ID: $_driverId, Status: $_driverStatus');
+        return;
+      }
+
+      // If no driver data found, try to fetch it using DriverService
+      if (_userId != null) {
+        try {
+          print('Fetching driver data using DriverService...');
+          final driverDataResponse = await DriverService.getDriverById(_userId!);
+
+          if (driverDataResponse.isNotEmpty) {
+            _driverData = driverDataResponse['driver'] ?? driverDataResponse;
+            _driverId = _driverData!['id']?.toString() ?? _userId;
+            _driverStatus = _driverData!['status'] ?? 'inactive';
+
+            // Update user data with driver info
+            if (_userData == null) _userData = {};
+            _userData!['driver'] = _driverData;
+
+            print('Driver data fetched successfully - Driver ID: $_driverId, Status: $_driverStatus');
+          } else {
+            throw Exception('Response driver data kosong');
+          }
+        } catch (e) {
+          print('Error fetching driver data by ID: $e');
+          // Use user ID as driver ID as fallback
+          _driverId = _userId;
+          _driverStatus = 'inactive';
+          print('Using user ID as driver ID (fallback): $_driverId');
+        }
+      } else {
+        throw Exception('User ID tidak tersedia untuk mengambil data driver');
+      }
+
+    } catch (e) {
+      print('Error extracting driver information: $e');
+      // Final fallback
+      _driverId = _userId;
+      _driverStatus = 'inactive';
+    }
+  }
+
+  // Create DriverModel from available data
+  void _createDriverModel() {
+    try {
+      if (_userData != null) {
+        // Try to create DriverModel
+        if (_userData!['driver'] != null || _userData!['user'] != null) {
+          _driverProfile = DriverModel.fromJson(_userData!);
+          print('DriverModel created successfully');
+        } else {
+          print('Insufficient data to create DriverModel');
+        }
+      }
+    } catch (e) {
+      print('Error creating DriverModel: $e');
+      // Continue without DriverModel, we still have driver ID
+    }
+  }
+
+  // Handle authentication error
+  void _handleAuthenticationError() {
+    setState(() {
+      _errorMessage = 'Sesi login telah berakhir. Silakan login kembali.';
+      _isInitialLoading = false;
+    });
+
+    // Navigate to login after a delay
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          '/login',
+              (route) => false,
+        );
+      }
+    });
   }
 
   // Load regular orders using DriverService.getDriverOrders()
   Future<void> _loadRegularOrders() async {
-    if (!mounted) return;
+    if (!mounted || _driverId == null) return;
 
     setState(() {
       _isLoadingOrders = true;
@@ -257,7 +484,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
   // Load jasa titip requests using DriverRequestService.getDriverRequests()
   Future<void> _loadJasaTitipRequests() async {
-    if (!mounted) return;
+    if (!mounted || _driverId == null) return;
 
     setState(() {
       _isLoadingRequests = true;
@@ -289,6 +516,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
   // Load all driver requests for history
   Future<void> _loadDriverRequests() async {
+    if (_driverId == null) return;
+
     try {
       final response = await DriverRequestService.getDriverRequestHistory(
         page: 1,
@@ -310,22 +539,22 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   void _startPeriodicUpdates() {
     // Poll for new orders every 15 seconds when active
     _orderPollingTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      if (_driverStatus == 'active' && mounted) {
+      if (_driverStatus == 'active' && mounted && _driverId != null) {
         _loadRegularOrders();
       }
     });
 
     // Poll for new requests every 10 seconds when active
     _requestPollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      if (_driverStatus == 'active' && mounted) {
+      if (_driverStatus == 'active' && mounted && _driverId != null) {
         _loadJasaTitipRequests();
       }
     });
   }
 
-  // Toggle driver status using DriverService.updateDriverStatus()
+  // Toggle driver status - FIXED TO USE PROPER ENDPOINT
   Future<void> _toggleDriverStatus() async {
-    if (_isUpdatingStatus) return;
+    if (_isUpdatingStatus || _driverId == null) return;
 
     if (_driverStatus == 'active') {
       _showDeactivateConfirmationDialog();
@@ -334,23 +563,41 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
+  // FIXED: Use UserService to update driver status instead of DriverService
   Future<void> _setDriverStatus(String newStatus) async {
-    if (_driverProfile == null) return;
+    if (_driverId == null) {
+      _showErrorDialog('Driver ID tidak ditemukan. Silakan login ulang.');
+      return;
+    }
 
     setState(() {
       _isUpdatingStatus = true;
     });
 
     try {
-      await DriverService.updateDriverStatus(
-        driverId: _driverProfile!.driverId.toString(),
-        status: newStatus,
-      );
+      // Use AuthService to update profile instead of DriverService.updateDriverStatus
+      // This avoids unauthorized access error
+      final updateData = {
+        'driver': {
+          'status': newStatus,
+        }
+      };
+
+      await AuthService.updateProfile(updateData: updateData);
 
       setState(() {
         _driverStatus = newStatus;
         _isUpdatingStatus = false;
       });
+
+      // Update local cached data
+      if (_driverData != null) {
+        _driverData!['status'] = newStatus;
+      }
+      if (_userData != null && _userData!['driver'] != null) {
+        _userData!['driver']['status'] = newStatus;
+        await TokenService.saveUserData(_userData!);
+      }
 
       if (newStatus == 'active') {
         _showDriverActiveDialog();
@@ -366,7 +613,54 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       setState(() {
         _isUpdatingStatus = false;
       });
-      _showErrorDialog('Gagal mengubah status driver: $e');
+
+      // If auth service fails, try alternative approach using UserService
+      try {
+        print('AuthService failed, trying UserService approach...');
+        await _updateDriverStatusAlternative(newStatus);
+      } catch (e2) {
+        _showErrorDialog('Gagal mengubah status driver: $e2');
+      }
+    }
+  }
+
+  // Alternative method to update driver status using UserService
+  Future<void> _updateDriverStatusAlternative(String newStatus) async {
+    try {
+      // Try updating using UserService.updateProfile
+      final updateData = {
+        'status': newStatus,
+      };
+
+      await UserService.updateProfile(updateData: updateData);
+
+      setState(() {
+        _driverStatus = newStatus;
+        _isUpdatingStatus = false;
+      });
+
+      // Update local cached data
+      if (_driverData != null) {
+        _driverData!['status'] = newStatus;
+      }
+      if (_userData != null && _userData!['driver'] != null) {
+        _userData!['driver']['status'] = newStatus;
+        await TokenService.saveUserData(_userData!);
+      }
+
+      if (newStatus == 'active') {
+        _showDriverActiveDialog();
+      }
+
+      // Refresh orders when status changes
+      if (newStatus == 'active') {
+        _loadRegularOrders();
+        _loadJasaTitipRequests();
+      }
+
+    } catch (e) {
+      print('Alternative update method also failed: $e');
+      throw Exception('Semua metode update status gagal: $e');
     }
   }
 
@@ -437,10 +731,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       await TrackingService.startDelivery(orderId);
 
       // Update local status
-      setState(() {
-        _driverStatus = 'busy';
-      });
-
+      await _setDriverStatus('busy');
       _showDeliveryStartedDialog();
       _loadRegularOrders();
 
@@ -462,6 +753,20 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
     } catch (e) {
       _showErrorDialog('Gagal menyelesaikan pengiriman: $e');
+    }
+  }
+
+  // FIXED: Navigate to Profile with proper error handling
+  void _navigateToProfile() async {
+    try {
+      print('Navigating to ProfileDriverPage...');
+
+      // Ensure we have the route registered properly
+      await Navigator.pushNamed(context, ProfileDriverPage.route);
+
+    } catch (e) {
+      print('Error navigating to profile: $e');
+      _showErrorDialog('Gagal membuka halaman profil: $e');
     }
   }
 
@@ -1580,12 +1885,21 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                               fontFamily: GlobalStyle.fontFamily,
                             ),
                           ),
+                          if (_userData != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'ID Driver: ${_driverId ?? 'N/A'}',
+                              style: TextStyle(
+                                color: GlobalStyle.fontColor.withOpacity(0.7),
+                                fontSize: 12,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       GestureDetector(
-                        onTap: () {
-                          Navigator.pushNamed(context, ProfileDriverPage.route);
-                        },
+                        onTap: _navigateToProfile, // FIXED: Use proper navigation method
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(

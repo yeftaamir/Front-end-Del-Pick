@@ -11,6 +11,7 @@ import '../../Models/menu_item.dart';
 import '../../Services/menu_service.dart';
 import '../../Services/image_service.dart';
 import '../../Services/auth_service.dart';
+import '../../Services/store_data_helper.dart';
 import 'add_item.dart';
 
 class AddEditItemForm extends StatefulWidget {
@@ -111,21 +112,102 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   }
 
   Future<void> _initializeData() async {
-    try {
-      // Get store ID from user data
-      final userData = await AuthService.getUserData();
-      if (userData != null && userData['store'] != null) {
-        _storeId = userData['store']['id'].toString();
-      }
+    setState(() {
+      _isLoading = true;
+    });
 
-      // Initialize with existing item data if available
-      if (widget.menuItem != null) {
-        _initializeFromMenuItem(widget.menuItem!);
-      } else if (widget.item != null) {
-        _initializeFromItem(widget.item!);
+    try {
+      // Get store ID from user data using multiple approaches
+      await _getStoreId();
+
+      if (_storeId != null) {
+        // Initialize with existing item data if available
+        if (widget.menuItem != null) {
+          _initializeFromMenuItem(widget.menuItem!);
+        } else if (widget.item != null) {
+          _initializeFromItem(widget.item!);
+        }
+      } else {
+        throw Exception('Store information not found. Please ensure you are logged in as a store owner.');
       }
     } catch (e) {
+      setState(() {
+        _hasError = true;
+        _errorMessage = 'Error initializing data: $e';
+      });
       print('Error initializing data: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  // Enhanced store ID retrieval with multiple fallback methods
+  Future<void> _getStoreId() async {
+    try {
+      // Method 1: Try using getRoleSpecificData()
+      final roleSpecificData = await AuthService.getRoleSpecificData();
+      print('Role specific data: $roleSpecificData');
+
+      if (roleSpecificData != null && roleSpecificData['store'] != null) {
+        _storeId = roleSpecificData['store']['id'].toString();
+        print('Store ID from role specific data: $_storeId');
+        return;
+      }
+
+      // Method 2: Try regular getUserData()
+      final userData = await AuthService.getUserData();
+      print('User data: $userData');
+
+      if (userData != null) {
+        // Try different possible locations for store data
+        if (userData['store'] != null && userData['store']['id'] != null) {
+          _storeId = userData['store']['id'].toString();
+          print('Store ID from userData[store]: $_storeId');
+          return;
+        }
+
+        if (userData['user'] != null && userData['user']['store'] != null) {
+          _storeId = userData['user']['store']['id'].toString();
+          print('Store ID from userData[user][store]: $_storeId');
+          return;
+        }
+      }
+
+      // Method 3: Try using getProfile()
+      final profile = await AuthService.getProfile();
+      print('Profile data: $profile');
+
+      if (profile != null) {
+        if (profile['store'] != null && profile['store']['id'] != null) {
+          _storeId = profile['store']['id'].toString();
+          print('Store ID from profile[store]: $_storeId');
+          return;
+        }
+      }
+
+      // Method 4: Check user role and refresh data if needed
+      final userRole = await AuthService.getUserRole();
+      print('User role: $userRole');
+
+      if (userRole == 'store') {
+        // Try refreshing user data
+        final refreshedData = await AuthService.refreshUserData();
+        print('Refreshed data: $refreshedData');
+
+        if (refreshedData != null && refreshedData['store'] != null) {
+          _storeId = refreshedData['store']['id'].toString();
+          print('Store ID from refreshed data: $_storeId');
+          return;
+        }
+      }
+
+      throw Exception('Store ID not found in any data source. User role: $userRole');
+
+    } catch (e) {
+      print('Error getting store ID: $e');
+      throw Exception('Failed to get store information: $e');
     }
   }
 
@@ -138,7 +220,11 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _selectedImageUrl = menuItem.imageUrl;
     _selectedStatus = menuItem.isAvailable ? 'available' : 'unavailable';
     _originalItemId = menuItem.id.toString();
-    _storeId = menuItem.storeId.toString();
+
+    // Use the store ID from menu item if available, otherwise use the detected one
+    if (menuItem.storeId > 0) {
+      _storeId = menuItem.storeId.toString();
+    }
   }
 
   void _initializeFromItem(Item item) {
@@ -244,7 +330,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
 
     if (_storeId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Store ID tidak ditemukan')),
+        const SnackBar(content: Text('Store ID tidak ditemukan. Silakan coba login ulang.')),
       );
       return;
     }
@@ -339,6 +425,8 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       final double price = double.tryParse(_priceController.text.replaceAll(',', '').replaceAll('.', '')) ?? 0.0;
       final int stock = int.tryParse(_stockController.text) ?? 1;
       final bool isAvailable = _selectedStatus == 'available';
+
+      print('Saving item with store ID: $_storeId');
 
       if (_originalItemId != null) {
         // Update existing item using MenuItemService.updateMenuItem
@@ -619,7 +707,57 @@ class _AddEditItemFormState extends State<AddEditItemForm>
         ),
         body: _isLoading
             ? Center(
-          child: CircularProgressIndicator(color: GlobalStyle.primaryColor),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: GlobalStyle.primaryColor),
+              const SizedBox(height: 16),
+              const Text('Memuat data store...'),
+              if (_storeId != null)
+                Text('Store ID: $_storeId', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        )
+            : _hasError
+            ? Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, color: Colors.red, size: 64),
+              const SizedBox(height: 16),
+              Text(
+                'Error',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  _errorMessage,
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 14,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _initializeData,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GlobalStyle.primaryColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                child: const Text('Coba Lagi', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
         )
             : SingleChildScrollView(
           child: Padding(
@@ -627,6 +765,32 @@ class _AddEditItemFormState extends State<AddEditItemForm>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Store Info Card
+                if (_storeId != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: GlobalStyle.lightColor.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: GlobalStyle.lightColor),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.store, color: GlobalStyle.primaryColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Store ID: $_storeId',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: GlobalStyle.primaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // Basic Information Card
                 _buildCard(
                   index: 0,

@@ -2,16 +2,19 @@ import 'dart:convert';
 
 import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../../Common/global_style.dart';
 import '../../Models/order_review.dart';
 import '../../Models/menu_item.dart';
+import '../../Services/parsing_diagnostics.dart';
 import '../Component/bottom_navigation.dart';
 import 'add_edit_items.dart';
 import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
+import 'package:del_pick/Services/store_data_helper.dart';
 
 class AddItemPage extends StatefulWidget {
   static const String route = '/Store/AddItem';
@@ -78,29 +81,40 @@ class _AddItemPageState extends State<AddItemPage>
     }
   }
 
-  // Get store ID from user data
+  // Enhanced store ID retrieval using StoreDataHelper
   Future<void> _getStoreId() async {
     try {
-      final userData = await AuthService.getUserData();
+      print('🏪 Getting store ID using StoreDataHelper...');
 
-      if (userData != null) {
-        // Try to get store ID from different possible locations in user data
-        if (userData['store'] != null && userData['store']['id'] != null) {
-          _storeId = userData['store']['id'].toString();
-        } else if (userData['user'] != null && userData['user']['store'] != null) {
-          _storeId = userData['user']['store']['id'].toString();
-        }
+      // Use the new StoreDataHelper for comprehensive store ID resolution
+      _storeId = await StoreDataHelper.getStoreId();
+
+      if (_storeId != null) {
+        print('✅ Store ID resolved: $_storeId');
+        return;
       }
 
-      if (_storeId == null) {
-        // Try alternative approach with profile
-        final profile = await AuthService.getProfile();
-        if (profile != null && profile['store'] != null) {
-          _storeId = profile['store']['id'].toString();
-        }
+      // If still no store ID, run diagnosis
+      print('⚠️ Store ID not found, running diagnosis...');
+      final diagnosis = await StoreDataHelper.diagnoseAndFix();
+      print('🔧 Diagnosis result: ${diagnosis['status']}');
+
+      if (diagnosis['status'] == 'fixed') {
+        _storeId = await StoreDataHelper.getStoreId();
+        print('✅ Store ID resolved after fix: $_storeId');
+        return;
       }
+
+      // Final check - validate user role
+      final isStoreOwner = await StoreDataHelper.isStoreOwner();
+      if (!isStoreOwner) {
+        throw Exception('User is not a store owner. Please login as a store owner.');
+      }
+
+      throw Exception('Store ID not found. Issues: ${diagnosis['issues'].join(', ')}');
+
     } catch (e) {
-      print('Error getting store ID: $e');
+      print('❌ Error getting store ID: $e');
       throw Exception('Failed to get store information: $e');
     }
   }
@@ -122,6 +136,8 @@ class _AddItemPageState extends State<AddItemPage>
     });
 
     try {
+      print('Fetching menu items for store ID: $_storeId');
+
       // Use MenuItemService.getMenuItemsByStore method
       final response = await MenuItemService.getMenuItemsByStore(
         storeId: _storeId!,
@@ -137,22 +153,44 @@ class _AddItemPageState extends State<AddItemPage>
       // Process the response based on the service structure
       if (response['data'] != null && response['data'] is List) {
         final List<dynamic> menuItemsList = response['data'];
+        print('📋 Found ${menuItemsList.length} raw menu items from API');
 
-        for (var menuItemJson in menuItemsList) {
+        for (int i = 0; i < menuItemsList.length; i++) {
           try {
+            final menuItemJson = menuItemsList[i];
+            print('🔍 Processing menu item $i: ${menuItemJson['name']} - Price: ${menuItemJson['price']} (${menuItemJson['price'].runtimeType})');
+
             // Convert to MenuItemModel using the model's fromJson method
             final MenuItemModel menuItem = MenuItemModel.fromJson(menuItemJson);
             menuItems.add(menuItem);
+            print('✅ Successfully parsed menu item: ${menuItem.name} - ${menuItem.formatPrice()}');
           } catch (e) {
-            print('Error parsing menu item: $e');
+            print('❌ Error parsing menu item $i: $e');
+            print('❌ Raw item data: ${menuItemsList[i]}');
+
+            // Run diagnostic on failed item
+            if (kDebugMode) {
+              final diagnosis = ParsingDiagnostics.diagnoseMenuItemParsing(menuItemsList[i]);
+              ParsingDiagnostics.printDiagnosis(diagnosis);
+
+              // Test parsing to see exactly what fails
+              final testResult = ParsingDiagnostics.testMenuItemParsing(menuItemsList[i]);
+              print('🧪 Parsing test result: $testResult');
+            }
+
+            // Continue processing other items instead of failing completely
           }
         }
+      } else {
+        print('⚠️ Unexpected response format: ${response['data']}');
       }
 
       setState(() {
         _menuItems = menuItems;
         _isLoading = false;
       });
+
+      print('Successfully loaded ${menuItems.length} menu items');
 
     } catch (e) {
       setState(() {
@@ -553,6 +591,14 @@ class _AddItemPageState extends State<AddItemPage>
               ),
             ),
           ),
+          if (_storeId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'Store ID: $_storeId',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
         ],
       ),
     );
@@ -589,6 +635,26 @@ class _AddItemPageState extends State<AddItemPage>
             ),
             textAlign: TextAlign.center,
           ),
+          if (_storeId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: GlobalStyle.lightColor.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: GlobalStyle.lightColor),
+                ),
+                child: Text(
+                  'Store ID: $_storeId',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: GlobalStyle.primaryColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: () => _navigateToAddEditForm(),
@@ -621,12 +687,20 @@ class _AddItemPageState extends State<AddItemPage>
           CircularProgressIndicator(color: GlobalStyle.primaryColor),
           const SizedBox(height: 20),
           const Text(
-            'Memuat item...',
+            'Memuat data store...',
             style: TextStyle(
               fontSize: 16,
               color: Colors.grey,
             ),
           ),
+          if (_storeId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'Store ID: $_storeId',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
         ],
       ),
     );
@@ -666,6 +740,21 @@ class _AddItemPageState extends State<AddItemPage>
         backgroundColor: Colors.white,
         elevation: 0,
         actions: [
+          // Debug button for troubleshooting
+          if (_hasError)
+            IconButton(
+              icon: Icon(Icons.bug_report, color: Colors.orange),
+              tooltip: 'Debug Store Data',
+              onPressed: () async {
+                await StoreDataHelper.debugStoreData();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Debug info printed to console'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: Icon(Icons.refresh, color: GlobalStyle.primaryColor),
             onPressed: _fetchMenuItems,
@@ -673,11 +762,11 @@ class _AddItemPageState extends State<AddItemPage>
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: ElevatedButton.icon(
-              onPressed: () => _navigateToAddEditForm(),
+              onPressed: _storeId != null ? () => _navigateToAddEditForm() : null,
               icon: const Icon(Icons.add),
               label: const Text('Tambah Item'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: GlobalStyle.primaryColor,
+                backgroundColor: _storeId != null ? GlobalStyle.primaryColor : Colors.grey,
                 foregroundColor: Colors.white,
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -692,469 +781,506 @@ class _AddItemPageState extends State<AddItemPage>
           ),
         ],
       ),
-      body: _isLoading
-          ? _buildLoadingState()
-          : _hasError
-          ? _buildErrorState()
-          : _menuItems.isEmpty
-          ? _buildEmptyState()
-          : RefreshIndicator(
-        onRefresh: _fetchMenuItems,
-        color: GlobalStyle.primaryColor,
-        child: ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: _menuItems.length,
-          itemBuilder: (context, index) {
-            final menuItem = _menuItems[index];
-            final bool isUpdating = _updatingItems.contains(menuItem.id.toString());
-
-            return AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                return SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(1, 0),
-                    end: Offset.zero,
-                  ).animate(CurvedAnimation(
-                    parent: _controller,
-                    curve: Interval(
-                      index * 0.1,
-                      1.0,
-                      curve: Curves.easeOut,
+      body: Column(
+        children: [
+          // Store ID indicator
+          if (_storeId != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: GlobalStyle.lightColor.withOpacity(0.3),
+              child: Row(
+                children: [
+                  Icon(Icons.store, color: GlobalStyle.primaryColor, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Store ID: $_storeId',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: GlobalStyle.primaryColor,
                     ),
-                  )),
-                  child: child!,
-                );
-              },
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _getColorWithOpacity(Colors.grey, 0.1),
-                        spreadRadius: 1,
-                        blurRadius: 10,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
                   ),
-                  child: Stack(
-                    children: [
-                      Opacity(
-                        opacity: menuItem.isAvailable ? 1.0 : 0.5,
-                        child: InkWell(
+                  const Spacer(),
+                  Text(
+                    '${_menuItems.length} items',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Main content
+          Expanded(
+            child: _isLoading
+                ? _buildLoadingState()
+                : _hasError
+                ? _buildErrorState()
+                : _menuItems.isEmpty
+                ? _buildEmptyState()
+                : RefreshIndicator(
+              onRefresh: _fetchMenuItems,
+              color: GlobalStyle.primaryColor,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _menuItems.length,
+                itemBuilder: (context, index) {
+                  final menuItem = _menuItems[index];
+                  final bool isUpdating = _updatingItems.contains(menuItem.id.toString());
+
+                  return AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, child) {
+                      return SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(1, 0),
+                          end: Offset.zero,
+                        ).animate(CurvedAnimation(
+                          parent: _controller,
+                          curve: Interval(
+                            index * 0.1,
+                            1.0,
+                            curve: Curves.easeOut,
+                          ),
+                        )),
+                        child: child!,
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(15),
-                          onTap: () => _navigateToAddEditForm(menuItem: menuItem),
-                          child: Row(
-                            children: [
-                              // Item image
-                              ClipRRect(
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(15),
-                                  bottomLeft: Radius.circular(15),
-                                ),
-                                child: menuItem.hasImage
-                                    ? ImageService.displayImage(
-                                  imageSource: menuItem.imageUrl!,
-                                  width: 120,
-                                  height: 120,
-                                  fit: BoxFit.cover,
-                                  placeholder: Container(
-                                    width: 120,
-                                    height: 120,
-                                    color: Colors.grey[300],
-                                    child: Icon(Icons.image, color: Colors.grey),
-                                  ),
-                                )
-                                    : Container(
-                                  width: 120,
-                                  height: 120,
-                                  color: Colors.grey[300],
-                                  child: Icon(Icons.image, color: Colors.grey),
-                                ),
-                              ),
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16.0),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        menuItem.name,
-                                        style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        menuItem.formatPrice(),
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          color: GlobalStyle.primaryColor,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.category_outlined,
-                                            size: 16,
-                                            color: Colors.grey,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            'Kategori: ${menuItem.category}',
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: GlobalStyle.fontColor,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: menuItem.isAvailable
-                                              ? _getColorWithOpacity(
-                                              Colors.green, 0.1)
-                                              : _getColorWithOpacity(
-                                              Colors.red, 0.1),
-                                          borderRadius:
-                                          BorderRadius.circular(12),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              menuItem.isAvailable
-                                                  ? Icons.check_circle
-                                                  : Icons.cancel,
-                                              size: 16,
-                                              color: menuItem.isAvailable
-                                                  ? Colors.green
-                                                  : Colors.red,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              formatStatus(menuItem.isAvailable),
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: menuItem.isAvailable
-                                                    ? Colors.green
-                                                    : Colors.red,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      if (menuItem.description.isNotEmpty)
-                                        Padding(
-                                          padding:
-                                          const EdgeInsets.only(top: 8),
-                                          child: Row(
-                                            children: [
-                                              Icon(
-                                                Icons.description_outlined,
-                                                size: 16,
-                                                color: Colors.grey[600],
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Expanded(
-                                                child: Text(
-                                                  menuItem.description,
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    color: Colors.grey[600],
-                                                  ),
-                                                  maxLines: 2,
-                                                  overflow:
-                                                  TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12.0, vertical: 8.0),
-                                child: Column(
-                                  mainAxisAlignment:
-                                  MainAxisAlignment.spaceEvenly,
+                          boxShadow: [
+                            BoxShadow(
+                              color: _getColorWithOpacity(Colors.grey, 0.1),
+                              spreadRadius: 1,
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            Opacity(
+                              opacity: menuItem.isAvailable ? 1.0 : 0.5,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(15),
+                                onTap: () => _navigateToAddEditForm(menuItem: menuItem),
+                                child: Row(
                                   children: [
-                                    // Toggle Button
-                                    Container(
-                                      width: 75,
-                                      height: 35,
-                                      margin: const EdgeInsets.symmetric(
-                                          vertical: 5),
-                                      decoration: BoxDecoration(
-                                        borderRadius:
-                                        BorderRadius.circular(18),
-                                        gradient: LinearGradient(
-                                          colors: menuItem.isAvailable
-                                              ? [
-                                            const Color(0xFF43A047),
-                                            const Color(0xFF66BB6A)
-                                          ]
-                                              : [
-                                            Colors.grey.shade400,
-                                            Colors.grey.shade300
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: menuItem.isAvailable
-                                                ? Colors.green
-                                                .withOpacity(0.3)
-                                                : Colors.grey
-                                                .withOpacity(0.3),
-                                            spreadRadius: 1,
-                                            blurRadius: 3,
-                                            offset: const Offset(0, 1),
-                                          ),
-                                        ],
+                                    // Item image
+                                    ClipRRect(
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(15),
+                                        bottomLeft: Radius.circular(15),
                                       ),
-                                      child: Material(
-                                        color: Colors.transparent,
-                                        child: InkWell(
-                                          borderRadius:
-                                          BorderRadius.circular(18),
-                                          onTap: isUpdating
-                                              ? null
-                                              : () => _toggleItemStatus(menuItem),
-                                          child: Center(
-                                            child: isUpdating
-                                                ? SizedBox(
-                                              width: 16,
-                                              height: 16,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                valueColor: AlwaysStoppedAnimation<Color>(
-                                                    Colors.white
-                                                ),
+                                      child: menuItem.hasImage
+                                          ? ImageService.displayImage(
+                                        imageSource: menuItem.imageUrl!,
+                                        width: 120,
+                                        height: 120,
+                                        fit: BoxFit.cover,
+                                        placeholder: Container(
+                                          width: 120,
+                                          height: 120,
+                                          color: Colors.grey[300],
+                                          child: Icon(Icons.image, color: Colors.grey),
+                                        ),
+                                      )
+                                          : Container(
+                                        width: 120,
+                                        height: 120,
+                                        color: Colors.grey[300],
+                                        child: Icon(Icons.image, color: Colors.grey),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(16.0),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              menuItem.name,
+                                              style: const TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
                                               ),
-                                            )
-                                                : Row(
-                                              mainAxisAlignment:
-                                              MainAxisAlignment.center,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              menuItem.formatPrice(),
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                color: GlobalStyle.primaryColor,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
                                               children: [
                                                 Icon(
-                                                  menuItem.isAvailable
-                                                      ? Icons.visibility
-                                                      : Icons
-                                                      .visibility_off,
-                                                  color: Colors.white,
+                                                  Icons.category_outlined,
                                                   size: 16,
+                                                  color: Colors.grey,
                                                 ),
                                                 const SizedBox(width: 4),
                                                 Text(
-                                                  menuItem.isAvailable
-                                                      ? 'BUKA'
-                                                      : 'TUTUP',
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight:
-                                                    FontWeight.bold,
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                    // Edit Button
-                                    Container(
-                                      width: 75,
-                                      height: 35,
-                                      margin: const EdgeInsets.symmetric(
-                                          vertical: 5),
-                                      decoration: BoxDecoration(
-                                        borderRadius:
-                                        BorderRadius.circular(18),
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            GlobalStyle.primaryColor,
-                                            GlobalStyle.primaryColor
-                                                .withOpacity(0.8)
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: GlobalStyle.primaryColor
-                                                .withOpacity(0.3),
-                                            spreadRadius: 1,
-                                            blurRadius: 3,
-                                            offset: const Offset(0, 1),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Material(
-                                        color: Colors.transparent,
-                                        child: InkWell(
-                                          borderRadius:
-                                          BorderRadius.circular(18),
-                                          onTap: () =>
-                                              _navigateToAddEditForm(
-                                                  menuItem: menuItem),
-                                          child: Row(
-                                            mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                            children: const [
-                                              Icon(
-                                                Icons.edit,
-                                                color: Colors.white,
-                                                size: 16,
-                                              ),
-                                              SizedBox(width: 4),
-                                              Text(
-                                                'EDIT',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight:
-                                                  FontWeight.bold,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                    // Delete Button
-                                    Container(
-                                      width: 75,
-                                      height: 35,
-                                      margin: const EdgeInsets.symmetric(
-                                          vertical: 5),
-                                      decoration: BoxDecoration(
-                                        borderRadius:
-                                        BorderRadius.circular(18),
-                                        gradient: const LinearGradient(
-                                          colors: [
-                                            Colors.red,
-                                            Color(0xFFF44336)
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color:
-                                            Colors.red.withOpacity(0.3),
-                                            spreadRadius: 1,
-                                            blurRadius: 3,
-                                            offset: const Offset(0, 1),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Material(
-                                        color: Colors.transparent,
-                                        child: InkWell(
-                                          borderRadius:
-                                          BorderRadius.circular(18),
-                                          onTap: isUpdating
-                                              ? null
-                                              : () => _showDeleteConfirmation(menuItem),
-                                          child: Center(
-                                            child: isUpdating
-                                                ? SizedBox(
-                                              width: 16,
-                                              height: 16,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                valueColor: AlwaysStoppedAnimation<Color>(
-                                                    Colors.white
-                                                ),
-                                              ),
-                                            )
-                                                : Row(
-                                              mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                              children: const [
-                                                Icon(
-                                                  Icons.delete,
-                                                  color: Colors.white,
-                                                  size: 16,
-                                                ),
-                                                SizedBox(width: 4),
-                                                Text(
-                                                  'HAPUS',
+                                                  'Kategori: ${menuItem.category}',
                                                   style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight:
-                                                    FontWeight.bold,
-                                                    fontSize: 12,
+                                                    fontSize: 14,
+                                                    color: GlobalStyle.fontColor,
                                                   ),
                                                 ),
                                               ],
                                             ),
-                                          ),
+                                            const SizedBox(height: 8),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 4,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: menuItem.isAvailable
+                                                    ? _getColorWithOpacity(
+                                                    Colors.green, 0.1)
+                                                    : _getColorWithOpacity(
+                                                    Colors.red, 0.1),
+                                                borderRadius:
+                                                BorderRadius.circular(12),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    menuItem.isAvailable
+                                                        ? Icons.check_circle
+                                                        : Icons.cancel,
+                                                    size: 16,
+                                                    color: menuItem.isAvailable
+                                                        ? Colors.green
+                                                        : Colors.red,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    formatStatus(menuItem.isAvailable),
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: menuItem.isAvailable
+                                                          ? Colors.green
+                                                          : Colors.red,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            if (menuItem.description.isNotEmpty)
+                                              Padding(
+                                                padding:
+                                                const EdgeInsets.only(top: 8),
+                                                child: Row(
+                                                  children: [
+                                                    Icon(
+                                                      Icons.description_outlined,
+                                                      size: 16,
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Expanded(
+                                                      child: Text(
+                                                        menuItem.description,
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors.grey[600],
+                                                        ),
+                                                        maxLines: 2,
+                                                        overflow:
+                                                        TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                          ],
                                         ),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12.0, vertical: 8.0),
+                                      child: Column(
+                                        mainAxisAlignment:
+                                        MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          // Toggle Button
+                                          Container(
+                                            width: 75,
+                                            height: 35,
+                                            margin: const EdgeInsets.symmetric(
+                                                vertical: 5),
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                              BorderRadius.circular(18),
+                                              gradient: LinearGradient(
+                                                colors: menuItem.isAvailable
+                                                    ? [
+                                                  const Color(0xFF43A047),
+                                                  const Color(0xFF66BB6A)
+                                                ]
+                                                    : [
+                                                  Colors.grey.shade400,
+                                                  Colors.grey.shade300
+                                                ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: menuItem.isAvailable
+                                                      ? Colors.green
+                                                      .withOpacity(0.3)
+                                                      : Colors.grey
+                                                      .withOpacity(0.3),
+                                                  spreadRadius: 1,
+                                                  blurRadius: 3,
+                                                  offset: const Offset(0, 1),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Material(
+                                              color: Colors.transparent,
+                                              child: InkWell(
+                                                borderRadius:
+                                                BorderRadius.circular(18),
+                                                onTap: isUpdating
+                                                    ? null
+                                                    : () => _toggleItemStatus(menuItem),
+                                                child: Center(
+                                                  child: isUpdating
+                                                      ? SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                                          Colors.white
+                                                      ),
+                                                    ),
+                                                  )
+                                                      : Row(
+                                                    mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                    children: [
+                                                      Icon(
+                                                        menuItem.isAvailable
+                                                            ? Icons.visibility
+                                                            : Icons
+                                                            .visibility_off,
+                                                        color: Colors.white,
+                                                        size: 16,
+                                                      ),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        menuItem.isAvailable
+                                                            ? 'BUKA'
+                                                            : 'TUTUP',
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                          FontWeight.bold,
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+
+                                          // Edit Button
+                                          Container(
+                                            width: 75,
+                                            height: 35,
+                                            margin: const EdgeInsets.symmetric(
+                                                vertical: 5),
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                              BorderRadius.circular(18),
+                                              gradient: LinearGradient(
+                                                colors: [
+                                                  GlobalStyle.primaryColor,
+                                                  GlobalStyle.primaryColor
+                                                      .withOpacity(0.8)
+                                                ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: GlobalStyle.primaryColor
+                                                      .withOpacity(0.3),
+                                                  spreadRadius: 1,
+                                                  blurRadius: 3,
+                                                  offset: const Offset(0, 1),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Material(
+                                              color: Colors.transparent,
+                                              child: InkWell(
+                                                borderRadius:
+                                                BorderRadius.circular(18),
+                                                onTap: () =>
+                                                    _navigateToAddEditForm(
+                                                        menuItem: menuItem),
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                                  children: const [
+                                                    Icon(
+                                                      Icons.edit,
+                                                      color: Colors.white,
+                                                      size: 16,
+                                                    ),
+                                                    SizedBox(width: 4),
+                                                    Text(
+                                                      'EDIT',
+                                                      style: TextStyle(
+                                                        color: Colors.white,
+                                                        fontWeight:
+                                                        FontWeight.bold,
+                                                        fontSize: 12,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+
+                                          // Delete Button
+                                          Container(
+                                            width: 75,
+                                            height: 35,
+                                            margin: const EdgeInsets.symmetric(
+                                                vertical: 5),
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                              BorderRadius.circular(18),
+                                              gradient: const LinearGradient(
+                                                colors: [
+                                                  Colors.red,
+                                                  Color(0xFFF44336)
+                                                ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color:
+                                                  Colors.red.withOpacity(0.3),
+                                                  spreadRadius: 1,
+                                                  blurRadius: 3,
+                                                  offset: const Offset(0, 1),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Material(
+                                              color: Colors.transparent,
+                                              child: InkWell(
+                                                borderRadius:
+                                                BorderRadius.circular(18),
+                                                onTap: isUpdating
+                                                    ? null
+                                                    : () => _showDeleteConfirmation(menuItem),
+                                                child: Center(
+                                                  child: isUpdating
+                                                      ? SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                                          Colors.white
+                                                      ),
+                                                    ),
+                                                  )
+                                                      : Row(
+                                                    mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                    children: const [
+                                                      Icon(
+                                                        Icons.delete,
+                                                        color: Colors.white,
+                                                        size: 16,
+                                                      ),
+                                                      SizedBox(width: 4),
+                                                      Text(
+                                                        'HAPUS',
+                                                        style: TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                          FontWeight.bold,
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                            if (!menuItem.isAvailable)
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _getColorWithOpacity(Colors.red, 0.9),
+                                    borderRadius: const BorderRadius.only(
+                                      topRight: Radius.circular(15),
+                                      bottomLeft: Radius.circular(15),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'TUTUP',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                      if (!menuItem.isAvailable)
-                        Positioned(
-                          top: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _getColorWithOpacity(Colors.red, 0.9),
-                              borderRadius: const BorderRadius.only(
-                                topRight: Radius.circular(15),
-                                bottomLeft: Radius.circular(15),
-                              ),
-                            ),
-                            child: Text(
-                              'TUTUP',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
-            );
-          },
-        ),
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationComponent(
         currentIndex: _currentIndex,

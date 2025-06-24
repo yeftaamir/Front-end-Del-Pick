@@ -15,42 +15,41 @@ import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_review.dart';
 import 'package:del_pick/Models/order_enum.dart';
-import 'Models/menu_item.dart';
-import 'Views/Store/add_edit_items.dart' as add_edit_items;
-import 'Views/Store/add_item.dart' as add_item;
+import 'package:del_pick/Models/menu_item.dart';
+import 'package:del_pick/Models/order_item.dart';
 
 // Import views
-import 'Views/Controls/login_page.dart';
-import 'Views/Customers/home_cust.dart';
-import 'Views/Customers/store_detail.dart';
-import 'Views/Customers/profile_cust.dart';
-import 'Views/Customers/history_cust.dart';
-import 'Views/Customers/cart_screen.dart';
-import 'Views/Customers/location_access.dart';
-import 'Views/Customers/history_detail.dart';
-import 'Views/Customers/rating_cust.dart';
-import 'Views/Store/home_store.dart';
-import 'Views/Store/add_item.dart';
-import 'Views/Store/history_store.dart';
-import 'Views/Store/historystore_detail.dart';
-import 'Views/Store/add_edit_items.dart';
-import 'Views/Driver/home_driver.dart';
-import 'Views/Driver/history_driver_detail.dart';
-import 'Views/Driver/history_driver.dart';
-import 'Views/Driver/profil_driver.dart';
-import 'Views/Store/profil_store.dart';
-import 'Views/SplashScreen/splash_screen.dart';
+import 'package:del_pick/Views/Controls/login_page.dart';
+import 'package:del_pick/Views/Customers/home_cust.dart';
+import 'package:del_pick/Views/Customers/store_detail.dart';
+import 'package:del_pick/Views/Customers/profile_cust.dart';
+import 'package:del_pick/Views/Customers/history_cust.dart';
+import 'package:del_pick/Views/Customers/cart_screen.dart';
+import 'package:del_pick/Views/Customers/location_access.dart';
+import 'package:del_pick/Views/Customers/history_detail.dart';
+import 'package:del_pick/Views/Customers/rating_cust.dart';
+import 'package:del_pick/Views/Store/home_store.dart';
+import 'package:del_pick/Views/Store/add_item.dart';
+import 'package:del_pick/Views/Store/history_store.dart';
+import 'package:del_pick/Views/Store/historystore_detail.dart';
+import 'package:del_pick/Views/Store/add_edit_items.dart';
+import 'package:del_pick/Views/Store/profil_store.dart';
+import 'package:del_pick/Views/Driver/home_driver.dart';
+import 'package:del_pick/Views/Driver/history_driver_detail.dart';
+import 'package:del_pick/Views/Driver/history_driver.dart';
+import 'package:del_pick/Views/Driver/profil_driver.dart';
+import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
 
 // Import services
-import 'Services/auth_service.dart';
-import 'Services/store_service.dart';
-import 'Services/core/token_service.dart';
-import 'Services/order_service.dart';
-import 'Services/image_service.dart';
-import 'Services/driver_service.dart';
-import 'Services/tracking_service.dart';
-import 'Services/menu_service.dart';
-import 'Services/customer_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
+import 'package:del_pick/Services/store_service.dart';
+import 'package:del_pick/Services/core/token_service.dart';
+import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/image_service.dart';
+import 'package:del_pick/Services/driver_service.dart';
+import 'package:del_pick/Services/tracking_service.dart';
+import 'package:del_pick/Services/menu_service.dart';
+import 'package:del_pick/Services/customer_service.dart';
 
 Future<void> main() async {
   try {
@@ -134,11 +133,11 @@ Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
     }
 
     // Use OrderService.getOrderDetail to fetch order details
-    final orderData = await OrderService.getOrderDetail(orderId);
+    final orderData = await OrderService.getOrderById(orderId);
 
     // Process images if they exist in the order data
-    if (orderData['store'] != null && orderData['store']['image'] != null) {
-      orderData['store']['image'] = ImageService.getImageUrl(orderData['store']['image']);
+    if (orderData['store'] != null && orderData['store']['image_url'] != null) {
+      orderData['store']['image_url'] = ImageService.getImageUrl(orderData['store']['image_url']);
     }
 
     // Process customer avatar if present
@@ -154,8 +153,8 @@ Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
     // Process order item images if present
     if (orderData['items'] != null && orderData['items'] is List) {
       for (var item in orderData['items']) {
-        if (item['imageUrl'] != null) {
-          item['imageUrl'] = ImageService.getImageUrl(item['imageUrl']);
+        if (item['image_url'] != null) {
+          item['image_url'] = ImageService.getImageUrl(item['image_url']);
         }
       }
     }
@@ -250,17 +249,17 @@ class MyApp extends StatelessWidget {
       StoreDetail.route: (context) =>
       const InternetConnectivityWrapper(child: StoreDetail()),
       LocationAccessScreen.route: (context) => const LocationAccessScreen(),
-        ProfilePage.route: (context) =>
+      ProfilePage.route: (context) =>
       const InternetConnectivityWrapper(child: ProfilePage()),
       HistoryCustomer.route: (context) =>
       const InternetConnectivityWrapper(child: HistoryCustomer()),
       CartScreen.route: (context) {
         final arguments = ModalRoute.of(context)?.settings.arguments;
-        List<MenuItem> cartItems = [];
+        List<MenuItemModel> cartItems = [];
         int storeId = 0;
 
         if (arguments is Map) {
-          cartItems = arguments['cartItems'] as List<MenuItem>? ?? [];
+          cartItems = arguments['cartItems'] as List<MenuItemModel>? ?? [];
           storeId = arguments['storeId'] as int? ?? 0;
         } else if (arguments is int) {
           storeId = arguments;
@@ -275,9 +274,7 @@ class MyApp extends StatelessWidget {
           ),
         );
       },
-      TrackCustOrderScreen.route: (context) =>
-      const InternetConnectivityWrapper(child: TrackCustOrderScreen()),
-      // Updated HistoryDetailPage route to use Order fetching
+      // Customer History Detail Page route with Order fetching
       HistoryDetailPage.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
           future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
@@ -332,12 +329,13 @@ class MyApp extends StatelessWidget {
               );
             }
 
-            final order = Order.fromJson(snapshot.data!);
+            final order = OrderModel.fromJson(snapshot.data!);
             return HistoryDetailPage(order: order);
           },
         ),
       ),
-      // Updated RatingCustomerPage route to use Order data
+
+      // Customer Rating Page route with Order data
       RatingCustomerPage.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
           future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
@@ -392,7 +390,7 @@ class MyApp extends StatelessWidget {
               );
             }
 
-            final order = Order.fromJson(snapshot.data!);
+            final order = OrderModel.fromJson(snapshot.data!);
             return RatingCustomerPage(order: order);
           },
         ),
@@ -410,7 +408,8 @@ class MyApp extends StatelessWidget {
       const InternetConnectivityWrapper(child: HomeDriverPage()),
       HistoryDriverPage.route: (context) =>
       const InternetConnectivityWrapper(child: HistoryDriverPage()),
-      // Updated HistoryDriverDetailPage to use OrderService
+
+      // Driver History Detail Page with OrderService
       HistoryDriverDetailPage.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
           future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
@@ -470,19 +469,19 @@ class MyApp extends StatelessWidget {
             final Map<String, dynamic> orderDetail = {
               'customerName': orderData['customer']?['name'] ?? 'Customer',
               'customerPhone': orderData['customer']?['phone'] ?? '-',
-              'customerAddress': orderData['deliveryAddress'] ?? '-',
+              'customerAddress': orderData['delivery_address'] ?? '-',
               'storeName': orderData['store']?['name'] ?? 'Store',
               'storePhone': orderData['store']?['phone'] ?? '-',
               'storeAddress': orderData['store']?['address'] ?? '-',
-              'storeImage': orderData['store']?['image'] ?? '',
-              'status': orderData['status'] ?? 'pending',
-              'amount': orderData['total'] ?? 0,
-              'deliveryFee': orderData['serviceCharge'] ?? 0,
+              'storeImage': orderData['store']?['image_url'] ?? '',
+              'status': orderData['order_status'] ?? 'pending',
+              'amount': orderData['total_amount'] ?? 0,
+              'deliveryFee': orderData['delivery_fee'] ?? 0,
               'items': (orderData['items'] as List<dynamic>?)?.map((item) => {
                 'name': item['name'] ?? 'Product',
                 'price': item['price'] ?? 0,
                 'quantity': item['quantity'] ?? 0,
-                'image': item['imageUrl'] ?? '',
+                'image': item['image_url'] ?? '',
               }).toList() ?? [],
             };
 
@@ -497,10 +496,11 @@ class MyApp extends StatelessWidget {
       HomeStore.route: (context) =>
       const InternetConnectivityWrapper(child: HomeStore()),
       AddItemPage.route: (context) =>
-          InternetConnectivityWrapper(child: AddItemPage()),
+      const InternetConnectivityWrapper(child: AddItemPage()),
       AddEditItemForm.route: (context) =>
       const InternetConnectivityWrapper(child: AddEditItemForm()),
-      // Updated HistoryStoreDetailPage to use OrderService
+
+      // Store History Detail Page with OrderService
       HistoryStoreDetailPage.route: (context) => InternetConnectivityWrapper(
         child: FutureBuilder<Map<String, dynamic>>(
           future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
@@ -562,8 +562,6 @@ class MyApp extends StatelessWidget {
       ),
       HistoryStorePage.route: (context) =>
       const InternetConnectivityWrapper(child: HistoryStorePage()),
-
-      // Updated ProfileStorePage route to use actual service data instead of dummy data
       ProfileStorePage.route: (context) =>
       const InternetConnectivityWrapper(child: ProfileStorePage()),
     };

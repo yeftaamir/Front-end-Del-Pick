@@ -8,7 +8,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'core/api_constants.dart';
 
 class ImageService {
-  static final String _imagesBaseUrl = '${ApiConstants.imageBaseUrl}/uploads';
+  static final String _imagesBaseUrl = '${ApiConstants.imageBaseUrl}';
 
   /// Get full image URL from relative path
   static String getImageUrl(String imagePath) {

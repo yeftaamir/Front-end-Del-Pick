@@ -577,7 +577,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Lottie.asset(
-              'assets/animations/empty_cart.json',
+              'assets/animations/empty.json',
               width: 200,
               height: 200,
             ),

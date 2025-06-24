@@ -239,47 +239,6 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     }
   }
 
-  /// Update store status using StoreService
-  Future<void> _updateStoreStatus(String newStatus) async {
-    if (_storeData == null) return;
-
-    setState(() {
-      _isUpdatingStatus = true;
-    });
-
-    try {
-      final storeId = _storeData!['id']?.toString() ?? '';
-      if (storeId.isEmpty) {
-        throw Exception('Store ID not found');
-      }
-
-      // Update status using StoreService
-      final result = await StoreService.updateStoreStatus(
-        storeId: storeId,
-        status: newStatus,
-      );
-
-      if (result.isNotEmpty) {
-        // Reload profile to get updated data
-        await _loadStoreProfile();
-
-        if (!mounted) return;
-        _showSuccessSnackBar('Store status updated to ${_getStatusText(newStatus)}');
-      } else {
-        _showErrorSnackBar('Failed to update store status');
-      }
-    } catch (e) {
-      print('Error updating store status: $e');
-      _showErrorSnackBar('Error updating status: ${e.toString()}');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isUpdatingStatus = false;
-        });
-      }
-    }
-  }
-
   /// Refresh profile data
   Future<void> _refreshProfile() async {
     try {
@@ -404,56 +363,6 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
             ],
           ),
         );
-      },
-    );
-  }
-
-  /// Show status update dialog
-  void _showStatusUpdateDialog() {
-    final currentStatus = _storeData?['status'] ?? 'active';
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Update Store Status'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildStatusOption('active', 'Open - Available for orders', currentStatus),
-              _buildStatusOption('inactive', 'Temporarily Closed', currentStatus),
-              _buildStatusOption('closed', 'Permanently Closed', currentStatus),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildStatusOption(String status, String description, String currentStatus) {
-    final isSelected = status == currentStatus;
-
-    return ListTile(
-      leading: Container(
-        width: 12,
-        height: 12,
-        decoration: BoxDecoration(
-          color: _getStatusColor(status),
-          shape: BoxShape.circle,
-        ),
-      ),
-      title: Text(_getStatusText(status)),
-      subtitle: Text(description),
-      trailing: isSelected ? const Icon(Icons.check, color: Colors.green) : null,
-      onTap: isSelected ? null : () {
-        Navigator.pop(context);
-        _updateStoreStatus(status);
       },
     );
   }
@@ -1048,7 +957,6 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
         ),
         const SizedBox(width: 12),
         GestureDetector(
-          onTap: _isUpdatingStatus ? null : _showStatusUpdateDialog,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
