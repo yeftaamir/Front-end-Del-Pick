@@ -120,6 +120,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     return widget.itemQuantities?[item.id] ?? 0;
   }
 
+// Perbaikan untuk initState() di cart_screen.dart
+
   @override
   void initState() {
     super.initState();
@@ -135,93 +137,208 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       _checkOrderRatingStatus();
       _loadOrderDetailData();
     } else {
+      // ✅ PERBAIKAN: Gunakan data lokasi yang sudah tersedia dari store_detail
+      _initializeStoreLocation();
+
       // Load initial data for new orders
       _loadInitialData();
       _initializeLocation(); // Initialize location similar to home_cust.dart
     }
 
-    // Initialize pulse animation for loading states
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
+    // ... rest of initState code (animations, etc.)
+  }
 
-    _slideController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
+// ✅ TAMBAHAN: Method baru untuk inisialisasi lokasi toko
+  void _initializeStoreLocation() {
+    // Gunakan data lokasi toko yang dikirim dari store_detail
+    if (widget.storeLatitude != null && widget.storeLongitude != null) {
+      _storeLatitude = widget.storeLatitude;
+      _storeLongitude = widget.storeLongitude;
+      print('✅ CartScreen: Store location initialized from params: $_storeLatitude, $_storeLongitude');
+    }
 
-    // Initialize animation controllers for each card section
-    _cardControllers = List.generate(
-      4, // Number of card sections
-          (index) => AnimationController(
-        vsync: this,
-        duration: Duration(milliseconds: 600 + (index * 200)),
-      ),
-    );
+    // Gunakan jarak yang sudah dihitung jika tersedia
+    if (widget.storeDistance != null) {
+      _storeDistance = widget.storeDistance;
+      print('✅ CartScreen: Store distance initialized from params: $_storeDistance km');
+    }
 
-    // Create slide animations for each card
-    _cardAnimations = _cardControllers.map((controller) {
-      return Tween<Offset>(
-        begin: const Offset(0, -0.5),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(
-        parent: controller,
-        curve: Curves.easeOutCubic,
-      ));
-    }).toList();
+    // Gunakan alamat customer jika tersedia
+    if (widget.customerAddress != null) {
+      _deliveryAddress = widget.customerAddress;
+      print('✅ CartScreen: Customer address initialized from params: $_deliveryAddress');
+    }
 
-    // Initialize driver card animation controller
-    _driverCardController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
+    // Gunakan koordinat customer jika tersedia
+    if (widget.customerLatitude != null && widget.customerLongitude != null) {
+      _latitude = widget.customerLatitude;
+      _longitude = widget.customerLongitude;
+      print('✅ CartScreen: Customer location initialized from params: $_latitude, $_longitude');
+    }
 
-    // Initialize status card animation controller
-    _statusCardController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
+    // ✅ PENTING: Hitung biaya pengiriman jika semua data tersedia
+    _calculateInitialDeliveryFee();
+  }
 
-    // Create driver card animation
-    _driverCardAnimation = Tween<Offset>(
-      begin: const Offset(0, -1.0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _driverCardController,
-      curve: Curves.easeOutCubic,
-    ));
+// ✅ TAMBAHAN: Method untuk menghitung biaya pengiriman awal
+  void _calculateInitialDeliveryFee() {
+    // Jika jarak sudah tersedia dari store_detail, gunakan langsung
+    if (_storeDistance != null) {
+      setState(() {
+        _serviceCharge = calculateDeliveryFee(_storeDistance!);
+      });
+      print('✅ CartScreen: Initial delivery fee calculated from existing distance: ${GlobalStyle.formatRupiah(_serviceCharge)}');
+      return;
+    }
 
-    // Create status card animation
-    _statusCardAnimation = Tween<Offset>(
-      begin: const Offset(0, -1.0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _statusCardController,
-      curve: Curves.easeOutCubic,
-    ));
+    // Jika tidak, hitung dari koordinat jika tersedia
+    if (_latitude != null && _longitude != null &&
+        _storeLatitude != null && _storeLongitude != null) {
+      _updateDeliveryFee();
+      print('✅ CartScreen: Initial delivery fee calculated from coordinates');
+    } else {
+      print('⚠️ CartScreen: Cannot calculate initial delivery fee - missing location data');
+    }
+  }
 
-    // Initialize status animation controllers
-    _statusAnimationControllers = {
-      for (var status in OrderStatus.values)
-        status: AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 2000),
-        ),
-    };
+// ✅ PERBAIKAN: Update method _loadInitialData untuk memanggil _updateDeliveryFee
+  Future<void> _loadInitialData() async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
 
-    // Start animations sequentially
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (var controller in _cardControllers) {
-        controller.forward();
+      // Get store details using StoreService (hanya jika belum ada data toko)
+      if (_storeLatitude == null || _storeLongitude == null) {
+        final storeData = await StoreService.getStoreById(widget.storeId.toString());
+
+        if (storeData['success'] == true && storeData['data'] != null) {
+          final store = storeData['data'];
+          _storeDetail = StoreModel.fromJson(store);
+
+          if (_storeDetail != null) {
+            _storeLatitude = _storeDetail!.latitude;
+            _storeLongitude = _storeDetail!.longitude;
+            print('✅ CartScreen: Store location loaded from API: $_storeLatitude, $_storeLongitude');
+
+            // ✅ PERBAIKAN: Update biaya pengiriman setelah dapat data toko
+            _updateDeliveryFee();
+          }
+        }
       }
 
-      // If we have a completed order, start these animations too
-      if (widget.completedOrder != null) {
-        _driverCardController.forward();
-        _statusCardController.forward();
-      }
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load store data: $e';
+        _isLoading = false;
+      });
+      print('Error loading initial data: $e');
+    }
+  }
+
+// ✅ PERBAIKAN: Update method _getCurrentLocation untuk memanggil _updateDeliveryFee
+  Future<void> _getCurrentLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
     });
+
+    try {
+      // Check if location permission is granted
+      var status = await Permission.location.status;
+      if (!status.isGranted) {
+        status = await Permission.location.request();
+        if (!status.isGranted) {
+          throw Exception('Location permission denied');
+        }
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      // Get address from coordinates
+      String locationText = await _getAddressFromCoordinates(position);
+
+      setState(() {
+        _currentPosition = position;
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+        _userLocation = locationText;
+
+        // Set sebagai default delivery address jika belum ada
+        if (_deliveryAddress == null || _deliveryAddress!.isEmpty) {
+          _deliveryAddress = locationText;
+        }
+
+        _hasLocationPermission = true;
+        _isLoadingLocation = false;
+      });
+
+      print('✅ CartScreen: User location obtained: $_latitude, $_longitude');
+
+      // ✅ PERBAIKAN: Update delivery fee setelah mendapat lokasi user
+      _updateDeliveryFee();
+
+    } catch (e) {
+      print('Error getting location: $e');
+      setState(() {
+        _hasLocationPermission = false;
+        _userLocation = 'Lokasi tidak tersedia';
+        _isLoadingLocation = false;
+      });
+    }
+  }
+
+// ✅ PERBAIKAN: Update method _updateDeliveryFee dengan logging yang lebih baik
+  void _updateDeliveryFee() {
+    print('🔄 CartScreen: Attempting to update delivery fee...');
+    print('   - User location: $_latitude, $_longitude');
+    print('   - Store location: $_storeLatitude, $_storeLongitude');
+
+    if (_latitude != null && _longitude != null &&
+        _storeLatitude != null && _storeLongitude != null) {
+
+      // Hitung jarak
+      _storeDistance = calculateDistance(
+          _latitude!, _longitude!, _storeLatitude!, _storeLongitude!);
+
+      // Hitung biaya pengiriman dengan pembulatan ke atas
+      final calculatedFee = calculateDeliveryFee(_storeDistance!);
+
+      setState(() {
+        _serviceCharge = calculatedFee;
+      });
+
+      print('✅ CartScreen: Delivery fee updated successfully!');
+      print('   - Distance: ${_getFormattedDistance()}');
+      print('   - Raw fee: ${_storeDistance! * 2500}');
+      print('   - Rounded fee: ${GlobalStyle.formatRupiah(_serviceCharge)}');
+    } else {
+      print('⚠️ CartScreen: Cannot update delivery fee - missing location data');
+      if (_latitude == null || _longitude == null) {
+        print('   - Missing user location');
+      }
+      if (_storeLatitude == null || _storeLongitude == null) {
+        print('   - Missing store location');
+      }
+    }
+  }
+
+// ✅ PERBAIKAN: Pastikan method calculateDeliveryFee benar
+  double calculateDeliveryFee(double distance) {
+    double rawFee = distance * 2500;
+    double roundedFee = rawFee.ceilToDouble(); // Pembulatan ke atas
+
+    print('🧮 CartScreen: Fee calculation:');
+    print('   - Distance: $distance km');
+    print('   - Raw fee: $rawFee');
+    print('   - Rounded fee: $roundedFee');
+
+    return roundedFee;
   }
 
   // Initialize location similar to home_cust.dart
@@ -307,12 +424,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     return distanceInMeters / 1000;
   }
 
-  // Calculate delivery fee with ceiling rounding for cash payment convenience
-  double calculateDeliveryFee(double distance) {
-    double fee = distance * 2500;
-    return fee.ceilToDouble(); // Round up to the nearest rupiah for cash convenience
-  }
-
   String _getFormattedDistance() {
     if (_storeDistance == null) {
       return "-- KM";
@@ -322,52 +433,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       return "${(_storeDistance! * 1000).toInt()} m";
     } else {
       return "${_storeDistance!.toStringAsFixed(1)} km";
-    }
-  }
-
-  // Get user's current location (similar to home_cust.dart)
-  Future<void> _getCurrentLocation() async {
-    setState(() {
-      _isLoadingLocation = true;
-    });
-
-    try {
-      // Check if location permission is granted
-      var status = await Permission.location.status;
-      if (!status.isGranted) {
-        status = await Permission.location.request();
-        if (!status.isGranted) {
-          throw Exception('Location permission denied');
-        }
-      }
-
-      // Get current position
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      // Get address from coordinates
-      String locationText = await _getAddressFromCoordinates(position);
-
-      setState(() {
-        _currentPosition = position;
-        _latitude = position.latitude;
-        _longitude = position.longitude;
-        _userLocation = locationText;
-        _deliveryAddress = locationText; // Set as default delivery address
-        _hasLocationPermission = true;
-        _isLoadingLocation = false;
-      });
-
-      // Update delivery fee calculation
-      _updateDeliveryFee();
-    } catch (e) {
-      print('Error getting location: $e');
-      setState(() {
-        _hasLocationPermission = false;
-        _userLocation = 'Lokasi tidak tersedia';
-        _isLoadingLocation = false;
-      });
     }
   }
 
@@ -387,37 +452,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       print('Error getting address: $e');
     }
     return 'Balige, North Sumatra'; // Default fallback
-  }
-
-  // Load initial data using StoreService.getStoreById()
-  Future<void> _loadInitialData() async {
-    try {
-      setState(() {
-        _isLoading = true;
-      });
-
-      // Get store details using StoreService
-      final storeData = await StoreService.getStoreById(widget.storeId.toString());
-      _storeDetail = StoreModel.fromJson(storeData);
-
-      if (_storeDetail != null) {
-        _storeLatitude = _storeDetail!.latitude;
-        _storeLongitude = _storeDetail!.longitude;
-      }
-
-      // Set default service charge
-      _serviceCharge = 15000; // Default
-
-      setState(() {
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Failed to load store data: $e';
-        _isLoading = false;
-      });
-      print('Error loading initial data: $e');
-    }
   }
 
   // Load order detail data using OrderService.getOrderById()
@@ -449,22 +483,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       });
     } catch (e) {
       print('Error loading order detail data: $e');
-    }
-  }
-
-  // Update delivery fee when location changes
-  void _updateDeliveryFee() {
-    if (_latitude != null && _longitude != null &&
-        _storeLatitude != null && _storeLongitude != null) {
-      _storeDistance = calculateDistance(
-          _latitude!, _longitude!, _storeLatitude!, _storeLongitude!);
-
-      setState(() {
-        _serviceCharge = calculateDeliveryFee(_storeDistance!);
-      });
-
-      print('Jarak ke toko: ${_getFormattedDistance()}');
-      print('Biaya pengiriman: ${GlobalStyle.formatRupiah(_serviceCharge)}');
     }
   }
 
