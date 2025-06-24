@@ -271,6 +271,7 @@ class MyApp extends StatelessWidget {
           child: CartScreen(
             cartItems: cartItems,
             storeId: storeId,
+            itemQuantities: arguments is Map ? arguments['itemQuantities'] as Map<int, int>? : null,
           ),
         );
       },

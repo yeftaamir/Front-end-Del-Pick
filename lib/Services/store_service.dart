@@ -47,7 +47,7 @@ class StoreService {
         'currentPage': response['currentPage'] ?? 1,
       };
     } catch (e) {
-      print('Get all stores error: $e');
+      print('❌ Get all stores error: $e');
       throw Exception('Failed to get stores: $e');
     }
   }
@@ -174,7 +174,7 @@ class StoreService {
 
       return {};
     } catch (e) {
-      print('Create store error: $e');
+      print('❌ Create store error: $e');
       throw Exception('Failed to create store: $e');
     }
   }
@@ -202,7 +202,7 @@ class StoreService {
 
       return {};
     } catch (e) {
-      print('Update store profile error: $e');
+      print('❌ Update store profile error: $e');
       throw Exception('Failed to update store profile: $e');
     }
   }
@@ -217,7 +217,7 @@ class StoreService {
       );
       return true;
     } catch (e) {
-      print('Delete store error: $e');
+      print('❌ Delete store error: $e');
       return false;
     }
   }
@@ -253,7 +253,7 @@ class StoreService {
         'currentPage': 1,
       };
     } catch (e) {
-      print('Get store orders error: $e');
+      print('❌ Get store orders error: $e');
       throw Exception('Failed to get store orders: $e');
     }
   }
@@ -274,7 +274,7 @@ class StoreService {
 
       return List<Map<String, dynamic>>.from(response['stores'] ?? []);
     } catch (e) {
-      print('Search stores error: $e');
+      print('❌ Search stores error: $e');
       throw Exception('Failed to search stores: $e');
     }
   }
@@ -356,15 +356,147 @@ class StoreService {
     try {
       // Process store image_url
       if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
-        store['image_url'] = ImageService.getImageUrl(store['image_url']);
+        final originalUrl = store['image_url'].toString();
+        final processedUrl = ImageService.getImageUrl(originalUrl);
+        store['image_url'] = processedUrl;
+        print('🖼️ Processed store image URL: $originalUrl -> $processedUrl');
       }
 
       // Process owner avatar if present
       if (store['owner'] != null && store['owner']['avatar'] != null && store['owner']['avatar'].toString().isNotEmpty) {
-        store['owner']['avatar'] = ImageService.getImageUrl(store['owner']['avatar']);
+        final originalUrl = store['owner']['avatar'].toString();
+        final processedUrl = ImageService.getImageUrl(originalUrl);
+        store['owner']['avatar'] = processedUrl;
+        print('👤 Processed owner avatar URL: $originalUrl -> $processedUrl');
       }
     } catch (e) {
-      print('Error processing store images: $e');
+      print('❌ Error processing store images: $e');
+    }
+  }
+
+  /// Debug method to inspect store data structure
+  static void debugStoreData(Map<String, dynamic> store) {
+    print('🔍 ====== STORE DEBUG ======');
+    print('🏪 Store ID: ${store['id']} (${store['id']?.runtimeType})');
+    print('🏪 Store Name: ${store['name']} (${store['name']?.runtimeType})');
+    print('📍 Address: ${store['address']} (${store['address']?.runtimeType})');
+    print('⭐ Rating: ${store['rating']} (${store['rating']?.runtimeType})');
+    print('📞 Phone: ${store['phone']} (${store['phone']?.runtimeType})');
+    print('🕐 Open Time: ${store['open_time']} (${store['open_time']?.runtimeType})');
+    print('🕐 Close Time: ${store['close_time']} (${store['close_time']?.runtimeType})');
+    print('🌍 Latitude: ${store['latitude']} (${store['latitude']?.runtimeType})');
+    print('🌍 Longitude: ${store['longitude']} (${store['longitude']?.runtimeType})');
+    print('🖼️ Image URL: ${store['image_url']} (${store['image_url']?.runtimeType})');
+    print('📝 Description: ${store['description']} (${store['description']?.runtimeType})');
+    print('📊 Status: ${store['status']} (${store['status']?.runtimeType})');
+    print('🔍 ====== END DEBUG ======');
+  }
+
+  /// Validate store data structure
+  static bool validateStoreData(Map<String, dynamic> store) {
+    final requiredFields = ['id', 'name', 'address'];
+
+    for (String field in requiredFields) {
+      if (store[field] == null || store[field].toString().isEmpty) {
+        print('❌ Missing or empty required field: $field');
+        return false;
+      }
+    }
+
+    // Validate numeric fields
+    if (store['rating'] != null && store['rating'] is! num && store['rating'] is! String) {
+      print('❌ Invalid rating format: ${store['rating']}');
+      return false;
+    }
+
+    if (store['latitude'] != null && store['latitude'] is! num && store['latitude'] is! String) {
+      print('❌ Invalid latitude format: ${store['latitude']}');
+      return false;
+    }
+
+    if (store['longitude'] != null && store['longitude'] is! num && store['longitude'] is! String) {
+      print('❌ Invalid longitude format: ${store['longitude']}');
+      return false;
+    }
+
+    return true;
+  }
+
+  /// Get store statistics (for store owners)
+  static Future<Map<String, dynamic>> getStoreStatistics(String storeId) async {
+    try {
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: '$_baseEndpoint/$storeId/statistics',
+        requiresAuth: true,
+      );
+
+      return response['data'] ?? {};
+    } catch (e) {
+      print('❌ Get store statistics error: $e');
+      throw Exception('Failed to get store statistics: $e');
+    }
+  }
+
+  /// Update store status (active/inactive)
+  static Future<Map<String, dynamic>> updateStoreStatus({
+    required String storeId,
+    required String status, // active, inactive
+  }) async {
+    try {
+      if (!['active', 'inactive'].contains(status)) {
+        throw Exception('Invalid status. Must be "active" or "inactive"');
+      }
+
+      print('🔄 StoreService: Updating store $storeId status to $status');
+
+      final response = await BaseService.apiCall(
+        method: 'PATCH',
+        endpoint: '$_baseEndpoint/$storeId/status',
+        body: {'status': status},
+        requiresAuth: true,
+      );
+
+      print('✅ StoreService: Store status updated successfully');
+
+      return response['data'] ?? {};
+    } catch (e) {
+      print('❌ StoreService: Update store status error: $e');
+      throw Exception('Failed to update store status: $e');
+    }
+  }
+
+  /// Get stores near user location
+  static Future<List<Map<String, dynamic>>> getNearbyStores({
+    required double latitude,
+    required double longitude,
+    double maxDistance = 10.0, // km
+    int limit = 20,
+  }) async {
+    try {
+      final queryParams = {
+        'latitude': latitude.toString(),
+        'longitude': longitude.toString(),
+        'maxDistance': maxDistance.toString(),
+        'limit': limit.toString(),
+      };
+
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: '$_baseEndpoint/nearby',
+        queryParams: queryParams,
+        requiresAuth: true,
+      );
+
+      final stores = List<Map<String, dynamic>>.from(response['data'] ?? []);
+      for (var store in stores) {
+        _processStoreImages(store);
+      }
+
+      return stores;
+    } catch (e) {
+      print('❌ Get nearby stores error: $e');
+      return [];
     }
   }
 }

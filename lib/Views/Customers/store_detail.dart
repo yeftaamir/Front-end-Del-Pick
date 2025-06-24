@@ -9,6 +9,7 @@ import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/store_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -60,7 +61,21 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
     });
 
     try {
-      // Use the correct service method with proper parameters
+      print('🔍 StoreDetail: Starting to fetch menu items for store $storeId');
+
+      // Validate authentication first
+      final isAuthenticated = await AuthService.isAuthenticated();
+      if (!isAuthenticated) {
+        throw Exception('User not authenticated');
+      }
+
+      // Get user role data
+      final userData = await AuthService.getRoleSpecificData();
+      final userRole = await AuthService.getUserRole();
+
+      print('✅ StoreDetail: User authenticated with role: $userRole');
+
+      // Use the corrected service method with proper error handling
       final menuResponse = await MenuItemService.getMenuItemsByStore(
         storeId: storeId,
         page: 1,
@@ -70,13 +85,35 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
         sortOrder: 'asc',
       );
 
-      // Extract menu items from response
+      print('🔍 StoreDetail: Menu response structure: ${menuResponse.keys.toList()}');
+
+      // Check if response indicates success
+      if (menuResponse['success'] == false) {
+        throw Exception(menuResponse['error'] ?? 'Failed to load menu items');
+      }
+
+      // Extract menu items from response with proper error handling
       List<MenuItemModel> fetchedMenuItems = [];
-      if (menuResponse['data'] != null) {
+
+      if (menuResponse['data'] != null && menuResponse['data'] is List) {
         final menuItemsData = menuResponse['data'] as List;
-        fetchedMenuItems = menuItemsData
-            .map((json) => MenuItemModel.fromJson(json))
-            .toList();
+        print('📋 StoreDetail: Found ${menuItemsData.length} raw menu items');
+
+        for (var itemData in menuItemsData) {
+          try {
+            if (itemData is Map<String, dynamic>) {
+              final menuItem = MenuItemModel.fromJson(itemData);
+              fetchedMenuItems.add(menuItem);
+              print('✅ StoreDetail: Successfully parsed item: ${menuItem.name}');
+            }
+          } catch (e) {
+            print('❌ StoreDetail: Error parsing menu item: $e');
+            print('❌ Item data: $itemData');
+            // Continue with other items instead of failing completely
+          }
+        }
+      } else {
+        print('⚠️ StoreDetail: No menu data found or invalid format');
       }
 
       setState(() {
@@ -92,11 +129,16 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
 
         _isLoadingMenuItems = false;
       });
+
+      print('✅ StoreDetail: Successfully loaded ${fetchedMenuItems.length} menu items');
+
     } catch (e) {
-      print('Error fetching menu items: $e');
+      print('❌ StoreDetail: Error fetching menu items: $e');
       setState(() {
         _errorMessage = 'Failed to load menu items: $e';
         _isLoadingMenuItems = false;
+        menuItems = [];
+        filteredItems = [];
       });
     }
   }
@@ -108,16 +150,46 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
     });
 
     try {
-      // Use the correct service method
-      final storeData = await StoreService.getStoreById(storeId);
+      print('🏪 StoreDetail: Starting to fetch store details for ID: $storeId');
 
-      // Check if storeData is valid and contains expected data
-      if (storeData.isEmpty) {
-        throw Exception('Store data is empty');
+      // Validate authentication first
+      final isAuthenticated = await AuthService.isAuthenticated();
+      if (!isAuthenticated) {
+        throw Exception('User not authenticated');
       }
 
-      // Convert the returned data to a StoreModel object
-      final storeDetail = StoreModel.fromJson(storeData);
+      // Get user role data for logging
+      final userRole = await AuthService.getUserRole();
+      print('✅ StoreDetail: User authenticated with role: $userRole');
+
+      // Use the corrected service method with proper error handling
+      final storeResponse = await StoreService.getStoreById(storeId);
+
+      print('🏪 StoreDetail: Store response structure: ${storeResponse.keys.toList()}');
+
+      // Check if the response indicates success
+      if (storeResponse['success'] == false) {
+        throw Exception(storeResponse['error'] ?? 'Store not found');
+      }
+
+      // Extract store data from response
+      final storeData = storeResponse['data'];
+      if (storeData == null || storeData.isEmpty) {
+        throw Exception('Store data is empty or null');
+      }
+
+      print('🏪 StoreDetail: Store data fields: ${storeData.keys.toList()}');
+
+      // Convert the returned data to a StoreModel object with error handling
+      StoreModel storeDetail;
+      try {
+        storeDetail = StoreModel.fromJson(storeData);
+        print('✅ StoreDetail: Successfully parsed store model: ${storeDetail.name}');
+      } catch (e) {
+        print('❌ StoreDetail: Error parsing store model: $e');
+        print('❌ Store data: $storeData');
+        throw Exception('Invalid store data format: $e');
+      }
 
       setState(() {
         _storeDetail = storeDetail;
@@ -130,11 +202,15 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
           _calculateDistance();
         }
       });
+
+      print('✅ StoreDetail: Successfully loaded store details');
+
     } catch (e) {
-      print('Error fetching store details: $e');
+      print('❌ StoreDetail: Error fetching store details: $e');
       setState(() {
         _errorMessage = 'Failed to load store details: $e';
         _isLoading = false;
+        _storeDetail = null;
       });
     }
   }
@@ -151,7 +227,11 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
       if (!status.isGranted) {
         status = await Permission.location.request();
         if (!status.isGranted) {
-          throw Exception('Location permission denied');
+          print('⚠️ StoreDetail: Location permission denied');
+          setState(() {
+            _isLoadingLocation = false;
+          });
+          return;
         }
       }
 
@@ -171,8 +251,11 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
           _calculateDistance();
         }
       });
+
+      print('✅ StoreDetail: Location obtained: ${position.latitude}, ${position.longitude}');
+
     } catch (e) {
-      print('Error getting location: $e');
+      print('❌ StoreDetail: Error getting location: $e');
       setState(() {
         _isLoadingLocation = false;
       });
@@ -228,34 +311,176 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
   void didChangeDependencies() {
     super.didChangeDependencies();
 
+    // Only initialize once
+    if (_storeId != null) return;
+
     // Safely get the store ID from route arguments
     final arguments = ModalRoute.of(context)?.settings.arguments;
     int? storeId;
 
+    print('🔍 StoreDetail: Route arguments: $arguments (${arguments.runtimeType})');
+
     if (arguments != null) {
-      if (arguments is int) {
-        storeId = arguments;
-      } else if (arguments is String) {
-        storeId = int.tryParse(arguments);
-      } else if (arguments is Map) {
-        // Handle case where arguments is a map
-        storeId = arguments['storeId'] as int?;
+      try {
+        if (arguments is int) {
+          // Direct integer argument
+          storeId = arguments;
+          print('✅ StoreDetail: Found direct int argument: $storeId');
+        }
+        else if (arguments is String) {
+          // String argument
+          storeId = int.tryParse(arguments);
+          print('✅ StoreDetail: Found string argument, parsed to: $storeId');
+        }
+        else if (arguments is Map) {
+          // Map argument - handle multiple formats
+          print('🔍 StoreDetail: Map argument keys: ${arguments.keys.toList()}');
+
+          // Case 1: {storeId: value}
+          if (arguments.containsKey('storeId')) {
+            final storeIdValue = arguments['storeId'];
+            if (storeIdValue is int) {
+              storeId = storeIdValue;
+            } else if (storeIdValue is String) {
+              storeId = int.tryParse(storeIdValue);
+            }
+            print('✅ StoreDetail: Found storeId in map: $storeId');
+          }
+          // Case 2: {store: StoreModel/Map}
+          else if (arguments.containsKey('store')) {
+            final storeObject = arguments['store'];
+            print('🔍 StoreDetail: Found store object: ${storeObject.runtimeType}');
+
+            storeId = _extractStoreId(storeObject);
+            print('✅ StoreDetail: Extracted ID from store object: $storeId');
+          }
+          // Case 3: Direct id key
+          else if (arguments.containsKey('id')) {
+            final idValue = arguments['id'];
+            if (idValue is int) {
+              storeId = idValue;
+            } else if (idValue is String) {
+              storeId = int.tryParse(idValue);
+            }
+            print('✅ StoreDetail: Found id in map: $storeId');
+          }
+        }
+        // Case 4: Direct Store object
+        else {
+          print('🔍 StoreDetail: Direct store object: ${arguments.runtimeType}');
+          storeId = _extractStoreId(arguments);
+          print('✅ StoreDetail: Extracted ID from direct store object: $storeId');
+        }
+      } catch (e) {
+        print('❌ StoreDetail: Error parsing arguments: $e');
+        print('❌ Arguments content: $arguments');
       }
     }
 
     // Set the storeId and validate
     _storeId = storeId;
 
+    print('🔍 StoreDetail: Final parsed store ID: $_storeId');
+
     if (_storeId != null && _storeId! > 0) {
-      fetchMenuItems(_storeId.toString());
+      // Start loading store data and menu items
       getDetailStore(_storeId.toString());
+      fetchMenuItems(_storeId.toString());
       _getCurrentLocation();
     } else {
       setState(() {
-        _errorMessage = 'Invalid store ID. Expected integer but got: ${arguments.runtimeType}';
+        _errorMessage = 'Invalid store ID. Please ensure you are navigating from a valid store.';
         _isLoading = false;
-        _isLoadingMenuItems = false;
       });
+      print('❌ StoreDetail: Invalid or null store ID: $_storeId');
+      print('❌ Original arguments: $arguments');
+    }
+  }
+
+  /// Helper method to extract store ID from various store object formats
+  int? _extractStoreId(dynamic storeObject) {
+    if (storeObject == null) {
+      print('❌ StoreDetail: Store object is null');
+      return null;
+    }
+
+    try {
+      // Method 1: Try accessing .id property directly (for Store model objects)
+      try {
+        final dynamic idValue = storeObject.id;
+        if (idValue is int) {
+          print('✅ StoreDetail: Found id property (int): $idValue');
+          return idValue;
+        } else if (idValue is String) {
+          final parsed = int.tryParse(idValue);
+          print('✅ StoreDetail: Found id property (string), parsed: $parsed');
+          return parsed;
+        }
+      } catch (e) {
+        print('🔍 StoreDetail: Cannot access .id property: $e');
+      }
+
+      // Method 2: Try converting to Map and accessing 'id' key
+      try {
+        Map<String, dynamic> storeMap;
+
+        if (storeObject is Map<String, dynamic>) {
+          storeMap = storeObject;
+        } else {
+          // Try to convert object to Map using reflection or toJson
+          try {
+            // If the object has toJson method
+            final dynamic toJsonResult = storeObject.toJson();
+            if (toJsonResult is Map<String, dynamic>) {
+              storeMap = toJsonResult;
+            } else {
+              throw Exception('toJson did not return Map');
+            }
+          } catch (e) {
+            print('🔍 StoreDetail: Cannot convert to Map: $e');
+            return null;
+          }
+        }
+
+        // Extract ID from Map
+        final idValue = storeMap['id'];
+        if (idValue is int) {
+          print('✅ StoreDetail: Found id in map (int): $idValue');
+          return idValue;
+        } else if (idValue is String) {
+          final parsed = int.tryParse(idValue);
+          print('✅ StoreDetail: Found id in map (string), parsed: $parsed');
+          return parsed;
+        }
+      } catch (e) {
+        print('❌ StoreDetail: Error converting to Map: $e');
+      }
+
+      // Method 3: Try reflection-like approach for common property names
+      try {
+        final String objectString = storeObject.toString();
+        print('🔍 StoreDetail: Object string representation: $objectString');
+
+        // Look for patterns like "id: 123" in the string representation
+        final RegExp idPattern = RegExp(r'id[:\s]*(\d+)');
+        final match = idPattern.firstMatch(objectString);
+        if (match != null) {
+          final idStr = match.group(1);
+          if (idStr != null) {
+            final parsed = int.tryParse(idStr);
+            print('✅ StoreDetail: Found id via regex: $parsed');
+            return parsed;
+          }
+        }
+      } catch (e) {
+        print('❌ StoreDetail: Error with string parsing: $e');
+      }
+
+      print('❌ StoreDetail: Could not extract ID from store object');
+      return null;
+    } catch (e) {
+      print('❌ StoreDetail: Error in _extractStoreId: $e');
+      return null;
     }
   }
 
@@ -646,7 +871,8 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading || _storeDetail == null) {
+    // Loading state for both store and authentication check
+    if (_isLoading) {
       return Scaffold(
         body: Center(
           child: Column(
@@ -668,6 +894,7 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
       );
     }
 
+    // Error state
     if (_errorMessage.isNotEmpty) {
       return Scaffold(
         appBar: AppBar(
@@ -698,12 +925,48 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  // Try to reload data
+                  if (_storeId != null) {
+                    getDetailStore(_storeId.toString());
+                    fetchMenuItems(_storeId.toString());
+                  } else {
+                    Navigator.pop(context);
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   foregroundColor: Colors.white,
                 ),
+                child: const Text('Coba Lagi'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
                 child: const Text('Kembali'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Check if store data is loaded
+    if (_storeDetail == null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: GlobalStyle.primaryColor),
+              const SizedBox(height: 16),
+              Text(
+                'Memuat data toko...',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 16,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
               ),
             ],
           ),
@@ -1557,6 +1820,13 @@ class _StoreDetailState extends State<StoreDetail> with SingleTickerProviderStat
                           cartItems: cartItems,
                           storeId: _storeId!,
                           itemQuantities: Map<int, int>.from(_itemQuantities),
+                          // Parameter lokasi baru
+                          customerLatitude: _currentPosition?.latitude,
+                          customerLongitude: _currentPosition?.longitude,
+                          customerAddress: null, // alamat dari home_cust
+                          storeLatitude: _storeDetail?.latitude,
+                          storeLongitude: _storeDetail?.longitude,
+                          storeDistance: _storeDistance, // jarak yang sudah dihitung
                         ),
                       ),
                     );

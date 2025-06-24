@@ -1064,10 +1064,14 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildHorizontalStoreCard(StoreModel store) {
     return GestureDetector(
       onTap: () {
+        print('🔍 HomePage: Navigating to store with ID: ${store.storeId}');
         Navigator.pushNamed(
-          context,
-          StoreDetail.route,
-          arguments: {'store': store},
+            context,
+            StoreDetail.route,
+            arguments: {
+              'storeId': store.storeId,
+              'storeName': store.name, // Optional: untuk debugging
+            }
         );
       },
       child: Container(

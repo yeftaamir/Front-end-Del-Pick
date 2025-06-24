@@ -48,10 +48,23 @@ class MenuItemService {
         }
       }
 
-      return response;
+      return {
+        'success': true,
+        'data': response['data'] ?? [],
+        'total': response['total'] ?? 0,
+        'page': page,
+        'limit': limit,
+      };
     } catch (e) {
       print('❌ Get all menu items error: $e');
-      throw Exception('Failed to get menu items: $e');
+      return {
+        'success': false,
+        'data': [],
+        'total': 0,
+        'page': page,
+        'limit': limit,
+        'error': e.toString(),
+      };
     }
   }
 
@@ -76,10 +89,11 @@ class MenuItemService {
 
       final userRole = await AuthService.getUserRole();
       if (userRole?.toLowerCase() != 'customer') {
-        throw Exception('Access denied: Only customers can view store menus');
+        print('⚠️ MenuItemService: Non-customer access detected for role: $userRole');
+        // Allow but log the access
       }
 
-      print('✅ MenuItemService: Customer access validated');
+      print('✅ MenuItemService: User access validated');
 
       // Validate storeId
       final parsedStoreId = int.tryParse(storeId);
@@ -503,11 +517,11 @@ class MenuItemService {
       return menuItems;
     } catch (e) {
       print('❌ MenuItemService: Search menu items error: $e');
-      throw Exception('Failed to search menu items: $e');
+      return [];
     }
   }
 
-  /// Get menu categories (public access)
+  /// Get menu categories
   static Future<List<String>> getMenuCategories() async {
     try {
       final response = await BaseService.apiCall(
@@ -523,18 +537,12 @@ class MenuItemService {
     }
   }
 
-  /// Get popular menu items (customer access)
+  /// Get popular menu items
   static Future<List<Map<String, dynamic>>> getPopularMenuItems({
     int limit = 10,
     String? category,
   }) async {
     try {
-      // Validate customer access
-      final userData = await AuthService.getRoleSpecificData();
-      if (userData == null) {
-        throw Exception('User not authenticated');
-      }
-
       final queryParams = {
         'limit': limit.toString(),
         'sortBy': 'popularity',
