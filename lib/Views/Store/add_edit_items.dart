@@ -12,7 +12,6 @@ import '../../Services/menu_service.dart';
 import '../../Services/image_service.dart';
 import '../../Services/auth_service.dart';
 import '../../Services/store_data_helper.dart';
-import 'add_item.dart';
 
 class AddEditItemForm extends StatefulWidget {
   static const String route = '/Store/AddEditItems';
@@ -31,6 +30,21 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
   final _stockController = TextEditingController();
+
+  // Category options
+  final List<Map<String, dynamic>> _categoryOptions = [
+    {'value': 'makanan', 'label': 'Makanan', 'icon': Icons.restaurant},
+    {'value': 'minuman', 'label': 'Minuman', 'icon': Icons.local_cafe},
+    {'value': 'alat_tulis', 'label': 'Alat Tulis', 'icon': Icons.edit},
+    {'value': 'bouqet', 'label': 'Bouqet', 'icon': Icons.local_florist},
+    {'value': 'hadiah', 'label': 'Hadiah', 'icon': Icons.card_giftcard},
+    {'value': 'elektronik', 'label': 'Elektronik', 'icon': Icons.devices},
+    {'value': 'snack', 'label': 'Snack', 'icon': Icons.cake},
+    {'value': 'kebutuhan', 'label': 'Harian', 'icon': Icons.shopping_cart},
+    {'value': 'barang', 'label': 'Barang', 'icon': Icons.inventory_2},
+    {'value': 'lainnya', 'label': 'Lainnya', 'icon': Icons.category },
+  ];
+  String _selectedCategory = 'general';
 
   // Status options for menu item
   final List<String> _statusOptions = ['available', 'unavailable'];
@@ -56,6 +70,8 @@ class _AddEditItemFormState extends State<AddEditItemForm>
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
   late AnimationController _successAnimationController;
+  late AnimationController _pulseController;
+  late AnimationController _categoryController;
 
   // Audio player
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -70,36 +86,42 @@ class _AddEditItemFormState extends State<AddEditItemForm>
 
     // Initialize animation controllers for each card section
     _cardControllers = List.generate(
-      4, // Number of card sections
+      5, // Increased number of card sections
           (index) => AnimationController(
         vsync: this,
-        duration: Duration(milliseconds: 600 + (index * 200)),
+        duration: Duration(milliseconds: 800 + (index * 150)),
       ),
     );
 
     // Create slide animations for each card
     _cardAnimations = _cardControllers.map((controller) {
       return Tween<Offset>(
-        begin: const Offset(0, -0.5),
+        begin: const Offset(0, 0.3),
         end: Offset.zero,
       ).animate(CurvedAnimation(
         parent: controller,
-        curve: Curves.easeOutCubic,
+        curve: Curves.elasticOut,
       ));
     }).toList();
 
-    // Initialize success animation controller
+    // Initialize other animation controllers
     _successAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     );
 
-    // Start animations sequentially
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (var controller in _cardControllers) {
-        controller.forward();
-      }
-    });
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+
+    _categoryController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+
+    // Start animations sequentially with stagger effect
+    _startStaggeredAnimations();
 
     // Initialize store ID and item data
     _initializeData();
@@ -111,13 +133,25 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _stockController.addListener(_onChange);
   }
 
+  void _startStaggeredAnimations() {
+    Future.delayed(const Duration(milliseconds: 200), () {
+      for (int i = 0; i < _cardControllers.length; i++) {
+        Future.delayed(Duration(milliseconds: i * 100), () {
+          if (mounted) {
+            _cardControllers[i].forward();
+          }
+        });
+      }
+    });
+  }
+
   Future<void> _initializeData() async {
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // Get store ID from user data using multiple approaches
+      // Get store ID from user data first
       await _getStoreId();
 
       if (_storeId != null) {
@@ -219,6 +253,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _quantity = 1;
     _selectedImageUrl = menuItem.imageUrl;
     _selectedStatus = menuItem.isAvailable ? 'available' : 'unavailable';
+    _selectedCategory = menuItem.category.isNotEmpty ? menuItem.category : 'general';
     _originalItemId = menuItem.id.toString();
 
     // Use the store ID from menu item if available, otherwise use the detected one
@@ -235,6 +270,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     _quantity = item.quantity;
     _selectedImageUrl = item.imageUrl;
     _selectedStatus = item.isAvailable ? 'available' : 'unavailable';
+    _selectedCategory = 'general'; // Default for legacy items
     _originalItemId = item.id;
   }
 
@@ -256,6 +292,8 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     }
 
     _successAnimationController.dispose();
+    _pulseController.dispose();
+    _categoryController.dispose();
     _audioPlayer.dispose();
 
     super.dispose();
@@ -287,6 +325,9 @@ class _AddEditItemFormState extends State<AddEditItemForm>
             _isUploading = false;
             _hasChanges = true;
           });
+
+          // Add success animation for image upload
+          _pulseController.forward().then((_) => _pulseController.reverse());
         } else {
           throw Exception('Failed to convert image to base64');
         }
@@ -348,10 +389,17 @@ class _AddEditItemFormState extends State<AddEditItemForm>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.save_outlined,
-                  size: 48,
-                  color: GlobalStyle.primaryColor,
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: GlobalStyle.primaryColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.save_outlined,
+                    size: 48,
+                    color: GlobalStyle.primaryColor,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 const Text(
@@ -434,6 +482,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
           'name': name,
           'description': description,
           'price': price,
+          'category': _selectedCategory,
           'isAvailable': isAvailable,
         };
 
@@ -458,7 +507,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
           name: name,
           price: price,
           storeId: _storeId!,
-          category: 'general', // Default category
+          category: _selectedCategory,
           description: description,
           imageBase64: _imageBase64,
           quantity: stock,
@@ -533,8 +582,8 @@ class _AddEditItemFormState extends State<AddEditItemForm>
       },
     );
 
-    // Auto-dismiss dialog after 3 seconds and navigate back to AddItemPage
-    Future.delayed(const Duration(seconds: 3), () {
+    // Auto-dismiss dialog after 2 seconds and return to previous page with success result
+    Future.delayed(const Duration(seconds: 2), () {
       setState(() {
         _isSaving = false;
       });
@@ -544,8 +593,8 @@ class _AddEditItemFormState extends State<AddEditItemForm>
         Navigator.pop(context);
       }
 
-      // Return to the AddItemPage
-      Navigator.pushReplacementNamed(context, AddItemPage.route);
+      // Return to the previous page with success result to trigger refresh
+      Navigator.pop(context, 'success');
     });
   }
 
@@ -583,20 +632,114 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     return SlideTransition(
       position: _cardAnimations[index],
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: 20),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
         child: child,
       ),
+    );
+  }
+
+  Widget _buildCategorySelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.category, color: GlobalStyle.primaryColor, size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'Kategori Item',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 120,
+          child: GridView.builder(
+            scrollDirection: Axis.horizontal,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              childAspectRatio: 0.8,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: _categoryOptions.length,
+            itemBuilder: (context, index) {
+              final category = _categoryOptions[index];
+              final isSelected = _selectedCategory == category['value'];
+
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _selectedCategory = category['value'];
+                    _hasChanges = true;
+                  });
+
+                  // Add scale animation when selected
+                  _categoryController.forward().then((_) => _categoryController.reverse());
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? GlobalStyle.primaryColor.withOpacity(0.1)
+                        : Colors.grey[50],
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isSelected
+                          ? GlobalStyle.primaryColor
+                          : Colors.grey[300]!,
+                      width: isSelected ? 2 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      AnimatedScale(
+                        scale: isSelected ? 1.2 : 1.0,
+                        duration: const Duration(milliseconds: 300),
+                        child: Icon(
+                          category['icon'],
+                          color: isSelected
+                              ? GlobalStyle.primaryColor
+                              : Colors.grey[600],
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        category['label'],
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          color: isSelected
+                              ? GlobalStyle.primaryColor
+                              : Colors.grey[700],
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -672,14 +815,21 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: const Color(0xFFF8FAFC),
         appBar: AppBar(
           leading: IconButton(
             icon: Container(
-              padding: const EdgeInsets.all(5.0),
+              padding: const EdgeInsets.all(8.0),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: Icon(Icons.arrow_back_ios_new,
                   color: GlobalStyle.primaryColor, size: 18),
@@ -697,11 +847,19 @@ class _AddEditItemFormState extends State<AddEditItemForm>
             ),
           ),
           backgroundColor: Colors.white,
-          elevation: 0.5,
+          elevation: 0,
           actions: [
-            IconButton(
-              icon: Icon(Icons.save_outlined, color: GlobalStyle.primaryColor),
-              onPressed: _isSaving ? null : _saveItem,
+            AnimatedBuilder(
+              animation: _pulseController,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: 1.0 + (_pulseController.value * 0.1),
+                  child: IconButton(
+                    icon: Icon(Icons.save_outlined, color: GlobalStyle.primaryColor),
+                    onPressed: _isSaving ? null : _saveItem,
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -761,29 +919,43 @@ class _AddEditItemFormState extends State<AddEditItemForm>
         )
             : SingleChildScrollView(
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(20.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Store Info Card
                 if (_storeId != null)
                   Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 20),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: GlobalStyle.lightColor.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: GlobalStyle.lightColor),
+                      gradient: LinearGradient(
+                        colors: [
+                          GlobalStyle.primaryColor.withOpacity(0.1),
+                          GlobalStyle.primaryColor.withOpacity(0.05),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: GlobalStyle.primaryColor.withOpacity(0.2)),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.store, color: GlobalStyle.primaryColor),
-                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: GlobalStyle.primaryColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(Icons.store, color: Colors.white, size: 20),
+                        ),
+                        const SizedBox(width: 12),
                         Text(
                           'Store ID: $_storeId',
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
                             color: GlobalStyle.primaryColor,
                           ),
                         ),
@@ -795,71 +967,97 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                 _buildCard(
                   index: 0,
                   child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: const EdgeInsets.all(20.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.info_outline,
-                                color: GlobalStyle.primaryColor),
-                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: GlobalStyle.primaryColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(Icons.info_outline,
+                                  color: GlobalStyle.primaryColor, size: 20),
+                            ),
+                            const SizedBox(width: 12),
                             const Text(
                               'Informasi Dasar',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
                         _buildInputField(
                           label: 'Nama Item',
                           controller: _nameController,
                           icon: Icons.shopping_bag_outlined,
+                          hint: 'Masukkan nama item',
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
                         _buildInputField(
                           label: 'Deskripsi',
                           controller: _descriptionController,
                           maxLines: 3,
                           icon: Icons.description_outlined,
+                          hint: 'Deskripsikan item Anda dengan detail',
                         ),
                       ],
                     ),
                   ),
                 ),
 
-                // Pricing and Stock Card
+                // Category Selection Card
                 _buildCard(
                   index: 1,
                   child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: const EdgeInsets.all(20.0),
+                    child: _buildCategorySelector(),
+                  ),
+                ),
+
+                // Pricing and Availability Card
+                _buildCard(
+                  index: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.attach_money,
-                                color: GlobalStyle.primaryColor),
-                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(Icons.attach_money,
+                                  color: Colors.green, size: 20),
+                            ),
+                            const SizedBox(width: 12),
                             const Text(
                               'Harga & Ketersediaan',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
                         _buildInputField(
                           label: 'Harga',
                           controller: _priceController,
                           keyboardType: TextInputType.number,
                           prefix: 'Rp ',
                           icon: Icons.monetization_on_outlined,
+                          hint: '0',
                           onChanged: (value) {
                             final cleanValue = value.replaceAll(RegExp(r'[^\d]'), '');
                             if (cleanValue.isNotEmpty) {
@@ -880,76 +1078,80 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                             }
                           },
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                Icon(Icons.circle,
-                                    size: 16, color: GlobalStyle.primaryColor),
+                                Icon(Icons.toggle_on,
+                                    size: 20, color: GlobalStyle.primaryColor),
                                 const SizedBox(width: 8),
                                 Text(
-                                  'Status Item',
+                                  'Status Ketersediaan',
                                   style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
                                     color: Colors.grey[700],
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding:
-                              const EdgeInsets.symmetric(horizontal: 16),
-                              decoration: BoxDecoration(
-                                color: GlobalStyle.lightColor.withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: GlobalStyle.lightColor,
-                                  width: 1,
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  isExpanded: true,
-                                  value: _selectedStatus,
-                                  icon: Icon(Icons.arrow_drop_down,
-                                      color: GlobalStyle.primaryColor),
-                                  items: _statusOptions.map((String status) {
-                                    String displayStatus = status == 'available' ? 'Available' : 'Unavailable';
+                            const SizedBox(height: 12),
+                            Row(
+                              children: _statusOptions.map((status) {
+                                bool isSelected = _selectedStatus == status;
+                                String displayStatus = status == 'available' ? 'Tersedia' : 'Tidak Tersedia';
+                                Color statusColor = status == 'available' ? Colors.green : Colors.red;
 
-                                    return DropdownMenuItem<String>(
-                                      value: status,
-                                      child: Row(
-                                        children: [
-                                          Container(
-                                            width: 12,
-                                            height: 12,
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: status == 'available'
-                                                  ? Colors.green
-                                                  : Colors.red,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(displayStatus),
-                                        ],
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (String? newValue) {
-                                    if (newValue != null) {
+                                return Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
                                       setState(() {
-                                        _selectedStatus = newValue;
+                                        _selectedStatus = status;
                                         _hasChanges = true;
                                       });
-                                    }
-                                  },
-                                ),
-                              ),
+                                    },
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 300),
+                                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? statusColor.withOpacity(0.1)
+                                            : Colors.grey[50],
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: isSelected ? statusColor : Colors.grey[300]!,
+                                          width: isSelected ? 2 : 1,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          AnimatedScale(
+                                            scale: isSelected ? 1.2 : 1.0,
+                                            duration: const Duration(milliseconds: 300),
+                                            child: Icon(
+                                              status == 'available' ? Icons.check_circle : Icons.cancel,
+                                              color: isSelected ? statusColor : Colors.grey[400],
+                                              size: 24,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            displayStatus,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                              color: isSelected ? statusColor : Colors.grey[600],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
                             ),
                           ],
                         ),
@@ -960,26 +1162,33 @@ class _AddEditItemFormState extends State<AddEditItemForm>
 
                 // Image Upload Card
                 _buildCard(
-                  index: 2,
+                  index: 3,
                   child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: const EdgeInsets.all(20.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.image, color: GlobalStyle.primaryColor),
-                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.purple.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(Icons.image, color: Colors.purple, size: 20),
+                            ),
+                            const SizedBox(width: 12),
                             const Text(
                               'Gambar Item',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
                         _isUploading
                             ? Center(
                           child: Column(
@@ -1001,17 +1210,17 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                   height: 250,
                                   width: double.infinity,
                                   decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(16),
                                     boxShadow: [
                                       BoxShadow(
                                         color: Colors.black.withOpacity(0.1),
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 4),
+                                        blurRadius: 15,
+                                        offset: const Offset(0, 5),
                                       ),
                                     ],
                                   ),
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(16),
                                     child: _selectedImageFile != null
                                         ? Image.file(
                                       File(_selectedImageFile!.path),
@@ -1035,7 +1244,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 16),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -1045,18 +1254,14 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                   label: const Text('Ganti Gambar'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.white,
-                                    foregroundColor:
-                                    GlobalStyle.primaryColor,
+                                    foregroundColor: GlobalStyle.primaryColor,
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
+                                      horizontal: 20,
+                                      vertical: 12,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                      BorderRadius.circular(30),
-                                      side: BorderSide(
-                                          color:
-                                          GlobalStyle.primaryColor),
+                                      borderRadius: BorderRadius.circular(30),
+                                      side: BorderSide(color: GlobalStyle.primaryColor),
                                     ),
                                     elevation: 0,
                                   ),
@@ -1067,19 +1272,16 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                   icon: const Icon(Icons.fullscreen),
                                   label: const Text('Lihat Full'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor:
-                                    GlobalStyle.lightColor,
-                                    foregroundColor:
-                                    GlobalStyle.primaryColor,
+                                    backgroundColor: GlobalStyle.primaryColor,
+                                    foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
+                                      horizontal: 20,
+                                      vertical: 12,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                      BorderRadius.circular(30),
+                                      borderRadius: BorderRadius.circular(30),
                                     ),
-                                    elevation: 0,
+                                    elevation: 2,
                                   ),
                                 ),
                               ],
@@ -1088,31 +1290,38 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                         )
                             : DottedBorder(
                           borderType: BorderType.RRect,
-                          radius: const Radius.circular(12),
-                          color: Colors.grey[300]!,
+                          radius: const Radius.circular(16),
+                          color: GlobalStyle.primaryColor.withOpacity(0.3),
                           strokeWidth: 2,
-                          dashPattern: const [8, 4],
+                          dashPattern: const [12, 6],
                           child: Container(
-                            padding: const EdgeInsets.all(24),
+                            padding: const EdgeInsets.all(32),
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              color: Colors.grey[50],
-                              borderRadius: BorderRadius.circular(12),
+                              color: GlobalStyle.primaryColor.withOpacity(0.02),
+                              borderRadius: BorderRadius.circular(16),
                             ),
                             child: Column(
                               children: [
-                                Icon(
-                                  Icons.cloud_upload_outlined,
-                                  size: 48,
-                                  color: Colors.grey[400],
+                                Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: GlobalStyle.primaryColor.withOpacity(0.1),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.cloud_upload_outlined,
+                                    size: 48,
+                                    color: GlobalStyle.primaryColor,
+                                  ),
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
                                   'Pilih gambar untuk diunggah',
                                   style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey[700],
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
@@ -1120,7 +1329,7 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                   'Format: JPG, PNG (Max 1MB)',
                                   style: TextStyle(
                                     color: Colors.grey[500],
-                                    fontSize: 12,
+                                    fontSize: 14,
                                   ),
                                 ),
                                 const SizedBox(height: 24),
@@ -1129,18 +1338,16 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                                   icon: const Icon(Icons.upload_file),
                                   label: const Text('Telusuri Gambar'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor:
-                                    GlobalStyle.lightColor,
-                                    foregroundColor:
-                                    GlobalStyle.primaryColor,
+                                    backgroundColor: GlobalStyle.primaryColor,
+                                    foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 24,
                                       vertical: 12,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                      BorderRadius.circular(30),
+                                      borderRadius: BorderRadius.circular(30),
                                     ),
+                                    elevation: 2,
                                   ),
                                 ),
                               ],
@@ -1154,41 +1361,53 @@ class _AddEditItemFormState extends State<AddEditItemForm>
 
                 // Tips Card
                 _buildCard(
-                  index: 3,
+                  index: 4,
                   child: Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(20),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.lightbulb_outline,
-                                color: Colors.amber[700]),
-                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(Icons.lightbulb_outline,
+                                  color: Colors.amber[700], size: 20),
+                            ),
+                            const SizedBox(width: 12),
                             const Text(
-                              'Tips',
+                              'Tips untuk Item Terbaik',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 16),
                         _buildTipItem(
                           icon: Icons.photo_size_select_actual_outlined,
-                          text:
-                          'Gambar dengan rasio 1:1 akan ditampilkan dengan optimal',
+                          text: 'Gunakan gambar berkualitas tinggi dengan rasio 1:1',
+                          color: Colors.blue,
                         ),
                         _buildTipItem(
                           icon: Icons.description_outlined,
-                          text:
-                          'Deskripsi yang detail akan membantu pelanggan memahami produk Anda',
+                          text: 'Tulis deskripsi yang menarik dan informatif',
+                          color: Colors.green,
+                        ),
+                        _buildTipItem(
+                          icon: Icons.category_outlined,
+                          text: 'Pilih kategori yang sesuai untuk memudahkan pencarian',
+                          color: Colors.purple,
                         ),
                         _buildTipItem(
                           icon: Icons.price_change_outlined,
-                          text:
-                          'Tetapkan harga yang kompetitif untuk meningkatkan penjualan',
+                          text: 'Tetapkan harga yang kompetitif dan wajar',
+                          color: Colors.orange,
                         ),
                       ],
                     ),
@@ -1229,37 +1448,26 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                       ],
                     ),
                   ),
+
+                // Add bottom padding for the floating button
+                const SizedBox(height: 100),
               ],
             ),
           ),
         ),
-        bottomNavigationBar: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, -5),
-              ),
-            ],
-          ),
-          child: ElevatedButton(
+        floatingActionButton: Container(
+          width: MediaQuery.of(context).size.width - 40,
+          height: 56,
+          child: FloatingActionButton.extended(
             onPressed: _isSaving ? null : _saveItem,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: GlobalStyle.primaryColor,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
-              ),
-              elevation: 2,
-              disabledBackgroundColor: Colors.grey,
+            backgroundColor: _isSaving ? Colors.grey : GlobalStyle.primaryColor,
+            elevation: 8,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(30),
             ),
-            child: _isSaving
+            label: _isSaving
                 ? Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
                   width: 20,
@@ -1275,26 +1483,29 @@ class _AddEditItemFormState extends State<AddEditItemForm>
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
                 ),
               ],
             )
                 : Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.save_outlined),
+                const Icon(Icons.save_outlined, color: Colors.white),
                 const SizedBox(width: 8),
                 const Text(
                   'Simpan Item',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
                 ),
               ],
             ),
           ),
         ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       ),
     );
   }
@@ -1315,19 +1526,19 @@ class _AddEditItemFormState extends State<AddEditItemForm>
         Row(
           children: [
             if (icon != null)
-              Icon(icon, size: 16, color: GlobalStyle.primaryColor),
+              Icon(icon, size: 18, color: GlobalStyle.primaryColor),
             if (icon != null) const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
                 color: Colors.grey[700],
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         TextField(
           controller: controller,
           keyboardType: keyboardType,
@@ -1335,20 +1546,25 @@ class _AddEditItemFormState extends State<AddEditItemForm>
           onChanged: onChanged,
           decoration: InputDecoration(
             filled: true,
-            fillColor: GlobalStyle.lightColor.withOpacity(0.3),
+            fillColor: Colors.grey[50],
             prefixText: prefix,
             hintText: hint,
+            hintStyle: TextStyle(color: Colors.grey[400]),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.grey[300]!),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: GlobalStyle.primaryColor, width: 1),
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: GlobalStyle.primaryColor, width: 2),
             ),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
-              vertical: 12,
+              vertical: 16,
             ),
           ),
         ),
@@ -1356,24 +1572,36 @@ class _AddEditItemFormState extends State<AddEditItemForm>
     );
   }
 
-  Widget _buildTipItem({required IconData icon, required String text}) {
+  Widget _buildTipItem({
+    required IconData icon,
+    required String text,
+    required Color color
+  }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
+      padding: const EdgeInsets.only(bottom: 12.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            icon,
-            size: 18,
-            color: Colors.amber[700],
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              icon,
+              size: 16,
+              color: color,
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               text,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 color: Colors.grey[700],
+                height: 1.4,
               ),
             ),
           ),

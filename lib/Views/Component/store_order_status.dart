@@ -9,6 +9,10 @@ import 'package:del_pick/Services/image_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
 
+import '../../Services/auth_service.dart';
+
+
+// store_order_status.dart
 class StoreOrderStatusCard extends StatefulWidget {
   final String? orderId;
   final Map<String, dynamic>? initialOrderData;
@@ -41,52 +45,52 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
   final Color _primaryColor = const Color(0xFF7B1FA2);
   final Color _secondaryColor = const Color(0xFF9C27B0);
 
-  // Status timeline for store perspective
+  // Standardized status timeline
   final List<Map<String, dynamic>> _statusTimeline = [
     {
       'status': OrderStatus.pending,
-      'label': 'Pesanan Baru',
-      'description': 'Menunggu konfirmasi toko',
+      'label': 'Menunggu',
+      'description': 'Pesanan baru masuk',
       'icon': Icons.notification_important,
       'color': Colors.orange,
-      'animation': 'assets/animations/loading_animation.json'
+      'animation': 'assets/animations/diambil.json'
     },
     {
       'status': OrderStatus.confirmed,
       'label': 'Dikonfirmasi',
-      'description': 'Pesanan diterima, mulai persiapan',
+      'description': 'Pesanan diterima',
       'icon': Icons.thumb_up,
       'color': Colors.blue,
-      'animation': 'assets/animations/diproses.json'
+      'animation': 'assets/animations/diambil.json'
     },
     {
       'status': OrderStatus.preparing,
       'label': 'Disiapkan',
-      'description': 'Sedang mempersiapkan pesanan',
+      'description': 'Mempersiapkan pesanan',
       'icon': Icons.restaurant_menu,
       'color': Colors.purple,
-      'animation': 'assets/animations/diambil.json'
+      'animation': 'assets/animations/diproses.json'
     },
     {
       'status': OrderStatus.readyForPickup,
       'label': 'Siap Diambil',
-      'description': 'Pesanan siap diambil driver',
+      'description': 'Siap diambil driver',
       'icon': Icons.shopping_bag,
       'color': Colors.indigo,
-      'animation': 'assets/animations/diambil.json'
+      'animation': 'assets/animations/diproses.json'
     },
     {
       'status': OrderStatus.onDelivery,
-      'label': 'Dikirim',
-      'description': 'Pesanan dalam perjalanan',
+      'label': 'Diantar',
+      'description': 'Dalam perjalanan',
       'icon': Icons.local_shipping,
-      'color': Colors.indigo,
+      'color': Colors.teal,
       'animation': 'assets/animations/diantar.json'
     },
     {
       'status': OrderStatus.delivered,
-      'label': 'Terkirim',
-      'description': 'Pesanan berhasil diterima customer',
+      'label': 'Selesai',
+      'description': 'Pesanan terkirim',
       'icon': Icons.done_all,
       'color': Colors.green,
       'animation': 'assets/animations/pesanan_selesai.json'
@@ -130,7 +134,18 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
     });
 
     try {
-      // Menggunakan OrderService.getOrdersByStore() untuk mendapatkan data order store
+      // Check authentication and role
+      final userData = await AuthService.getUserData();
+      if (userData == null) {
+        throw Exception('User not authenticated');
+      }
+
+      final roleSpecificData = await AuthService.getRoleSpecificData();
+      if (roleSpecificData == null) {
+        throw Exception('Store data not found');
+      }
+
+      // Get order data using OrderService for store
       final response = await OrderService.getOrdersByStore(
         page: 1,
         limit: 50,
@@ -148,7 +163,6 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
       if (targetOrder != null) {
         _processOrderData(targetOrder);
       } else {
-        // Fallback ke getOrderById jika tidak ditemukan di list
         final orderData = await OrderService.getOrderById(widget.orderId!);
         _processOrderData(orderData);
       }
@@ -173,11 +187,9 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
         _currentOrder = newOrder;
       });
 
-      // Handle status change animations and sounds
       if (previousStatus != null && previousStatus != newOrder.orderStatus) {
         _handleStatusChange(newOrder.orderStatus);
       } else if (_previousStatus == null) {
-        // Initial load
         _handleInitialStatus(newOrder.orderStatus);
       }
 
@@ -191,7 +203,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
   }
 
   void _handleInitialStatus(OrderStatus status) {
-    if (status == OrderStatus.cancelled) {
+    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(status)) {
       _playCancelSound();
     } else if (status == OrderStatus.pending) {
       _pulseController.repeat(reverse: true);
@@ -199,7 +211,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
   }
 
   void _handleStatusChange(OrderStatus newStatus) {
-    if (newStatus == OrderStatus.cancelled) {
+    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(newStatus)) {
       _playCancelSound();
       _pulseController.stop();
     } else {
@@ -255,10 +267,10 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
       return {
         'status': OrderStatus.cancelled,
         'label': 'Dibatalkan',
-        'description': 'Pesanan telah dibatalkan',
+        'description': 'Pesanan dibatalkan',
         'icon': Icons.cancel_outlined,
         'color': Colors.red,
-        'animation': 'assets/animations/caution.json'
+        'animation': 'assets/animations/cancel.json'
       };
     }
 
@@ -266,10 +278,10 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
       return {
         'status': OrderStatus.rejected,
         'label': 'Ditolak',
-        'description': 'Pesanan ditolak oleh toko',
+        'description': 'Pesanan ditolak',
         'icon': Icons.block,
         'color': Colors.red,
-        'animation': 'assets/animations/caution.json'
+        'animation': 'assets/animations/cancel.json'
       };
     }
 
@@ -306,7 +318,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
     Widget content = Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        color: Colors.white, // Background putih sesuai requirement
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -368,7 +380,6 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
                       ],
                     ),
                   ),
-                  // Order value
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
@@ -389,9 +400,9 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
               ),
             ),
 
-            // Content
+            // Content with similar structure as driver component
             Container(
-              color: Colors.white, // Background putih untuk content
+              color: Colors.white,
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
@@ -417,14 +428,14 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
                       height: 180,
                       child: Lottie.asset(
                         currentStatusInfo['animation'],
-                        repeat: currentStatus != OrderStatus.delivered,
+                        repeat: ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus),
                       ),
                     ),
 
                   const SizedBox(height: 20),
 
-                  // Status Timeline (only for non-cancelled/rejected orders)
-                  if (currentStatus != OrderStatus.cancelled && currentStatus != OrderStatus.rejected)
+                  // Status Timeline
+                  if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
@@ -599,150 +610,6 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
                         ),
                       ),
                     ),
-
-                  // Driver info (if assigned)
-                  if (_currentOrder!.driver != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.green.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 16,
-                              child: ImageService.displayProfileImage(
-                                imageSource: _currentOrder!.driver!.avatar ?? '',
-                                radius: 16,
-                                placeholder: Icon(Icons.delivery_dining, size: 18, color: Colors.green[600]),
-                                errorWidget: Icon(Icons.delivery_dining, size: 18, color: Colors.green[600]),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _currentOrder!.driver!.name,
-                                    style: TextStyle(
-                                      color: Colors.green[800],
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      fontFamily: GlobalStyle.fontFamily,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Driver - ${_currentOrder!.driver!.vehiclePlate}',
-                                    style: TextStyle(
-                                      color: Colors.green[600],
-                                      fontSize: 12,
-                                      fontFamily: GlobalStyle.fontFamily,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.green[100],
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                'Assigned',
-                                style: TextStyle(
-                                  color: Colors.green[800],
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                  // Order items summary
-                  if (_currentOrder!.items.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: _primaryColor.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.restaurant_menu,
-                                size: 16, color: _primaryColor),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                '${_currentOrder!.items.length} item pesanan',
-                                style: TextStyle(
-                                  color: _primaryColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              _currentOrder!.formatSubtotal(),
-                              style: TextStyle(
-                                color: _primaryColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: GlobalStyle.fontFamily,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                  // Delivery address info
-                  if (_currentOrder!.deliveryAddress != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.blue.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.location_on,
-                                size: 16, color: Colors.blue[600]),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _currentOrder!.deliveryAddress!,
-                                style: TextStyle(
-                                  color: Colors.blue[700],
-                                  fontSize: 12,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -761,6 +628,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
     return content;
   }
 
+  // Loading, Error, and No Data cards remain the same as driver component
   Widget _buildLoadingCard() {
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
@@ -780,7 +648,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
         child: Column(
           children: [
             Lottie.asset(
-              'assets/animations/loading_animation.json',
+              'assets/animations/diambil.json',
               height: 100,
               width: 100,
             ),
@@ -872,3 +740,5 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
     );
   }
 }
+
+// ============================================================================

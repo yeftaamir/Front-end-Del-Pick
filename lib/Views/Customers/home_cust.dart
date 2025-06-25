@@ -457,7 +457,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     try {
       // Play search sound
       try {
-        await _audioPlayer.play(AssetSource('audio/search_beep.mp3'));
+        await _audioPlayer.play(AssetSource('audio/search_kring.mp3'));
       } catch (e) {
         print('Sound file not found: $e');
       }
@@ -679,12 +679,6 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         ),
       ),
       actions: [
-        IconButton(
-          icon: Icon(LucideIcons.bell, color: GlobalStyle.primaryColor),
-          onPressed: () {
-            // Handle notifications
-          },
-        ),
         IconButton(
           icon: Icon(LucideIcons.user, color: GlobalStyle.primaryColor),
           onPressed: () {
@@ -1382,10 +1376,15 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
       child: InkWell(
         onTap: () {
+          // FIX: Gunakan format yang sama dengan horizontal store card
+          print('🔍 HomePage: Navigating to store with ID: ${store.storeId}');
           Navigator.pushNamed(
             context,
             StoreDetail.route,
-            arguments: {'store': store},
+            arguments: {
+              'storeId': store.storeId,  // Ubah dari {'store': store} ke format ini
+              'storeName': store.name,  // Optional: untuk debugging
+            },
           );
         },
         borderRadius: BorderRadius.circular(12),

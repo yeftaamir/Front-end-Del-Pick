@@ -98,7 +98,8 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
     return value.toString();
   }
 
-  /// Load driver profile using AuthService.getProfile()
+  /// Load driver profile using updated service architecture
+  /// Uses: getRoleSpecificData() -> getProfile() -> _processDriverSpecificData -> _processDriverData
   Future<void> _loadDriverProfile() async {
     if (!mounted) return;
 
@@ -109,64 +110,56 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
     });
 
     try {
+      print('🔍 ProfileDriver: Starting profile load...');
+
       // Check authentication first
       final isAuthenticated = await AuthService.isAuthenticated();
       if (!isAuthenticated) {
+        print('❌ ProfileDriver: User not authenticated');
         _navigateToLogin();
         return;
       }
 
-      // Get profile using AuthService (this should return role-specific data)
-      final profileData = await AuthService.getProfile();
+      // STEP 1: Use getRoleSpecificData() to get role-specific structured data
+      Map<String, dynamic>? profileData = await AuthService.getRoleSpecificData();
 
       if (profileData != null && profileData.isNotEmpty) {
-        // For driver, the structure should be different - check for driver data
-        if (profileData.containsKey('driver') || _safeToString(profileData['role']).toLowerCase() == 'driver') {
-          if (mounted) {
-            setState(() {
-              _userProfile = profileData;
-              _driverData = profileData['driver'] ?? profileData;
-            });
-            _fadeController.forward();
-            _slideController.forward();
-          }
-        } else {
-          throw Exception('Driver profile data not found');
-        }
+        print('✅ ProfileDriver: Got data from getRoleSpecificData()');
+        await _processDriverSpecificData(profileData);
       } else {
-        throw Exception('Profile data is empty');
-      }
-    } catch (e) {
-      print('Error loading driver profile: $e');
+        // STEP 2: Fallback to getProfile() if getRoleSpecificData() fails
+        print('⚠️ ProfileDriver: getRoleSpecificData() failed, trying getProfile()...');
+        profileData = await AuthService.getProfile();
 
-      // Try to get cached user data as fallback
-      try {
-        final cachedData = await AuthService.getUserData();
-        if (cachedData != null) {
-          // Check if cached data has driver info
-          if (cachedData.containsKey('driver') || _safeToString(cachedData['user']?['role']).toLowerCase() == 'driver') {
-            if (mounted) {
-              setState(() {
-                _userProfile = cachedData['user'] ?? cachedData;
-                _driverData = cachedData['driver'] ?? cachedData;
-              });
-              _fadeController.forward();
-              _slideController.forward();
-            }
-          } else {
-            throw Exception('No cached driver data available');
-          }
+        if (profileData != null && profileData.isNotEmpty) {
+          print('✅ ProfileDriver: Got data from getProfile()');
+          await _processDriverSpecificData(profileData);
         } else {
-          throw Exception('No cached profile data available');
+          // STEP 3: Last resort - use cached data
+          print('⚠️ ProfileDriver: getProfile() failed, trying cached data...');
+          final cachedData = await AuthService.getUserData();
+          if (cachedData != null) {
+            print('✅ ProfileDriver: Got cached data');
+            await _processDriverSpecificData(cachedData);
+          } else {
+            throw Exception('No profile data available from any source');
+          }
         }
-      } catch (fallbackError) {
-        print('Fallback also failed: $fallbackError');
-        if (mounted) {
-          setState(() {
-            _hasError = true;
-            _errorMessage = e.toString();
-          });
-        }
+      }
+
+      // Start animations if data was loaded successfully
+      if (mounted && _userProfile != null) {
+        _fadeController.forward();
+        _slideController.forward();
+      }
+
+    } catch (e) {
+      print('❌ ProfileDriver: Error loading profile: $e');
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _errorMessage = e.toString();
+        });
       }
     } finally {
       if (mounted) {
@@ -174,6 +167,106 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
           _isLoading = false;
         });
       }
+    }
+  }
+
+  /// Process driver-specific data using the service architecture pattern
+  /// This method handles the data structure based on different response formats
+  Future<void> _processDriverSpecificData(Map<String, dynamic> data) async {
+    try {
+      print('🔍 ProfileDriver: Processing driver-specific data...');
+      print('🔍 ProfileDriver: Input data structure: ${data.keys.toList()}');
+
+      Map<String, dynamic>? userData;
+      Map<String, dynamic>? driverData;
+
+      // Handle different data structures from different service calls
+      if (data.containsKey('user') && data.containsKey('driver')) {
+        // Structure from getRoleSpecificData() or processed data
+        userData = data['user'];
+        driverData = data['driver'];
+        print('✅ ProfileDriver: Found user and driver data structure');
+      } else if (data.containsKey('user') && data['user'] != null) {
+        // Structure where driver data might be nested in user
+        userData = data['user'];
+        driverData = userData?['driver'] ?? userData;
+        print('✅ ProfileDriver: Found user data, extracting driver data');
+      } else if (data.containsKey('driver')) {
+        // Structure where driver data is at root level
+        userData = data;
+        driverData = data['driver'];
+        print('✅ ProfileDriver: Found driver data at root level');
+      } else {
+        // Assume the data is the user data itself
+        userData = data;
+        driverData = data;
+        print('✅ ProfileDriver: Using data as user data');
+      }
+
+      // Validate that this is actually driver data
+      final userRole = _safeToString(userData?['role']).toLowerCase();
+      if (userRole != 'driver' && driverData?['license_number'] == null) {
+        throw Exception('Invalid driver data - role: $userRole');
+      }
+
+      // Process the driver data using the pattern from AuthService._processDriverData
+      await _processDriverData(driverData ?? {});
+
+      // Update state with processed data
+      if (mounted) {
+        setState(() {
+          _userProfile = userData;
+          _driverData = driverData;
+        });
+      }
+
+      print('✅ ProfileDriver: Driver-specific data processed successfully');
+      print('   - Driver ID: ${_safeToString(driverData?['id'])}');
+      print('   - Driver Status: ${_safeToString(driverData?['status'])}');
+      print('   - Driver Rating: ${_safeToDouble(driverData?['rating'])}');
+
+    } catch (e) {
+      print('❌ ProfileDriver: Error processing driver-specific data: $e');
+      throw Exception('Failed to process driver data: $e');
+    }
+  }
+
+  /// Process driver data following the service pattern from AuthService._processDriverData
+  /// Ensures all required driver fields have defaults and proper processing
+  Future<void> _processDriverData(Map<String, dynamic> driverData) async {
+    try {
+      print('🔍 ProfileDriver: Processing driver data fields...');
+
+      // Ensure all required driver fields with defaults (following AuthService pattern)
+      driverData['id'] = driverData['id'] ?? 0;
+      driverData['rating'] = _safeToDouble(driverData['rating']) > 0
+          ? _safeToDouble(driverData['rating'])
+          : 5.0;
+      driverData['reviews_count'] = _safeToInt(driverData['reviews_count']);
+      driverData['status'] = _safeToString(driverData['status']).isNotEmpty
+          ? _safeToString(driverData['status'])
+          : 'inactive';
+      driverData['license_number'] = _safeToString(driverData['license_number']);
+      driverData['vehicle_plate'] = _safeToString(driverData['vehicle_plate']);
+      driverData['latitude'] = driverData['latitude'];
+      driverData['longitude'] = driverData['longitude'];
+
+      // Process vehicle info if available
+      if (driverData['vehicle'] != null) {
+        final vehicle = driverData['vehicle'];
+        driverData['vehicle_type'] = _safeToString(vehicle['type']);
+        driverData['vehicle_model'] = _safeToString(vehicle['model']);
+        driverData['vehicle_year'] = _safeToInt(vehicle['year']);
+      }
+
+      print('✅ ProfileDriver: Driver data fields processed');
+      print('   - Status: ${driverData['status']}');
+      print('   - Rating: ${driverData['rating']}');
+      print('   - Reviews: ${driverData['reviews_count']}');
+
+    } catch (e) {
+      print('❌ ProfileDriver: Error processing driver data fields: $e');
+      throw e;
     }
   }
 
@@ -280,7 +373,7 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
       );
 
       if (result.isNotEmpty) {
-        // Reload profile to get updated data
+        // Reload profile to get updated data using the new service architecture
         await _loadDriverProfile();
 
         if (!mounted) return;
@@ -300,18 +393,26 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
     }
   }
 
-  /// Refresh profile data
+  /// Refresh profile data using the service architecture
   Future<void> _refreshProfile() async {
     try {
+      print('🔄 ProfileDriver: Refreshing profile data...');
+
+      // Use AuthService.refreshUserData() to get fresh data from server
       final refreshedProfile = await AuthService.refreshUserData();
+
       if (refreshedProfile != null && mounted) {
-        setState(() {
-          _userProfile = refreshedProfile;
-          _driverData = refreshedProfile['driver'] ?? refreshedProfile;
-        });
+        print('✅ ProfileDriver: Profile refreshed, processing data...');
+        await _processDriverSpecificData(refreshedProfile);
+      } else {
+        // If refresh fails, try reloading with full process
+        print('⚠️ ProfileDriver: Refresh failed, doing full reload...');
+        await _loadDriverProfile();
       }
     } catch (e) {
-      print('Error refreshing profile: $e');
+      print('❌ ProfileDriver: Error refreshing profile: $e');
+      // If refresh fails, try full reload
+      await _loadDriverProfile();
     }
   }
 
@@ -423,36 +524,6 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
               ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  /// Show status update dialog
-  void _showStatusUpdateDialog() {
-    final currentStatus = _safeToString(_driverData?['status']).isNotEmpty
-        ? _safeToString(_driverData?['status'])
-        : 'inactive';
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Update Driver Status'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildStatusOption('active', 'Active - Available for deliveries', currentStatus),
-              _buildStatusOption('inactive', 'Inactive - Not available', currentStatus),
-              _buildStatusOption('busy', 'Busy - Currently on delivery', currentStatus),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-          ],
         );
       },
     );
@@ -1019,7 +1090,6 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
         ),
         const SizedBox(width: 12),
         GestureDetector(
-          onTap: _isUpdatingStatus ? null : _showStatusUpdateDialog,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(

@@ -29,6 +29,22 @@ class MenuItemModel {
     this.updatedAt,
   });
 
+  // Empty constructor for default/empty instances
+  factory MenuItemModel.empty() {
+    return const MenuItemModel(
+      id: 0,
+      name: '',
+      price: 0.0,
+      storeId: 0,
+      category: '',
+      description: '',
+      imageUrl: null,
+      isAvailable: true,
+      createdAt: null,
+      updatedAt: null,
+    );
+  }
+
   factory MenuItemModel.fromJson(Map<String, dynamic> json) {
     String? processedImageUrl;
     if (json['image_url'] != null && json['image_url'].toString().isNotEmpty) {
@@ -171,4 +187,18 @@ class MenuItemModel {
   String? get processedImageUrl => imageUrl != null ? ImageService.getImageUrl(imageUrl!) : null;
 
   bool get hasImage => imageUrl != null && imageUrl!.isNotEmpty;
+
+  @override
+  String toString() {
+    return 'MenuItemModel(id: $id, name: $name, price: $price, storeId: $storeId, category: $category, isAvailable: $isAvailable)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is MenuItemModel && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }

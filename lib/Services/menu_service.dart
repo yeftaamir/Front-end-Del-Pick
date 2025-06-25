@@ -18,7 +18,7 @@ class MenuItemService {
     bool? isAvailable,
   }) async {
     try {
-      // Ensure user is authenticated as customer
+      // Ensure user is authenticated
       final userData = await AuthService.getRoleSpecificData();
       if (userData == null) {
         throw Exception('User not authenticated');
@@ -68,7 +68,7 @@ class MenuItemService {
     }
   }
 
-  /// Get menu items by store ID with enhanced error handling and customer access validation
+  /// Get menu items by store ID - Improved version with proper authentication and error handling
   static Future<Map<String, dynamic>> getMenuItemsByStore({
     required String storeId,
     int page = 1,
@@ -77,41 +77,52 @@ class MenuItemService {
     bool? isAvailable,
     String? sortBy,
     String? sortOrder,
+    bool bustCache = false, // New parameter for cache busting
   }) async {
     try {
-      print('🔍 MenuItemService: Starting to fetch menu items for store $storeId');
+      print('🔍 MenuItemService: Fetching menu items for store $storeId (bustCache: $bustCache)');
 
-      // Validate customer access
+      // Validate authentication
       final userData = await AuthService.getRoleSpecificData();
       if (userData == null) {
         throw Exception('User not authenticated');
       }
 
+      // Check user role - allow both store owners and customers
       final userRole = await AuthService.getUserRole();
-      if (userRole?.toLowerCase() != 'customer') {
-        print('⚠️ MenuItemService: Non-customer access detected for role: $userRole');
-        // Allow but log the access
+      if (userRole == null) {
+        throw Exception('Unable to determine user role');
       }
 
-      print('✅ MenuItemService: User access validated');
+      print('✅ MenuItemService: User authenticated with role: $userRole');
 
-      // Validate storeId
+      // Validate storeId format
       final parsedStoreId = int.tryParse(storeId);
       if (parsedStoreId == null || parsedStoreId <= 0) {
-        throw Exception('Invalid store ID: $storeId');
+        throw Exception('Invalid store ID format: $storeId');
       }
 
-      final queryParams = {
+      // Build query parameters
+      final queryParams = <String, String>{
         'page': page.toString(),
         'limit': limit.toString(),
-        if (category != null) 'category': category,
-        if (isAvailable != null) 'isAvailable': isAvailable.toString(),
-        if (sortBy != null) 'sortBy': sortBy,
-        if (sortOrder != null) 'sortOrder': sortOrder,
       };
 
-      print('🔍 MenuItemService: Making API call with params: $queryParams');
+      if (category != null) queryParams['category'] = category;
+      if (isAvailable != null) queryParams['isAvailable'] = isAvailable.toString();
+      if (sortBy != null) queryParams['sortBy'] = sortBy;
+      if (sortOrder != null) queryParams['sortOrder'] = sortOrder;
 
+      // Add cache-busting parameter if requested
+      if (bustCache) {
+        queryParams['_t'] = DateTime.now().millisecondsSinceEpoch.toString();
+        queryParams['_fresh'] = 'true';
+        print('🔄 MenuItemService: Added cache-busting parameters');
+      }
+
+      print('🔍 MenuItemService: API call params: $queryParams');
+
+      // Fixed endpoint - remove duplicate '/menu'
       final response = await BaseService.apiCall(
         method: 'GET',
         endpoint: '$_baseEndpoint/store/$storeId',
@@ -119,119 +130,87 @@ class MenuItemService {
         requiresAuth: true,
       );
 
-      print('🔍 MenuItemService: Raw API response structure: ${response.keys.toList()}');
+      print('🔍 MenuItemService: Response keys: ${response.keys.toList()}');
 
-      // Enhanced response processing with better error handling
+      // Handle different response structures
+      List<dynamic> menuItemsList = [];
+
       if (response['data'] != null) {
         if (response['data'] is List) {
-          final menuItemsList = response['data'] as List;
-          print('📋 MenuItemService: Found ${menuItemsList.length} raw menu items');
-
-          if (menuItemsList.isEmpty) {
-            print('⚠️ MenuItemService: No menu items found for store $storeId');
-            return {
-              'success': true,
-              'data': [],
-              'total': 0,
-              'page': page,
-              'limit': limit,
-              'message': 'No menu items found for this store',
-            };
-          }
-
-          // Process each menu item with individual error handling
-          final processedItems = <Map<String, dynamic>>[];
-          for (int i = 0; i < menuItemsList.length; i++) {
-            try {
-              final item = Map<String, dynamic>.from(menuItemsList[i]);
-
-              // Debug logging for price field
-              print('🔍 Processing item $i: ${item['name']}');
-              print('   - Price: ${item['price']} (${item['price'].runtimeType})');
-              print('   - Available: ${item['is_available']}');
-              print('   - Store ID: ${item['store_id']}');
-
-              // Ensure price is properly formatted as double
-              if (item['price'] != null) {
-                if (item['price'] is String) {
-                  item['price'] = double.tryParse(item['price']) ?? 0.0;
-                } else if (item['price'] is int) {
-                  item['price'] = item['price'].toDouble();
-                }
-              } else {
-                item['price'] = 0.0;
-              }
-
-              // Ensure boolean fields are properly typed
-              if (item['is_available'] != null) {
-                if (item['is_available'] is String) {
-                  item['is_available'] = item['is_available'].toLowerCase() == 'true';
-                }
-              } else {
-                item['is_available'] = true;
-              }
-
-              // Process images
-              _processMenuItemImages(item);
-
-              // Validate required fields
-              if (item['id'] != null && item['name'] != null && item['price'] != null) {
-                processedItems.add(item);
-                print('✅ Successfully processed item: ${item['name']}');
-              } else {
-                print('⚠️ Skipping item $i due to missing required fields');
-              }
-
-            } catch (e) {
-              print('❌ Error processing menu item $i: $e');
-              print('❌ Item data: ${menuItemsList[i]}');
-              // Continue processing other items instead of failing completely
-            }
-          }
-
-          print('✅ MenuItemService: Successfully processed ${processedItems.length}/${menuItemsList.length} menu items');
-
-          return {
-            'success': true,
-            'data': processedItems,
-            'total': processedItems.length,
-            'page': page,
-            'limit': limit,
-            'message': 'Menu items loaded successfully',
-          };
-
-        } else {
-          print('⚠️ MenuItemService: Unexpected response format - data is not a list');
-          print('⚠️ Response data type: ${response['data'].runtimeType}');
-          print('⚠️ Response data: ${response['data']}');
-
-          return {
-            'success': false,
-            'data': [],
-            'total': 0,
-            'page': page,
-            'limit': limit,
-            'error': 'Unexpected response format from server',
-          };
+          menuItemsList = response['data'];
+        } else if (response['data'] is Map && response['data']['items'] != null) {
+          menuItemsList = response['data']['items'];
+        } else if (response['data'] is Map && response['data']['menuItems'] != null) {
+          menuItemsList = response['data']['menuItems'];
         }
-      } else {
-        print('⚠️ MenuItemService: No data in response');
-        print('⚠️ Full response: $response');
+      } else if (response['menuItems'] != null) {
+        menuItemsList = response['menuItems'];
+      } else if (response['items'] != null) {
+        menuItemsList = response['items'];
+      }
 
+      print('📋 MenuItemService: Found ${menuItemsList.length} raw menu items');
+
+      if (menuItemsList.isEmpty) {
+        print('⚠️ MenuItemService: No menu items found for store $storeId');
         return {
-          'success': false,
+          'success': true,
           'data': [],
           'total': 0,
           'page': page,
           'limit': limit,
-          'error': 'No data received from server',
+          'message': 'No menu items found for this store',
         };
       }
+
+      // Process menu items with individual error handling
+      final processedItems = <Map<String, dynamic>>[];
+
+      for (int i = 0; i < menuItemsList.length; i++) {
+        try {
+          final rawItem = menuItemsList[i];
+          if (rawItem == null || rawItem is! Map) {
+            print('⚠️ Skipping invalid item at index $i: $rawItem');
+            continue;
+          }
+
+          final item = Map<String, dynamic>.from(rawItem);
+
+          // Normalize field names and types
+          _normalizeMenuItemData(item);
+
+          // Validate required fields
+          if (_validateMenuItemData(item)) {
+            // Process images
+            _processMenuItemImages(item);
+            processedItems.add(item);
+
+            print('✅ Processed item: ${item['name']} - ${item['price']}');
+          } else {
+            print('⚠️ Skipping item $i: missing required fields');
+          }
+
+        } catch (e) {
+          print('❌ Error processing menu item $i: $e');
+          // Continue processing other items
+        }
+      }
+
+      print('✅ MenuItemService: Successfully processed ${processedItems.length}/${menuItemsList.length} menu items');
+
+      return {
+        'success': true,
+        'data': processedItems,
+        'total': response['total'] ?? processedItems.length,
+        'page': page,
+        'limit': limit,
+        'message': 'Menu items loaded successfully',
+        'timestamp': DateTime.now().millisecondsSinceEpoch, // Add timestamp for debugging
+      };
 
     } catch (e) {
       print('❌ MenuItemService: Get menu items by store error: $e');
 
-      // Return structured error response
       return {
         'success': false,
         'data': [],
@@ -243,12 +222,12 @@ class MenuItemService {
     }
   }
 
-  /// Get menu item by ID with customer access validation
+  /// Get menu item by ID with enhanced validation
   static Future<Map<String, dynamic>> getMenuItemById(String menuItemId) async {
     try {
       print('🔍 MenuItemService: Getting menu item by ID: $menuItemId');
 
-      // Validate customer access
+      // Validate authentication
       final userData = await AuthService.getRoleSpecificData();
       if (userData == null) {
         throw Exception('User not authenticated');
@@ -263,22 +242,10 @@ class MenuItemService {
       if (response['data'] != null) {
         final item = Map<String, dynamic>.from(response['data']);
 
-        // Process price field
-        if (item['price'] != null) {
-          if (item['price'] is String) {
-            item['price'] = double.tryParse(item['price']) ?? 0.0;
-          } else if (item['price'] is int) {
-            item['price'] = item['price'].toDouble();
-          }
-        }
+        // Normalize data
+        _normalizeMenuItemData(item);
 
-        // Process availability field
-        if (item['is_available'] != null) {
-          if (item['is_available'] is String) {
-            item['is_available'] = item['is_available'].toLowerCase() == 'true';
-          }
-        }
-
+        // Process images
         _processMenuItemImages(item);
 
         print('✅ MenuItemService: Successfully retrieved menu item: ${item['name']}');
@@ -339,7 +306,7 @@ class MenuItemService {
         if (imageBase64 != null) 'image': imageBase64,
       };
 
-      print('🔨 MenuItemService: Request body: ${body.keys.toList()}');
+      print('🔨 MenuItemService: Request body keys: ${body.keys.toList()}');
 
       final response = await BaseService.apiCall(
         method: 'POST',
@@ -354,10 +321,17 @@ class MenuItemService {
         _processMenuItemImages(response['data']);
       }
 
-      return response['data'] ?? {};
+      return {
+        'success': true,
+        'data': response['data'] ?? {},
+      };
     } catch (e) {
       print('❌ MenuItemService: Create menu item error: $e');
-      throw Exception('Failed to create menu item: $e');
+      return {
+        'success': false,
+        'data': {},
+        'error': e.toString(),
+      };
     }
   }
 
@@ -395,10 +369,17 @@ class MenuItemService {
         _processMenuItemImages(response['data']);
       }
 
-      return response['data'] ?? {};
+      return {
+        'success': true,
+        'data': response['data'] ?? {},
+      };
     } catch (e) {
       print('❌ MenuItemService: Update menu item error: $e');
-      throw Exception('Failed to update menu item: $e');
+      return {
+        'success': false,
+        'data': {},
+        'error': e.toString(),
+      };
     }
   }
 
@@ -464,10 +445,17 @@ class MenuItemService {
 
       print('✅ MenuItemService: Item status updated successfully');
 
-      return response['data'] ?? {};
+      return {
+        'success': true,
+        'data': response['data'] ?? {},
+      };
     } catch (e) {
       print('❌ MenuItemService: Update menu item status error: $e');
-      throw Exception('Failed to update menu item status: $e');
+      return {
+        'success': false,
+        'data': {},
+        'error': e.toString(),
+      };
     }
   }
 
@@ -484,7 +472,7 @@ class MenuItemService {
     int limit = 20,
   }) async {
     try {
-      // Validate customer access
+      // Validate authentication
       final userData = await AuthService.getRoleSpecificData();
       if (userData == null) {
         throw Exception('User not authenticated');
@@ -533,7 +521,7 @@ class MenuItemService {
       return List<String>.from(response['data'] ?? []);
     } catch (e) {
       print('❌ MenuItemService: Get menu categories error: $e');
-      return []; // Return empty list on error
+      return [];
     }
   }
 
@@ -571,6 +559,48 @@ class MenuItemService {
 
   // PRIVATE HELPER METHODS
 
+  /// Normalize menu item data structure and types
+  static void _normalizeMenuItemData(Map<String, dynamic> item) {
+    try {
+      // Ensure price is properly formatted as double
+      if (item['price'] != null) {
+        if (item['price'] is String) {
+          item['price'] = double.tryParse(item['price']) ?? 0.0;
+        } else if (item['price'] is int) {
+          item['price'] = item['price'].toDouble();
+        }
+      } else {
+        item['price'] = 0.0;
+      }
+
+      // Ensure boolean fields are properly typed
+      if (item['is_available'] != null) {
+        if (item['is_available'] is String) {
+          item['is_available'] = item['is_available'].toLowerCase() == 'true';
+        } else if (item['is_available'] is int) {
+          item['is_available'] = item['is_available'] == 1;
+        }
+      } else {
+        item['is_available'] = true;
+      }
+
+      // Normalize other fields
+      item['id'] = item['id']?.toString() ?? '';
+      item['name'] = item['name']?.toString() ?? '';
+      item['description'] = item['description']?.toString() ?? '';
+      item['category'] = item['category']?.toString() ?? '';
+      item['store_id'] = item['store_id']?.toString() ?? '';
+
+      // Handle image URL
+      if (item['image_url'] == null || item['image_url'].toString().isEmpty) {
+        item['image_url'] = null;
+      }
+
+    } catch (e) {
+      print('❌ Error normalizing menu item data: $e');
+    }
+  }
+
   /// Process menu item images with enhanced error handling
   static void _processMenuItemImages(Map<String, dynamic> menuItem) {
     try {
@@ -594,6 +624,26 @@ class MenuItemService {
     }
   }
 
+  /// Validate menu item data structure
+  static bool _validateMenuItemData(Map<String, dynamic> item) {
+    final requiredFields = ['id', 'name', 'price', 'store_id'];
+
+    for (String field in requiredFields) {
+      if (item[field] == null || item[field].toString().isEmpty) {
+        print('❌ Missing or empty required field: $field');
+        return false;
+      }
+    }
+
+    // Validate price is numeric
+    if (item['price'] is! num) {
+      print('❌ Invalid price format: ${item['price']}');
+      return false;
+    }
+
+    return true;
+  }
+
   /// Debug method to inspect menu item data structure
   static void debugMenuItemData(Map<String, dynamic> item) {
     print('🔍 ====== MENU ITEM DEBUG ======');
@@ -606,25 +656,5 @@ class MenuItemService {
     print('🖼️ Image URL: ${item['image_url']} (${item['image_url']?.runtimeType})');
     print('📝 Description: ${item['description']} (${item['description']?.runtimeType})');
     print('🔍 ====== END DEBUG ======');
-  }
-
-  /// Validate menu item data structure
-  static bool validateMenuItemData(Map<String, dynamic> item) {
-    final requiredFields = ['id', 'name', 'price', 'store_id'];
-
-    for (String field in requiredFields) {
-      if (item[field] == null) {
-        print('❌ Missing required field: $field');
-        return false;
-      }
-    }
-
-    // Validate price is numeric
-    if (item['price'] is! num && item['price'] is! String) {
-      print('❌ Invalid price format: ${item['price']}');
-      return false;
-    }
-
-    return true;
   }
 }

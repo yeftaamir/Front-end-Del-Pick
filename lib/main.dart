@@ -27,6 +27,7 @@ import 'package:del_pick/Views/Customers/history_cust.dart';
 import 'package:del_pick/Views/Customers/cart_screen.dart';
 import 'package:del_pick/Views/Customers/location_access.dart';
 import 'package:del_pick/Views/Customers/history_detail.dart';
+import 'package:del_pick/Views/Customers/contact_driver.dart';
 import 'package:del_pick/Views/Customers/rating_cust.dart';
 import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:del_pick/Views/Store/add_item.dart';
@@ -39,6 +40,7 @@ import 'package:del_pick/Views/Driver/history_driver_detail.dart';
 import 'package:del_pick/Views/Driver/history_driver.dart';
 import 'package:del_pick/Views/Driver/profil_driver.dart';
 import 'package:del_pick/Views/SplashScreen/splash_screen.dart';
+import 'package:del_pick/Views/Driver/contact_user.dart';
 
 // Import services
 import 'package:del_pick/Services/auth_service.dart';
@@ -235,6 +237,7 @@ class MyApp extends StatelessWidget {
 
   Map<String, Widget Function(BuildContext)> _buildRoutes() {
     return {
+
       // Add splash screen route
       '/': (context) =>
       const InternetConnectivityWrapper(child: SplashScreen()),
@@ -486,7 +489,7 @@ class MyApp extends StatelessWidget {
               }).toList() ?? [],
             };
 
-            return HistoryDriverDetailPage(orderDetail: orderDetail);
+            return HistoryDriverDetailPage(orderId: orderDetail['id']);
           },
         ),
       ),
@@ -576,6 +579,96 @@ class MyApp extends StatelessWidget {
       theme: _buildTheme(),
       initialRoute: '/', // Start with splash screen which will handle authentication
       routes: _buildRoutes(),
+      // ========== TAMBAHKAN onGenerateRoute INI ==========
+      // Route generator untuk handling parameter
+      onGenerateRoute: (RouteSettings settings) {
+        switch (settings.name) {
+        // ========== CUSTOMER ROUTES ==========
+          case ContactDriverPage.route:
+            final args = settings.arguments as Map<String, dynamic>?;
+            if (args != null && args['driver'] != null) {
+              return MaterialPageRoute(
+                builder: (context) => InternetConnectivityWrapper(
+                  child: ContactDriverPage(
+                    driver: args['driver'],
+                    serviceType: args['serviceType'] ?? 'jastip',
+                  ),
+                ),
+                settings: settings,
+              );
+            }
+            // Fallback jika arguments tidak valid
+            return MaterialPageRoute(
+              builder: (context) => const InternetConnectivityWrapper(
+                child: Scaffold(
+                  body: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 60, color: Colors.red),
+                        SizedBox(height: 16),
+                        Text(
+                          'Error: Driver data not provided',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Please select a driver from the list',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              settings: settings,
+            );
+
+        // ========== DRIVER ROUTES ==========
+          case ContactUserPage.route:
+            final args = settings.arguments as Map<String, dynamic>?;
+            if (args != null && args['orderId'] != null) {
+              return MaterialPageRoute(
+                builder: (context) => InternetConnectivityWrapper(
+                  child: ContactUserPage(
+                    orderId: args['orderId'],
+                  ),
+                ),
+                settings: settings,
+              );
+            }
+            // Fallback jika arguments tidak valid
+            return MaterialPageRoute(
+              builder: (context) => const InternetConnectivityWrapper(
+                child: Scaffold(
+                  body: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 60, color: Colors.red),
+                        SizedBox(height: 16),
+                        Text(
+                          'Error: Order ID not provided',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Invalid order data for jasa titip',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              settings: settings,
+            );
+
+          default:
+            return null;
+        }
+      },
+
       // Wrap root level with InternetConnectivityWrapper (optional since we wrapped each route)
       builder: (context, child) {
         // Additional builder could be applied here if needed
