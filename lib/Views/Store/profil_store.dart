@@ -72,7 +72,34 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     super.dispose();
   }
 
-  /// Load store profile using AuthService.getProfile()
+  // Helper methods for safe type conversion
+  double _safeToDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  int _safeToInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
+
+  String _safeToString(dynamic value) {
+    if (value == null) return '';
+    return value.toString();
+  }
+
+  /// Load store profile using updated service architecture
+  /// Uses: getRoleSpecificData() -> getProfile() -> _processStoreSpecificData -> _processStoreData
   Future<void> _loadStoreProfile() async {
     if (!mounted) return;
 
@@ -83,64 +110,56 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     });
 
     try {
+      print('🏪 ProfileStore: Starting profile load...');
+
       // Check authentication first
       final isAuthenticated = await AuthService.isAuthenticated();
       if (!isAuthenticated) {
+        print('❌ ProfileStore: User not authenticated');
         _navigateToLogin();
         return;
       }
 
-      // Get profile using AuthService (this should return role-specific data)
-      final profileData = await AuthService.getProfile();
+      // STEP 1: Use getRoleSpecificData() to get role-specific structured data
+      Map<String, dynamic>? profileData = await AuthService.getRoleSpecificData();
 
       if (profileData != null && profileData.isNotEmpty) {
-        // For store, the structure should be different - check for store data
-        if (profileData.containsKey('store') || profileData['role'] == 'store') {
-          if (mounted) {
-            setState(() {
-              _userProfile = profileData;
-              _storeData = profileData['store'] ?? profileData;
-            });
-            _fadeController.forward();
-            _slideController.forward();
-          }
-        } else {
-          throw Exception('Store profile data not found');
-        }
+        print('✅ ProfileStore: Got data from getRoleSpecificData()');
+        await _processStoreSpecificData(profileData);
       } else {
-        throw Exception('Profile data is empty');
-      }
-    } catch (e) {
-      print('Error loading store profile: $e');
+        // STEP 2: Fallback to getProfile() if getRoleSpecificData() fails
+        print('⚠️ ProfileStore: getRoleSpecificData() failed, trying getProfile()...');
+        profileData = await AuthService.getProfile();
 
-      // Try to get cached user data as fallback
-      try {
-        final cachedData = await AuthService.getUserData();
-        if (cachedData != null) {
-          // Check if cached data has store info
-          if (cachedData.containsKey('store') || cachedData['user']?['role'] == 'store') {
-            if (mounted) {
-              setState(() {
-                _userProfile = cachedData['user'] ?? cachedData;
-                _storeData = cachedData['store'] ?? cachedData;
-              });
-              _fadeController.forward();
-              _slideController.forward();
-            }
-          } else {
-            throw Exception('No cached store data available');
-          }
+        if (profileData != null && profileData.isNotEmpty) {
+          print('✅ ProfileStore: Got data from getProfile()');
+          await _processStoreSpecificData(profileData);
         } else {
-          throw Exception('No cached profile data available');
+          // STEP 3: Last resort - use cached data
+          print('⚠️ ProfileStore: getProfile() failed, trying cached data...');
+          final cachedData = await AuthService.getUserData();
+          if (cachedData != null) {
+            print('✅ ProfileStore: Got cached data');
+            await _processStoreSpecificData(cachedData);
+          } else {
+            throw Exception('No profile data available from any source');
+          }
         }
-      } catch (fallbackError) {
-        print('Fallback also failed: $fallbackError');
-        if (mounted) {
-          setState(() {
-            _hasError = true;
-            _errorMessage = e.toString();
-          });
-        }
+      }
+
+      // Start animations if data was loaded successfully
+      if (mounted && _userProfile != null) {
+        _fadeController.forward();
+        _slideController.forward();
+      }
+
+    } catch (e) {
+      print('❌ ProfileStore: Error loading profile: $e');
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _errorMessage = e.toString();
+        });
       }
     } finally {
       if (mounted) {
@@ -148,6 +167,129 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
           _isLoading = false;
         });
       }
+    }
+  }
+
+  /// Process store-specific data using the service architecture pattern
+  /// This method handles the data structure based on different response formats
+  Future<void> _processStoreSpecificData(Map<String, dynamic> data) async {
+    try {
+      print('🏪 ProfileStore: Processing store-specific data...');
+      print('🔍 ProfileStore: Input data structure: ${data.keys.toList()}');
+
+      Map<String, dynamic>? userData;
+      Map<String, dynamic>? storeData;
+
+      // Handle different data structures from different service calls
+      if (data.containsKey('user') && data.containsKey('store')) {
+        // Structure from getRoleSpecificData() or processed data
+        userData = data['user'];
+        storeData = data['store'];
+        print('✅ ProfileStore: Found user and store data structure');
+      } else if (data.containsKey('user') && data['user'] != null) {
+        // Structure where store data might be nested in user
+        userData = data['user'];
+        storeData = userData?['store'] ?? userData;
+        print('✅ ProfileStore: Found user data, extracting store data');
+      } else if (data.containsKey('store')) {
+        // Structure where store data is at root level
+        userData = data;
+        storeData = data['store'];
+        print('✅ ProfileStore: Found store data at root level');
+      } else {
+        // Assume the data is the user data itself with store info
+        userData = data;
+        storeData = data;
+        print('✅ ProfileStore: Using data as user data');
+      }
+
+      // Validate that this is actually store data
+      final userRole = _safeToString(userData?['role']).toLowerCase();
+      if (userRole != 'store' && storeData?['name'] == null && storeData?['address'] == null) {
+        throw Exception('Invalid store data - role: $userRole');
+      }
+
+      // Process the store data using the pattern from AuthService._processStoreData
+      await _processStoreData(storeData ?? {});
+
+      // Update state with processed data
+      if (mounted) {
+        setState(() {
+          _userProfile = userData;
+          _storeData = storeData;
+        });
+      }
+
+      print('✅ ProfileStore: Store-specific data processed successfully');
+      print('   - Store ID: ${_safeToString(storeData?['id'])}');
+      print('   - Store Name: ${_safeToString(storeData?['name'])}');
+      print('   - Store Status: ${_safeToString(storeData?['status'])}');
+
+    } catch (e) {
+      print('❌ ProfileStore: Error processing store-specific data: $e');
+      throw Exception('Failed to process store data: $e');
+    }
+  }
+
+  /// Process store data following the service pattern from AuthService._processStoreData
+  /// Ensures all required store fields have defaults and proper processing
+  Future<void> _processStoreData(Map<String, dynamic> storeData) async {
+    try {
+      print('🏪 ProfileStore: Processing store data fields...');
+
+      // Process store image first (following AuthService pattern)
+      if (storeData['image_url'] != null && storeData['image_url'].toString().isNotEmpty) {
+        storeData['image_url'] = ImageService.getImageUrl(storeData['image_url']);
+      }
+
+      // Ensure all required store fields with defaults (following AuthService pattern)
+      storeData['id'] = storeData['id'] ?? 0;
+      storeData['name'] = _safeToString(storeData['name']).isNotEmpty
+          ? _safeToString(storeData['name'])
+          : 'Store';
+      storeData['description'] = _safeToString(storeData['description']);
+      storeData['address'] = _safeToString(storeData['address']);
+      storeData['phone'] = _safeToString(storeData['phone']);
+      storeData['rating'] = _safeToDouble(storeData['rating']);
+      storeData['review_count'] = _safeToInt(storeData['review_count']);
+      storeData['total_products'] = _safeToInt(storeData['total_products']);
+      storeData['status'] = _safeToString(storeData['status']).isNotEmpty
+          ? _safeToString(storeData['status'])
+          : 'active';
+
+      // Process time fields
+      storeData['open_time'] = _safeToString(storeData['open_time']);
+      storeData['close_time'] = _safeToString(storeData['close_time']);
+
+      // Process location fields
+      storeData['latitude'] = storeData['latitude'];
+      storeData['longitude'] = storeData['longitude'];
+
+      // Process categories if available
+      if (storeData['categories'] != null) {
+        // Ensure categories is a list
+        if (storeData['categories'] is! List) {
+          storeData['categories'] = [];
+        }
+      } else {
+        storeData['categories'] = [];
+      }
+
+      // Ensure store ID is available (critical check from helper)
+      if (storeData['id'] == null || _safeToString(storeData['id']).isEmpty) {
+        print('⚠️ ProfileStore: Store ID is null or empty!');
+        storeData['id'] = 0; // Set default but this might cause issues
+      }
+
+      print('✅ ProfileStore: Store data fields processed');
+      print('   - Name: ${storeData['name']}');
+      print('   - Status: ${storeData['status']}');
+      print('   - Rating: ${storeData['rating']}');
+      print('   - Products: ${storeData['total_products']}');
+
+    } catch (e) {
+      print('❌ ProfileStore: Error processing store data fields: $e');
+      throw e;
     }
   }
 
@@ -204,8 +346,8 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
       }
 
       // Update store profile using StoreService
-      final storeId = _storeData!['id']?.toString() ?? '';
-      if (storeId.isEmpty) {
+      final storeId = _safeToString(_storeData!['id']);
+      if (storeId.isEmpty || storeId == '0') {
         throw Exception('Store ID not found');
       }
 
@@ -219,7 +361,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
       );
 
       if (updatedStore.isNotEmpty) {
-        // Reload profile to get updated data
+        // Reload profile to get updated data using the new service architecture
         await _loadStoreProfile();
 
         if (!mounted) return;
@@ -239,18 +381,67 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     }
   }
 
-  /// Refresh profile data
-  Future<void> _refreshProfile() async {
+  /// Update store status using StoreService
+  Future<void> _updateStoreStatus(String newStatus) async {
+    if (_storeData == null) return;
+
+    setState(() {
+      _isUpdatingStatus = true;
+    });
+
     try {
-      final refreshedProfile = await AuthService.refreshUserData();
-      if (refreshedProfile != null && mounted) {
-        setState(() {
-          _userProfile = refreshedProfile;
-          _storeData = refreshedProfile['store'] ?? refreshedProfile;
-        });
+      final storeId = _safeToString(_storeData!['id']);
+      if (storeId.isEmpty || storeId == '0') {
+        throw Exception('Store ID not found');
+      }
+
+      // Update status using StoreService
+      final result = await StoreService.updateStoreProfile(
+        storeId: storeId,
+        updateData: {'status': newStatus},
+      );
+
+      if (result.isNotEmpty) {
+        // Reload profile to get updated data using the new service architecture
+        await _loadStoreProfile();
+
+        if (!mounted) return;
+        _showSuccessSnackBar('Store status updated to ${_getStatusText(newStatus)}');
+      } else {
+        _showErrorSnackBar('Failed to update store status');
       }
     } catch (e) {
-      print('Error refreshing profile: $e');
+      print('Error updating store status: $e');
+      _showErrorSnackBar('Error updating status: ${e.toString()}');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingStatus = false;
+        });
+      }
+    }
+  }
+
+  /// Refresh profile data using the service architecture
+  Future<void> _refreshProfile() async {
+    try {
+      print('🔄 ProfileStore: Refreshing profile data...');
+
+      // Use AuthService.refreshUserData() to get fresh data from server
+      final refreshedProfile = await AuthService.refreshUserData();
+
+      if (refreshedProfile != null && mounted) {
+        print('✅ ProfileStore: Profile refreshed, processing data...');
+        await _processStoreSpecificData(refreshedProfile);
+      } else {
+        // If refresh fails, try reloading with full process
+        print('⚠️ ProfileStore: Refresh failed, doing full reload...');
+        await _loadStoreProfile();
+      }
+    } catch (e) {
+      print('❌ ProfileStore: Error refreshing profile: $e');
+      // If refresh fails, try full reload
+      await _loadStoreProfile();
     }
   }
 
@@ -288,9 +479,9 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
   /// View store image in full screen
   void _viewStoreImage() {
     final imageUrl = _storeData?['image_url'];
-    if (imageUrl == null || imageUrl.toString().isEmpty) return;
+    if (imageUrl == null || _safeToString(imageUrl).isEmpty) return;
 
-    final processedImageUrl = ImageService.getImageUrl(imageUrl);
+    final processedImageUrl = ImageService.getImageUrl(_safeToString(imageUrl));
     if (processedImageUrl.isEmpty) return;
 
     showDialog(
@@ -367,6 +558,58 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     );
   }
 
+  /// Show status update dialog
+  void _showStatusUpdateDialog() {
+    final currentStatus = _safeToString(_storeData?['status']).isNotEmpty
+        ? _safeToString(_storeData?['status'])
+        : 'active';
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Update Store Status'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildStatusOption('active', 'Open - Store is accepting orders', currentStatus),
+              _buildStatusOption('inactive', 'Temporarily Closed - Not taking orders', currentStatus),
+              _buildStatusOption('closed', 'Permanently Closed', currentStatus),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildStatusOption(String status, String description, String currentStatus) {
+    final isSelected = status == currentStatus;
+
+    return ListTile(
+      leading: Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(
+          color: _getStatusColor(status),
+          shape: BoxShape.circle,
+        ),
+      ),
+      title: Text(_getStatusText(status)),
+      subtitle: Text(description),
+      trailing: isSelected ? const Icon(Icons.check, color: Colors.green) : null,
+      onTap: isSelected ? null : () {
+        Navigator.pop(context);
+        _updateStoreStatus(status);
+      },
+    );
+  }
+
   // Helper methods
   void _showLoadingDialog(String message) {
     showDialog(
@@ -430,22 +673,29 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
     );
   }
 
-  // Getters for user data
-  String get userName => _userProfile?['name'] ?? 'Store Owner';
-  String get userEmail => _userProfile?['email'] ?? '';
-  String get userPhone => _userProfile?['phone'] ?? '';
-  String get userId => _userProfile?['id']?.toString() ?? '';
+  // Safe getters for user data
+  String get userName => _safeToString(_userProfile?['name']).isNotEmpty
+      ? _safeToString(_userProfile?['name'])
+      : 'Store Owner';
+  String get userEmail => _safeToString(_userProfile?['email']);
+  String get userPhone => _safeToString(_userProfile?['phone']);
+  String get userId => _safeToString(_userProfile?['id']);
 
-  // Getters for store data
-  String get storeName => _storeData?['name'] ?? 'Store';
-  String get storeDescription => _storeData?['description'] ?? '';
-  String get storeAddress => _storeData?['address'] ?? '';
-  String get storePhone => _storeData?['phone'] ?? '';
-  String get storeStatus => _storeData?['status'] ?? 'active';
-  double get storeRating => (_storeData?['rating'] ?? 0.0).toDouble();
-  int get reviewCount => _storeData?['review_count'] ?? 0;
-  String get openTime => _storeData?['open_time'] ?? '';
-  String get closeTime => _storeData?['close_time'] ?? '';
+  // Safe getters for store data
+  String get storeName => _safeToString(_storeData?['name']).isNotEmpty
+      ? _safeToString(_storeData?['name'])
+      : 'Store';
+  String get storeDescription => _safeToString(_storeData?['description']);
+  String get storeAddress => _safeToString(_storeData?['address']);
+  String get storePhone => _safeToString(_storeData?['phone']);
+  String get storeStatus => _safeToString(_storeData?['status']).isNotEmpty
+      ? _safeToString(_storeData?['status'])
+      : 'active';
+  double get storeRating => _safeToDouble(_storeData?['rating']);
+  int get reviewCount => _safeToInt(_storeData?['review_count']);
+  int get totalProducts => _safeToInt(_storeData?['total_products']);
+  String get openTime => _safeToString(_storeData?['open_time']);
+  String get closeTime => _safeToString(_storeData?['close_time']);
   String? get storeImageUrl => _storeData?['image_url'];
 
   String get openHours {
@@ -456,7 +706,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
   }
 
   String _getStatusText(String? status) {
-    switch (status?.toLowerCase()) {
+    switch (_safeToString(status).toLowerCase()) {
       case 'active':
         return 'Open';
       case 'inactive':
@@ -469,7 +719,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
   }
 
   Color _getStatusColor(String? status) {
-    switch (status?.toLowerCase()) {
+    switch (_safeToString(status).toLowerCase()) {
       case 'active':
         return Colors.green;
       case 'inactive':
@@ -957,6 +1207,7 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
         ),
         const SizedBox(width: 12),
         GestureDetector(
+          onTap: _isUpdatingStatus ? null : _showStatusUpdateDialog,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
@@ -1068,6 +1319,13 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
               value: userName,
               iconColor: Colors.orange[600]!,
             ),
+            _buildDivider(),
+            _buildInfoItem(
+              icon: FontAwesomeIcons.boxOpen,
+              title: 'Total Products',
+              value: totalProducts > 0 ? '$totalProducts products' : 'No products yet',
+              iconColor: Colors.indigo[600]!,
+            ),
           ],
         ),
       ],
@@ -1162,12 +1420,18 @@ class _ProfileStorePageState extends State<ProfileStorePage> with TickerProvider
         padding: const EdgeInsets.symmetric(vertical: 32.0),
         child: Column(
           children: [
-            Image.asset(
-              'assets/images/delpick_image.png',
+            Container(
               width: 80,
               height: 80,
-              color: Colors.grey[400],
-              colorBlendMode: BlendMode.modulate,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                Icons.store,
+                size: 40,
+                color: Colors.grey[600],
+              ),
             ),
             const SizedBox(height: 12),
             Text(

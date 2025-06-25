@@ -9,6 +9,10 @@ import 'package:del_pick/Services/image_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
 
+import '../../Services/auth_service.dart';
+
+
+// cust_order_status.dart
 class CustomerOrderStatusCard extends StatefulWidget {
   final String? orderId;
   final Map<String, dynamic>? initialOrderData;
@@ -41,7 +45,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
   final Color _primaryColor = const Color(0xFF4A90E2);
   final Color _secondaryColor = const Color(0xFF7BB3F0);
 
-  // Status timeline for customer
+  // Standardized status timeline
   final List<Map<String, dynamic>> _statusTimeline = [
     {
       'status': OrderStatus.pending,
@@ -49,7 +53,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       'description': 'Menunggu konfirmasi toko',
       'icon': Icons.hourglass_empty,
       'color': Colors.orange,
-      'animation': 'assets/animations/loading_animation.json'
+      'animation': 'assets/animations/diambil.json'
     },
     {
       'status': OrderStatus.confirmed,
@@ -57,7 +61,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       'description': 'Pesanan dikonfirmasi toko',
       'icon': Icons.check_circle_outline,
       'color': Colors.blue,
-      'animation': 'assets/animations/diproses.json'
+      'animation': 'assets/animations/diambil.json'
     },
     {
       'status': OrderStatus.preparing,
@@ -65,7 +69,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       'description': 'Pesanan sedang disiapkan',
       'icon': Icons.restaurant,
       'color': Colors.purple,
-      'animation': 'assets/animations/diambil.json'
+      'animation': 'assets/animations/diproses.json'
     },
     {
       'status': OrderStatus.readyForPickup,
@@ -73,14 +77,14 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       'description': 'Pesanan siap diambil driver',
       'icon': Icons.shopping_bag,
       'color': Colors.indigo,
-      'animation': 'assets/animations/diambil.json'
+      'animation': 'assets/animations/diproses.json'
     },
     {
       'status': OrderStatus.onDelivery,
-      'label': 'Dikirim',
+      'label': 'Diantar',
       'description': 'Pesanan dalam perjalanan',
       'icon': Icons.delivery_dining,
-      'color': Colors.indigo,
+      'color': Colors.teal,
       'animation': 'assets/animations/diantar.json'
     },
     {
@@ -130,7 +134,18 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     });
 
     try {
-      // Menggunakan OrderService.getOrdersByUser() untuk mendapatkan data order customer
+      // Check authentication and role
+      final userData = await AuthService.getUserData();
+      if (userData == null) {
+        throw Exception('User not authenticated');
+      }
+
+      final roleSpecificData = await AuthService.getRoleSpecificData();
+      if (roleSpecificData == null) {
+        throw Exception('Customer data not found');
+      }
+
+      // Get order data using OrderService for customer
       final response = await OrderService.getOrdersByUser(
         page: 1,
         limit: 50,
@@ -148,7 +163,6 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       if (targetOrder != null) {
         _processOrderData(targetOrder);
       } else {
-        // Fallback ke getOrderById jika tidak ditemukan di list
         final orderData = await OrderService.getOrderById(widget.orderId!);
         _processOrderData(orderData);
       }
@@ -173,11 +187,9 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
         _currentOrder = newOrder;
       });
 
-      // Handle status change animations and sounds
       if (previousStatus != null && previousStatus != newOrder.orderStatus) {
         _handleStatusChange(newOrder.orderStatus);
       } else if (_previousStatus == null) {
-        // Initial load
         _handleInitialStatus(newOrder.orderStatus);
       }
 
@@ -191,7 +203,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
   }
 
   void _handleInitialStatus(OrderStatus status) {
-    if (status == OrderStatus.cancelled) {
+    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(status)) {
       _playCancelSound();
     } else if (status == OrderStatus.pending) {
       _pulseController.repeat(reverse: true);
@@ -199,7 +211,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
   }
 
   void _handleStatusChange(OrderStatus newStatus) {
-    if (newStatus == OrderStatus.cancelled) {
+    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(newStatus)) {
       _playCancelSound();
       _pulseController.stop();
     } else {
@@ -255,10 +267,10 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       return {
         'status': OrderStatus.cancelled,
         'label': 'Dibatalkan',
-        'description': 'Pesanan telah dibatalkan',
+        'description': 'Pesanan dibatalkan',
         'icon': Icons.cancel_outlined,
         'color': Colors.red,
-        'animation': 'assets/animations/caution.json'
+        'animation': 'assets/animations/cancel.json'
       };
     }
 
@@ -266,10 +278,10 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       return {
         'status': OrderStatus.rejected,
         'label': 'Ditolak',
-        'description': 'Pesanan ditolak oleh toko',
+        'description': 'Pesanan ditolak toko',
         'icon': Icons.block,
         'color': Colors.red,
-        'animation': 'assets/animations/caution.json'
+        'animation': 'assets/animations/cancel.json'
       };
     }
 
@@ -306,7 +318,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     Widget content = Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        color: Colors.white, // Background putih sesuai requirement
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -368,7 +380,6 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
                       ],
                     ),
                   ),
-                  // Order total
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
@@ -389,13 +400,13 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
               ),
             ),
 
-            // Content
+            // Content (similar structure to other components)
             Container(
-              color: Colors.white, // Background putih untuk content
+              color: Colors.white,
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  // Animation
+                  // Animation with same logic
                   if (currentStatus == OrderStatus.pending)
                     AnimatedBuilder(
                       animation: _pulseAnimation,
@@ -417,14 +428,14 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
                       height: 180,
                       child: Lottie.asset(
                         currentStatusInfo['animation'],
-                        repeat: currentStatus != OrderStatus.delivered,
+                        repeat: ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus),
                       ),
                     ),
 
                   const SizedBox(height: 20),
 
-                  // Status Timeline (only for non-cancelled/rejected orders)
-                  if (currentStatus != OrderStatus.cancelled && currentStatus != OrderStatus.rejected)
+                  // Status Timeline (same as other components)
+                  if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
@@ -501,7 +512,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
 
                   const SizedBox(height: 20),
 
-                  // Status Message
+                  // Status Message (same structure)
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
@@ -559,7 +570,6 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
                         ),
                         child: Row(
                           children: [
-                            // Store image
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
                               child: ImageService.displayImage(
@@ -610,40 +620,6 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
                         ),
                       ),
                     ),
-
-                  // Estimated delivery time (if available)
-                  if (_currentOrder!.estimatedDeliveryTime != null &&
-                      currentStatus != OrderStatus.delivered &&
-                      currentStatus != OrderStatus.cancelled &&
-                      currentStatus != OrderStatus.rejected)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.access_time,
-                                size: 16, color: Colors.blue),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Estimasi: ${_formatEstimatedTime()}',
-                              style: TextStyle(
-                                color: Colors.blue,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                fontFamily: GlobalStyle.fontFamily,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -662,6 +638,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     return content;
   }
 
+  // Same loading, error, and no data methods as other components
   Widget _buildLoadingCard() {
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
@@ -681,7 +658,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
         child: Column(
           children: [
             Lottie.asset(
-              'assets/animations/loading_animation.json',
+              'assets/animations/diambil.json',
               height: 100,
               width: 100,
             ),
@@ -771,27 +748,5 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
         ],
       ),
     );
-  }
-
-  String _formatEstimatedTime() {
-    if (_currentOrder?.estimatedDeliveryTime == null) return 'Segera';
-
-    try {
-      final estimatedTime = _currentOrder!.estimatedDeliveryTime!;
-      final now = DateTime.now();
-      final difference = estimatedTime.difference(now);
-
-      if (difference.isNegative) {
-        return 'Segera tiba';
-      }
-
-      if (difference.inHours > 0) {
-        return '${difference.inHours}j ${difference.inMinutes % 60}m';
-      } else {
-        return '${difference.inMinutes}m';
-      }
-    } catch (e) {
-      return 'Segera';
-    }
   }
 }

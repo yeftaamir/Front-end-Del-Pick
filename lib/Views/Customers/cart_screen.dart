@@ -27,6 +27,7 @@ import 'package:del_pick/Services/auth_service.dart';
 import '../../Models/order_enum.dart';
 import '../../Services/Core/token_service.dart';
 import '../Component/cust_order_status.dart';
+
 class CartScreen extends StatefulWidget {
   static const String route = "/Customers/Cart";
   final int storeId;
@@ -101,6 +102,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   // Audio player instance
   final AudioPlayer _audioPlayer = AudioPlayer();
 
+  // ✅ PERBAIKAN: Inisialisasi animation controllers dengan null safety
   late AnimationController _slideController;
   late AnimationController _driverCardController;
   late AnimationController _statusCardController;
@@ -111,7 +113,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   // Animation controllers for status animations
   late Map<OrderStatus, AnimationController> _statusAnimationControllers;
 
-  // Create multiple animation controllers for different sections
+  // ✅ PERBAIKAN: Inisialisasi yang aman untuk card controllers dan animations
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
 
@@ -120,11 +122,12 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     return widget.itemQuantities?[item.id] ?? 0;
   }
 
-// Perbaikan untuk initState() di cart_screen.dart
-
   @override
   void initState() {
     super.initState();
+
+    // ✅ PERBAIKAN: Inisialisasi animasi terlebih dahulu sebelum yang lain
+    _initializeAnimations();
 
     // Initialize with completed order if available
     if (widget.completedOrder != null) {
@@ -137,18 +140,113 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       _checkOrderRatingStatus();
       _loadOrderDetailData();
     } else {
-      // ✅ PERBAIKAN: Gunakan data lokasi yang sudah tersedia dari store_detail
+      // Gunakan data lokasi yang sudah tersedia dari store_detail
       _initializeStoreLocation();
 
       // Load initial data for new orders
       _loadInitialData();
       _initializeLocation(); // Initialize location similar to home_cust.dart
     }
-
-    // ... rest of initState code (animations, etc.)
   }
 
-// ✅ TAMBAHAN: Method baru untuk inisialisasi lokasi toko
+  // ✅ PERBAIKAN: Method untuk inisialisasi semua animasi
+  void _initializeAnimations() {
+    // Initialize pulse animation for loading states
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+
+    _slideController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+
+    // Initialize animation controllers for each card section
+    _cardControllers = List.generate(
+      5, // Number of card sections (location, order status, driver, items, payment)
+          (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 100)),
+      ),
+    );
+
+    // Create slide animations for each card
+    _cardAnimations = _cardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0, 0.3),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+
+    // Initialize driver card animation controller
+    _driverCardController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
+    // Initialize status card animation controller
+    _statusCardController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
+    // Create driver card animation
+    _driverCardAnimation = Tween<Offset>(
+      begin: const Offset(0, -0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _driverCardController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    // Create status card animation
+    _statusCardAnimation = Tween<Offset>(
+      begin: const Offset(0, -0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _statusCardController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    // Initialize status animation controllers
+    _statusAnimationControllers = {
+      for (var status in OrderStatus.values)
+        status: AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 1000),
+        ),
+    };
+
+    // Start card animations sequentially with delay
+    _startCardAnimations();
+  }
+
+  // ✅ PERBAIKAN: Method untuk memulai animasi kartu secara berurutan
+  void _startCardAnimations() {
+    for (int i = 0; i < _cardControllers.length; i++) {
+      Future.delayed(Duration(milliseconds: i * 150), () {
+        if (mounted && _cardControllers[i].isCompleted == false) {
+          _cardControllers[i].forward();
+        }
+      });
+    }
+
+    // If we have a completed order, start these animations too
+    if (widget.completedOrder != null) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          _driverCardController.forward();
+          _statusCardController.forward();
+        }
+      });
+    }
+  }
+
+  // ✅ TAMBAHAN: Method baru untuk inisialisasi lokasi toko
   void _initializeStoreLocation() {
     // Gunakan data lokasi toko yang dikirim dari store_detail
     if (widget.storeLatitude != null && widget.storeLongitude != null) {
@@ -180,12 +278,14 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     _calculateInitialDeliveryFee();
   }
 
-// ✅ TAMBAHAN: Method untuk menghitung biaya pengiriman awal
+  // ✅ TAMBAHAN: Method untuk menghitung biaya pengiriman awal
   void _calculateInitialDeliveryFee() {
     // Jika jarak sudah tersedia dari store_detail, gunakan langsung
     if (_storeDistance != null) {
       setState(() {
-        _serviceCharge = calculateDeliveryFee(_storeDistance!);
+        // Pembulatan ke atas ke kelipatan 1000
+        double fee = calculateDeliveryFee(_storeDistance!);
+        _serviceCharge = (fee % 1000 == 0) ? fee : ((fee / 1000).ceil() * 1000);
       });
       print('✅ CartScreen: Initial delivery fee calculated from existing distance: ${GlobalStyle.formatRupiah(_serviceCharge)}');
       return;
@@ -201,7 +301,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-// ✅ PERBAIKAN: Update method _loadInitialData untuk memanggil _updateDeliveryFee
+  // ✅ PERBAIKAN: Update method _loadInitialData untuk memanggil _updateDeliveryFee
   Future<void> _loadInitialData() async {
     try {
       setState(() {
@@ -239,7 +339,47 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-// ✅ PERBAIKAN: Update method _getCurrentLocation untuk memanggil _updateDeliveryFee
+  // Initialize location similar to home_cust.dart
+  void _initializeLocation() {
+    _loadUserData();
+    _getCurrentLocation();
+  }
+
+  // Load user data similar to home_cust.dart
+  Future<void> _loadUserData() async {
+    try {
+      // Get user data from AuthService
+      final userData = await AuthService.getUserData();
+      if (userData != null) {
+        setState(() {
+          _userData = userData;
+        });
+      } else {
+        // Fallback to TokenService if AuthService fails
+        final tokenUserData = await TokenService.getUserData();
+        if (tokenUserData != null) {
+          setState(() {
+            _userData = tokenUserData;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading user data: $e');
+      // Try to get from token service as fallback
+      try {
+        final tokenUserData = await TokenService.getUserData();
+        if (tokenUserData != null) {
+          setState(() {
+            _userData = tokenUserData;
+          });
+        }
+      } catch (tokenError) {
+        print('Error loading user data from token: $tokenError');
+      }
+    }
+  }
+
+  // ✅ PERBAIKAN: Update method _getCurrentLocation untuk memanggil _updateDeliveryFee
   Future<void> _getCurrentLocation() async {
     setState(() {
       _isLoadingLocation = true;
@@ -293,7 +433,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-// ✅ PERBAIKAN: Update method _updateDeliveryFee dengan logging yang lebih baik
+  // ✅ PERBAIKAN: Update method _updateDeliveryFee dengan logging yang lebih baik
   void _updateDeliveryFee() {
     print('🔄 CartScreen: Attempting to update delivery fee...');
     print('   - User location: $_latitude, $_longitude');
@@ -328,7 +468,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-// ✅ PERBAIKAN: Pastikan method calculateDeliveryFee benar
+  // ✅ PERBAIKAN: Pastikan method calculateDeliveryFee benar
   double calculateDeliveryFee(double distance) {
     double rawFee = distance * 2500;
     double roundedFee = rawFee.ceilToDouble(); // Pembulatan ke atas
@@ -339,46 +479,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     print('   - Rounded fee: $roundedFee');
 
     return roundedFee;
-  }
-
-  // Initialize location similar to home_cust.dart
-  void _initializeLocation() {
-    _loadUserData();
-    _getCurrentLocation();
-  }
-
-  // Load user data similar to home_cust.dart
-  Future<void> _loadUserData() async {
-    try {
-      // Get user data from AuthService
-      final userData = await AuthService.getUserData();
-      if (userData != null) {
-        setState(() {
-          _userData = userData;
-        });
-      } else {
-        // Fallback to TokenService if AuthService fails
-        final tokenUserData = await TokenService.getUserData();
-        if (tokenUserData != null) {
-          setState(() {
-            _userData = tokenUserData;
-          });
-        }
-      }
-    } catch (e) {
-      print('Error loading user data: $e');
-      // Try to get from token service as fallback
-      try {
-        final tokenUserData = await TokenService.getUserData();
-        if (tokenUserData != null) {
-          setState(() {
-            _userData = tokenUserData;
-          });
-        }
-      } catch (tokenError) {
-        print('Error loading user data from token: $tokenError');
-      }
-    }
   }
 
   // Process customer specific data for service access
@@ -694,8 +794,12 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
   // Play sound helper method
   Future<void> _playSound(String assetPath) async {
-    await _audioPlayer.stop();
-    await _audioPlayer.play(AssetSource(assetPath));
+    try {
+      await _audioPlayer.stop();
+      await _audioPlayer.play(AssetSource(assetPath));
+    } catch (e) {
+      print('Error playing sound: $e');
+    }
   }
 
   // Convert cart items to request format for API
@@ -746,11 +850,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Lottie.asset(
-                  'assets/animations/caution.json',
+                SizedBox(
                   height: 180,
                   width: 180,
-                  fit: BoxFit.contain,
+                  child: Lottie.asset(
+                    'assets/animations/caution.json',
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Icon(
+                        Icons.warning_amber_rounded,
+                        size: 100,
+                        color: Colors.orange,
+                      );
+                    },
+                  ),
                 ),
                 const SizedBox(height: 16),
                 const Text(
@@ -884,11 +997,18 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Lottie.asset(
-                    'assets/animations/loading_animation.json',
+                  SizedBox(
                     width: 150,
                     height: 150,
-                    repeat: true,
+                    child: Lottie.asset(
+                      'assets/animations/loading_animation.json',
+                      repeat: true,
+                      errorBuilder: (context, error, stackTrace) {
+                        return CircularProgressIndicator(
+                          color: GlobalStyle.primaryColor,
+                        );
+                      },
+                    ),
                   ),
                   const SizedBox(height: 24),
                   const Text(
@@ -994,8 +1114,532 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-  // Continue with remaining methods from original cart_screen.dart...
-  // [Add all other existing methods here - _loadDriverDetails, _showDriverSearchDialog, etc.]
+  // Load driver details using DriverService.getDriverById()
+  Future<void> _loadDriverDetails(String driverId) async {
+    try {
+      final driverData = await DriverService.getDriverById(driverId);
+      _driverDetail = DriverModel.fromJson(driverData);
+
+      setState(() {
+        _driverName = _driverDetail?.name ?? 'Unknown Driver';
+        _vehicleNumber = _driverDetail?.vehiclePlate ?? 'Unknown';
+      });
+    } catch (e) {
+      print('Error loading driver details: $e');
+    }
+  }
+
+  // Show driver search dialog
+  void _showDriverSearchDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return WillPopScope(
+          onWillPop: () async => false,
+          child: Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            backgroundColor: Colors.white,
+            elevation: 5,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 180,
+                    height: 180,
+                    child: Lottie.asset(
+                      'assets/animations/loading_animation.json',
+                      repeat: true,
+                      errorBuilder: (context, error, stackTrace) {
+                        return CircularProgressIndicator(
+                          color: GlobalStyle.primaryColor,
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    "Mencari Driver",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "Mohon tunggu sementara kami mencarikan driver terbaik untuk Anda...",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (context, child) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1 + 0.05 * _pulseController.value),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          "Maksimal waktu pencarian: 15 menit",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade800,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _cancelOrderRequest();
+                    },
+                    child: Text(
+                      "Batalkan Pencarian",
+                      style: TextStyle(
+                        color: Colors.red.shade800,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Show order created success dialog
+  Future<void> _showOrderCreatedSuccess() async {
+    await _playSound('audio/kring.mp3');
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.white,
+          elevation: 5,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 180,
+                  height: 180,
+                  child: Lottie.asset(
+                    'assets/animations/check_animation.json',
+                    repeat: false,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Icon(
+                        Icons.check_circle,
+                        size: 100,
+                        color: Colors.green,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  "Pesanan Berhasil Dibuat",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Pesanan Anda telah diterima dan siap diproses",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Order ID: ${_createdOrder?.id ?? 'N/A'}",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 40, vertical: 14),
+                    elevation: 2,
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    "OK",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Monitor driver assignment using polling
+  void _startDriverSearchStream() {
+    if (_createdOrder == null) return;
+
+    // Set up the 15-minute timeout timer
+    _driverSearchTimer = Timer(const Duration(minutes: 15), () {
+      if (mounted && !_driverFound) {
+        print('Driver search timeout after 15 minutes');
+
+        Navigator.of(context, rootNavigator: true).pop();
+
+        setState(() {
+          _searchingDriver = false;
+          _orderFailed = true;
+          _orderFailReason = 'Tidak ada driver yang tersedia setelah 15 menit pencarian';
+        });
+
+        _playSound('audio/wrong.mp3');
+      }
+    });
+
+    // Poll for driver assignment every 5 seconds
+    Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!mounted || _driverFound || _orderFailed || _orderRejected) {
+        timer.cancel();
+        return;
+      }
+
+      try {
+        // Check order status using OrderService.getOrderById()
+        final orderDetails = await OrderService.getOrderById(_createdOrder!.id.toString());
+
+        final String orderStatus = orderDetails['orderStatus'] ?? 'pending';
+
+        // Check if order was rejected
+        if (orderStatus == 'rejected' || orderStatus == 'cancelled') {
+          timer.cancel();
+          Navigator.of(context, rootNavigator: true).pop();
+
+          setState(() {
+            _searchingDriver = false;
+            _orderRejected = true;
+            _orderFailReason = orderStatus == 'rejected'
+                ? 'Pesanan ditolak oleh toko'
+                : 'Pesanan dibatalkan';
+          });
+
+          _driverSearchTimer?.cancel();
+          _playSound('audio/wrong.mp3');
+          return;
+        }
+
+        // Check if a driver has been assigned
+        if (orderDetails['driver'] != null && !_driverFound) {
+          timer.cancel();
+          Navigator.of(context, rootNavigator: true).pop();
+
+          _driverSearchTimer?.cancel();
+
+          // Load driver details
+          final driverId = orderDetails['driver']['id'];
+          await _loadDriverDetails(driverId.toString());
+
+          setState(() {
+            _driverFound = true;
+            _searchingDriver = false;
+            _orderFailed = false;
+            _orderRejected = false;
+          });
+
+          _driverCardController.forward();
+          _playSound('audio/kring.mp3');
+          _showDriverFoundDialog();
+          _checkOrderStatus();
+          _startOrderTracking();
+          _statusCardController.forward();
+        }
+      } catch (e) {
+        print('Error checking order status: $e');
+      }
+    });
+  }
+
+  // Setup periodic order status updates using OrderService.getOrderById()
+  void _startOrderTracking() {
+    _checkOrderStatus();
+
+    Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted && _createdOrder != null) {
+        _checkOrderStatus();
+
+        if (_createdOrder!.orderStatus.isCompleted ||
+            _createdOrder!.orderStatus == OrderStatus.cancelled) {
+          timer.cancel();
+        }
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  // Check current order status using OrderService.getOrderById()
+  Future<void> _checkOrderStatus() async {
+    if (_createdOrder == null) return;
+
+    try {
+      final orderDetails = await OrderService.getOrderById(_createdOrder!.id.toString());
+
+      setState(() {
+        _orderDetailData = orderDetails;
+
+        // Update order object
+        _createdOrder = OrderModel.fromJson(orderDetails);
+
+        // If driver is newly assigned
+        if (orderDetails['driver'] != null && !_driverFound) {
+          _driverFound = true;
+          _driverCardController.forward();
+
+          final driverId = orderDetails['driver']['id'];
+          _loadDriverDetails(driverId.toString());
+
+          _driverSearchTimer?.cancel();
+
+          _searchingDriver = false;
+          _orderFailed = false;
+          _orderRejected = false;
+
+          _showDriverFoundDialog();
+        }
+
+        // Check if order is completed
+        final currentStatus = orderDetails['orderStatus'] ?? '';
+        if (currentStatus == 'delivered' || currentStatus == 'completed') {
+          _checkOrderRatingStatus();
+        }
+
+        // Check if order was rejected or cancelled
+        if (currentStatus == 'rejected' || currentStatus == 'cancelled') {
+          _orderRejected = true;
+          _orderFailReason = currentStatus == 'rejected'
+              ? 'Pesanan ditolak oleh toko'
+              : 'Pesanan dibatalkan';
+        }
+      });
+    } catch (e) {
+      print('Error checking order status: $e');
+    }
+  }
+
+  // Cancel current order request using OrderService.cancelOrder()
+  Future<void> _cancelOrderRequest() async {
+    if (_createdOrder == null) return;
+
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      await OrderService.cancelOrder(_createdOrder!.id.toString());
+
+      _driverSearchTimer?.cancel();
+
+      setState(() {
+        _isLoading = false;
+        _searchingDriver = false;
+        _orderFailed = true;
+        _orderFailReason = 'Pencarian dibatalkan oleh pengguna';
+        _orderCreated = false;
+      });
+
+      await _playSound('audio/wrong.mp3');
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      print('Error cancelling order: $e');
+      await _showErrorDialog('Cancel Failed', 'Failed to cancel order. Please try again.');
+    }
+  }
+
+  // Show driver found dialog with improved UI
+  Future<void> _showDriverFoundDialog() async {
+    await _playSound('audio/kring.mp3');
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.white,
+          elevation: 5,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 200,
+                      height: 200,
+                      child: Lottie.asset(
+                        'assets/animations/driver_found.json',
+                        repeat: false,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            Icons.check_circle,
+                            size: 100,
+                            color: Colors.green,
+                          );
+                        },
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          "Driver Ditemukan!",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _driverName,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    "Nomor Kendaraan: $_vehicleNumber",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[800],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Driver telah menerima pesanan Anda dan akan segera menuju ke toko",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: GlobalStyle.primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 40, vertical: 14),
+                    elevation: 2,
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    "OK",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Handle rating button press
+  void _handleRatingPress() {
+    if (widget.completedOrder != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RatingCustomerPage(order: widget.completedOrder!),
+        ),
+      ).then((_) {
+        _checkOrderRatingStatus();
+      });
+    }
+  }
+
+  // Handle buy again button press
+  void _handleBuyAgain() {
+    // You can implement navigation to the store or cart with the same items
+    Navigator.pop(context); // Example: just go back for now
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1019,7 +1663,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     if (_storeDetail != null) {
       storeName = _storeDetail!.name;
     } else if (widget.completedOrder != null) {
-      // Get store name from completed order - need to handle this based on your OrderModel structure
       storeName = 'Pesanan'; // Fallback
     }
 
@@ -1057,10 +1700,17 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Lottie.asset(
-              'assets/animations/loading_animation.json',
+            SizedBox(
               width: 150,
               height: 150,
+              child: Lottie.asset(
+                'assets/animations/loading_animation.json',
+                errorBuilder: (context, error, stackTrace) {
+                  return CircularProgressIndicator(
+                    color: GlobalStyle.primaryColor,
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 16),
             Text(
@@ -1079,10 +1729,19 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Lottie.asset(
-              'assets/animations/empty_cart.json',
+            SizedBox(
               width: 200,
               height: 200,
+              child: Lottie.asset(
+                'assets/animations/empty_cart.json',
+                errorBuilder: (context, error, stackTrace) {
+                  return Icon(
+                    Icons.shopping_cart_outlined,
+                    size: 100,
+                    color: Colors.grey[400],
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 16),
             Text(
@@ -1131,24 +1790,31 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
             padding: const EdgeInsets.all(16),
             children: [
               // Standardized location card
-              _buildLocationCard(),
-              const SizedBox(height: 16),
+              _buildCard(
+                index: 0,
+                child: _buildLocationCard(),
+              ),
 
               // Order status card for active orders
               if (_orderCreated && !isCompletedOrder && _createdOrder != null && !_orderRejected && !_orderFailed)
-                CustomerOrderStatusCard(
-                  initialOrderData: {
-                    'id': _createdOrder!.id,
-                    'order_status': _createdOrder!.orderStatus.name,
-                    'total': _createdOrder!.totalAmount,
-                    'estimatedDeliveryTime': DateTime.now().add(Duration(minutes: 30)).toIso8601String(),
-                  },
-                  animation: _cardAnimations[0],
+                _buildCard(
+                  index: 1,
+                  child: CustomerOrderStatusCard(
+                    initialOrderData: {
+                      'id': _createdOrder!.id,
+                      'order_status': _createdOrder!.orderStatus.name,
+                      'total': _createdOrder!.totalAmount,
+                      'estimatedDeliveryTime': DateTime.now().add(Duration(minutes: 30)).toIso8601String(),
+                    },
+                  ),
                 ),
 
               // Order failed notification
               if (_orderFailed || _orderRejected)
-                _buildOrderFailedCard(),
+                _buildCard(
+                  index: 1,
+                  child: _buildOrderFailedCard(),
+                ),
 
               // Driver information section
               if ((isCompletedOrder || _driverFound) && !_orderFailed && !_orderRejected)
@@ -1157,7 +1823,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               // Show order date for completed orders
               if (isCompletedOrder)
                 _buildCard(
-                  index: 0,
+                  index: 2,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1197,7 +1863,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
               // Show order items
               _buildCard(
-                index: 0,
+                index: 3,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1340,7 +2006,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
               // Payment details section
               _buildCard(
-                index: 2,
+                index: 4,
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
@@ -1380,14 +2046,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
-                                    Icon(
-                                      Icons.directions_bike,
-                                      size: 14,
-                                      color: Colors.grey[600],
-                                    ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      'Jarak: ${_getFormattedDistance()} × Rp 2.500/km (dibulatkan ke atas)',
+                                      'Jarak: ${_getFormattedDistance()} × Rp 2.500/km ',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: Colors.grey[600],
@@ -1412,7 +2073,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Pembayaran hanya menerima tunai saat ini. Biaya pengiriman dibulatkan ke atas untuk kemudahan pembayaran.',
+                              'Pembayaran hanya menerima tunai saat ini.',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.blue[700],
@@ -1430,7 +2091,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               // Action buttons for completed orders
               if (isCompletedOrder)
                 _buildCard(
-                  index: 3,
+                  index: 5,
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -1501,8 +2162,12 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
+
+              // Add some bottom spacing
+              const SizedBox(height: 100),
             ],
           ),
+
           // Persistent order button for new orders
           if (!isCompletedOrder && !_orderCreated && !_orderFailed && !_orderRejected)
             Positioned(
@@ -1577,37 +2242,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Enhanced Payment Row UI
-  Widget _buildPaymentRow(String label, double amount, {bool isTotal = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: isTotal ? 16 : 14,
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            color: isTotal ? GlobalStyle.fontColor : Colors.grey[700],
-            fontFamily: GlobalStyle.fontFamily,
-          ),
-        ),
-        Text(
-          GlobalStyle.formatRupiah(amount),
-          style: TextStyle(
-            fontSize: isTotal ? 16 : 14,
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            color: isTotal ? GlobalStyle.primaryColor : GlobalStyle.fontColor,
-            fontFamily: GlobalStyle.fontFamily,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // Helper methods
+  // ✅ PERBAIKAN: Method _buildCard dengan safe index checking
   Widget _buildCard({required int index, required Widget child}) {
+    // Pastikan index tidak melebihi panjang array
+    final safeIndex = index < _cardAnimations.length ? index : 0;
+
     return SlideTransition(
-      position: _cardAnimations[index < _cardAnimations.length ? index : 0],
+      position: _cardAnimations[safeIndex],
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
@@ -1986,505 +2627,30 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Load driver details using DriverService.getDriverById()
-  Future<void> _loadDriverDetails(String driverId) async {
-    try {
-      final driverData = await DriverService.getDriverById(driverId);
-      _driverDetail = DriverModel.fromJson(driverData);
-
-      setState(() {
-        _driverName = _driverDetail?.name ?? 'Unknown Driver';
-        _vehicleNumber = _driverDetail?.vehiclePlate ?? 'Unknown';
-      });
-    } catch (e) {
-      print('Error loading driver details: $e');
-    }
-  }
-
-  // Show driver search dialog
-  void _showDriverSearchDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return WillPopScope(
-          onWillPop: () async => false,
-          child: Dialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            backgroundColor: Colors.white,
-            elevation: 5,
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Lottie.asset(
-                    'assets/animations/loading_animation.json',
-                    width: 180,
-                    height: 180,
-                    repeat: true,
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    "Mencari Driver",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Mohon tunggu sementara kami mencarikan driver terbaik untuk Anda...",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  AnimatedBuilder(
-                    animation: _pulseController,
-                    builder: (context, child) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1 + 0.05 * _pulseController.value),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          "Maksimal waktu pencarian: 15 menit",
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.blue.shade800,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 24),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _cancelOrderRequest();
-                    },
-                    child: Text(
-                      "Batalkan Pencarian",
-                      style: TextStyle(
-                        color: Colors.red.shade800,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  // Enhanced Payment Row UI
+  Widget _buildPaymentRow(String label, double amount, {bool isTotal = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: isTotal ? 16 : 14,
+            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+            color: isTotal ? GlobalStyle.fontColor : Colors.grey[700],
+            fontFamily: GlobalStyle.fontFamily,
           ),
-        );
-      },
-    );
-  }
-
-  // Show order created success dialog
-  Future<void> _showOrderCreatedSuccess() async {
-    await _playSound('audio/kring.mp3');
-
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          backgroundColor: Colors.white,
-          elevation: 5,
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Lottie.asset(
-                  'assets/animations/check_animation.json',
-                  width: 180,
-                  height: 180,
-                  repeat: false,
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  "Pesanan Berhasil Dibuat",
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  "Pesanan Anda telah diterima dan siap diproses",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Order ID: ${_createdOrder?.id ?? 'N/A'}",
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: GlobalStyle.primaryColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 40, vertical: 14),
-                    elevation: 2,
-                  ),
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    "OK",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // Monitor driver assignment using polling
-  void _startDriverSearchStream() {
-    if (_createdOrder == null) return;
-
-    // Set up the 15-minute timeout timer
-    _driverSearchTimer = Timer(const Duration(minutes: 15), () {
-      if (mounted && !_driverFound) {
-        print('Driver search timeout after 15 minutes');
-
-        Navigator.of(context, rootNavigator: true).pop();
-
-        setState(() {
-          _searchingDriver = false;
-          _orderFailed = true;
-          _orderFailReason = 'Tidak ada driver yang tersedia setelah 15 menit pencarian';
-        });
-
-        _playSound('audio/wrong.mp3');
-      }
-    });
-
-    // Poll for driver assignment every 5 seconds
-    Timer.periodic(const Duration(seconds: 5), (timer) async {
-      if (!mounted || _driverFound || _orderFailed || _orderRejected) {
-        timer.cancel();
-        return;
-      }
-
-      try {
-        // Check order status using OrderService.getOrderById()
-        final orderDetails = await OrderService.getOrderById(_createdOrder!.id.toString());
-
-        final String orderStatus = orderDetails['orderStatus'] ?? 'pending';
-
-        // Check if order was rejected
-        if (orderStatus == 'rejected' || orderStatus == 'cancelled') {
-          timer.cancel();
-          Navigator.of(context, rootNavigator: true).pop();
-
-          setState(() {
-            _searchingDriver = false;
-            _orderRejected = true;
-            _orderFailReason = orderStatus == 'rejected'
-                ? 'Pesanan ditolak oleh toko'
-                : 'Pesanan dibatalkan';
-          });
-
-          _driverSearchTimer?.cancel();
-          _playSound('audio/wrong.mp3');
-          return;
-        }
-
-        // Check if a driver has been assigned
-        if (orderDetails['driver'] != null && !_driverFound) {
-          timer.cancel();
-          Navigator.of(context, rootNavigator: true).pop();
-
-          _driverSearchTimer?.cancel();
-
-          // Load driver details
-          final driverId = orderDetails['driver']['id'];
-          await _loadDriverDetails(driverId.toString());
-
-          setState(() {
-            _driverFound = true;
-            _searchingDriver = false;
-            _orderFailed = false;
-            _orderRejected = false;
-          });
-
-          _driverCardController.forward();
-          _playSound('audio/kring.mp3');
-          _showDriverFoundDialog();
-          _checkOrderStatus();
-          _startOrderTracking();
-          _statusCardController.forward();
-        }
-      } catch (e) {
-        print('Error checking order status: $e');
-      }
-    });
-  }
-
-  // Setup periodic order status updates using OrderService.getOrderById()
-  void _startOrderTracking() {
-    _checkOrderStatus();
-
-    Timer.periodic(const Duration(seconds: 15), (timer) {
-      if (mounted && _createdOrder != null) {
-        _checkOrderStatus();
-
-        if (_createdOrder!.orderStatus.isCompleted ||
-            _createdOrder!.orderStatus == OrderStatus.cancelled) {
-          timer.cancel();
-        }
-      } else {
-        timer.cancel();
-      }
-    });
-  }
-
-  // Check current order status using OrderService.getOrderById()
-  Future<void> _checkOrderStatus() async {
-    if (_createdOrder == null) return;
-
-    try {
-      final orderDetails = await OrderService.getOrderById(_createdOrder!.id.toString());
-
-      setState(() {
-        _orderDetailData = orderDetails;
-
-        // Update order object
-        _createdOrder = OrderModel.fromJson(orderDetails);
-
-        // If driver is newly assigned
-        if (orderDetails['driver'] != null && !_driverFound) {
-          _driverFound = true;
-          _driverCardController.forward();
-
-          final driverId = orderDetails['driver']['id'];
-          _loadDriverDetails(driverId.toString());
-
-          _driverSearchTimer?.cancel();
-
-          _searchingDriver = false;
-          _orderFailed = false;
-          _orderRejected = false;
-
-          _showDriverFoundDialog();
-        }
-
-        // Check if order is completed
-        final currentStatus = orderDetails['orderStatus'] ?? '';
-        if (currentStatus == 'delivered' || currentStatus == 'completed') {
-          _checkOrderRatingStatus();
-        }
-
-        // Check if order was rejected or cancelled
-        if (currentStatus == 'rejected' || currentStatus == 'cancelled') {
-          _orderRejected = true;
-          _orderFailReason = currentStatus == 'rejected'
-              ? 'Pesanan ditolak oleh toko'
-              : 'Pesanan dibatalkan';
-        }
-      });
-    } catch (e) {
-      print('Error checking order status: $e');
-    }
-  }
-
-  // Cancel current order request using OrderService.cancelOrder()
-  Future<void> _cancelOrderRequest() async {
-    if (_createdOrder == null) return;
-
-    try {
-      setState(() {
-        _isLoading = true;
-      });
-
-      await OrderService.cancelOrder(_createdOrder!.id.toString());
-
-      _driverSearchTimer?.cancel();
-
-      setState(() {
-        _isLoading = false;
-        _searchingDriver = false;
-        _orderFailed = true;
-        _orderFailReason = 'Pencarian dibatalkan oleh pengguna';
-        _orderCreated = false;
-      });
-
-      await _playSound('audio/wrong.mp3');
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      print('Error cancelling order: $e');
-      await _showErrorDialog('Cancel Failed', 'Failed to cancel order. Please try again.');
-    }
-  }
-
-  // Show driver found dialog with improved UI
-  Future<void> _showDriverFoundDialog() async {
-    await _playSound('audio/kring.mp3');
-
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          backgroundColor: Colors.white,
-          elevation: 5,
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Lottie.asset(
-                      'assets/animations/driver_found.json',
-                      width: 200,
-                      height: 200,
-                      repeat: false,
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          "Driver Ditemukan!",
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _driverName,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    "Nomor Kendaraan: $_vehicleNumber",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[800],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  "Driver telah menerima pesanan Anda dan akan segera menuju ke toko",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: GlobalStyle.primaryColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 40, vertical: 14),
-                    elevation: 2,
-                  ),
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    "OK",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-  // Handle rating button press
-  void _handleRatingPress() {
-    if (widget.completedOrder != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => RatingCustomerPage(order: widget.completedOrder!),
         ),
-      ).then((_) {
-        _checkOrderRatingStatus();
-      });
-    }
-  }
-
-  // Handle buy again button press
-  void _handleBuyAgain() {
-    // You can implement navigation to the store or cart with the same items
-    Navigator.pop(context); // Example: just go back for now
+        Text(
+          GlobalStyle.formatRupiah(amount),
+          style: TextStyle(
+            fontSize: isTotal ? 16 : 14,
+            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+            color: isTotal ? GlobalStyle.primaryColor : GlobalStyle.fontColor,
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+      ],
+    );
   }
 }
-

@@ -1,41 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:lottie/lottie.dart';
-import 'package:del_pick/Models/order.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:del_pick/Models/order_enum.dart';
-import 'package:del_pick/Models/customer.dart';
-import 'package:del_pick/Models/store.dart';
-import 'package:del_pick/Models/menu_item.dart';
-import 'package:del_pick/Models/order_item.dart';
 
 // Services
+import 'package:del_pick/Services/driver_request_service.dart';
 import 'package:del_pick/Services/order_service.dart';
-import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
 import 'package:del_pick/Services/image_service.dart';
-import 'package:del_pick/Services/customer_service.dart';
-import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
-import 'package:del_pick/Services/menu_service.dart';
-
-import '../Component/driver_order_status.dart';
 
 class HistoryDriverDetailPage extends StatefulWidget {
   static const String route = '/Driver/HistoryDriverDetail';
-  final String? orderId;
+  final String orderId;
   final Map<String, dynamic>? orderDetail;
-  final bool showTrackButton;
-  final VoidCallback? onTrackPressed;
 
   const HistoryDriverDetailPage({
     Key? key,
-    this.orderId,
+    required this.orderId,
     this.orderDetail,
-    this.showTrackButton = false,
-    this.onTrackPressed,
   }) : super(key: key);
 
   @override
@@ -51,22 +36,23 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   late List<Animation<Offset>> _cardAnimations;
 
   // Order data
-  late String _orderId;
-  OrderModel? _orderData;
-  CustomerModel? _customerData;
-  StoreModel? _storeData;
-  List<MenuItemModel> _menuItems = [];
-  List<OrderItemModel> _orderItems = [];
+  Map<String, dynamic>? _orderData;
+  Map<String, dynamic>? _customerData;
+  Map<String, dynamic>? _storeData;
+  Map<String, dynamic>? _driverData;
+  List<dynamic> _orderItems = [];
+
   bool _isLoading = true;
   bool _isFetchingStatus = false;
   String? _errorMessage;
 
+  // Authentication state
+  bool _isAuthenticated = false;
+  Map<String, dynamic>? _userData;
+
   @override
   void initState() {
     super.initState();
-
-    // Initialize orderId
-    _orderId = widget.orderId ?? widget.orderDetail?['id']?.toString() ?? '';
 
     // Initialize card animation controllers
     _cardControllers = List.generate(
@@ -88,19 +74,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       ));
     }).toList();
 
-    // Load data
-    _fetchOrderData();
-
-    // Start animations sequentially
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (var i = 0; i < _cardControllers.length; i++) {
-        Future.delayed(Duration(milliseconds: 100 * i), () {
-          if (mounted) {
-            _cardControllers[i].forward();
-          }
-        });
-      }
-    });
+    // Initialize authentication and load data
+    _initializeAuthentication();
   }
 
   @override
@@ -112,75 +87,128 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     super.dispose();
   }
 
-  // Fetch order data using proper services
-  Future<void> _fetchOrderData() async {
+  // Initialize authentication
+  Future<void> _initializeAuthentication() async {
     try {
       setState(() {
         _isLoading = true;
         _errorMessage = null;
       });
 
-      if (_orderId.isEmpty) {
-        throw Exception('Order ID tidak tersedia');
+      // Check authentication status
+      final isAuth = await AuthService.isAuthenticated();
+      if (!isAuth) {
+        throw Exception('User not authenticated');
       }
 
-      // 1. Get order details using OrderService.getOrderById
-      final orderData = await OrderService.getOrderById(_orderId);
-      _orderData = OrderModel.fromJson(orderData);
-
-      // 2. Get customer details if customerId available
-      if (_orderData!.customerId > 0) {
-        try {
-          final customerData = await CustomerService.getCustomerById(_orderData!.customerId.toString());
-          _customerData = CustomerModel.fromJson(customerData);
-        } catch (e) {
-          print('Error fetching customer data: $e');
-          // Continue without customer data
-        }
+      // Get user data
+      final userData = await AuthService.getUserData();
+      if (userData == null) {
+        throw Exception('No user data found');
       }
 
-      // 3. Get store details if storeId available
-      if (_orderData!.storeId > 0) {
-        try {
-          final storeData = await StoreService.getStoreById(_orderData!.storeId.toString());
-          _storeData = StoreModel.fromJson(storeData);
-        } catch (e) {
-          print('Error fetching store data: $e');
-          // Continue without store data
-        }
+      // Verify user role
+      final userRole = await AuthService.getUserRole();
+      if (userRole?.toLowerCase() != 'driver') {
+        throw Exception('User is not a driver');
       }
 
-      // 4. Get menu items from store
-      if (_orderData!.storeId > 0) {
-        try {
-          final menuResponse = await MenuItemService.getMenuItemsByStore(
-            storeId: _orderData!.storeId.toString(),
-          );
-          if (menuResponse['data'] != null) {
-            _menuItems = (menuResponse['data'] as List)
-                .map((item) => MenuItemModel.fromJson(item))
-                .toList();
-          }
-        } catch (e) {
-          print('Error fetching menu items: $e');
-          // Continue without menu items
-        }
-      }
+      _userData = userData;
+      _isAuthenticated = true;
 
-      // 5. Process order items from the order data
-      _orderItems = _orderData!.items;
+      // Load order detail
+      await _fetchOrderDetail();
+
+    } catch (e) {
+      print('❌ HistoryDriverDetail: Authentication error: $e');
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Authentication failed: $e';
+        _isAuthenticated = false;
+      });
+    }
+  }
+
+  // Fetch order detail using DriverRequestService.getDriverRequestDetail
+  Future<void> _fetchOrderDetail() async {
+    if (!_isAuthenticated) {
+      print('❌ HistoryDriverDetail: Cannot fetch order detail - not authenticated');
+      return;
+    }
+
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
+      print('🔄 HistoryDriverDetail: Fetching order detail for ID: ${widget.orderId}');
+
+      // Use DriverRequestService.getDriverRequestDetail
+      final requestDetail = await DriverRequestService.getDriverRequestDetail(widget.orderId);
+
+      print('📦 HistoryDriverDetail: Request detail received');
+
+      // Process the request detail data
+      _processOrderData(requestDetail);
 
       setState(() {
         _isLoading = false;
       });
 
+      // Start animations after data is loaded
+      _startAnimations();
+
+      print('✅ HistoryDriverDetail: Order detail loaded successfully');
+
     } catch (e) {
-      print('Error fetching order data: $e');
+      print('❌ HistoryDriverDetail: Error fetching order detail: $e');
       setState(() {
-        _errorMessage = 'Gagal memuat data pesanan: $e';
+        _errorMessage = 'Failed to load order detail: $e';
         _isLoading = false;
       });
     }
+  }
+
+  // Process order data from driver request detail
+  void _processOrderData(Map<String, dynamic> requestDetail) {
+    try {
+      // Extract order data from request detail
+      _orderData = requestDetail['order'] ?? requestDetail;
+
+      // Extract customer data
+      _customerData = _orderData?['customer'] ?? _orderData?['user'];
+
+      // Extract store data
+      _storeData = _orderData?['store'];
+
+      // Extract driver data
+      _driverData = _orderData?['driver'] ?? requestDetail['driver'];
+
+      // Extract order items
+      _orderItems = _orderData?['order_items'] ?? _orderData?['orderItems'] ?? _orderData?['items'] ?? [];
+
+      print('✅ Processed order data - Customer: ${_customerData?['name']}, Store: ${_storeData?['name']}, Items: ${_orderItems.length}');
+
+    } catch (e) {
+      print('❌ Error processing order data: $e');
+      setState(() {
+        _errorMessage = 'Error processing order data: $e';
+      });
+    }
+  }
+
+  // Start animations sequentially
+  void _startAnimations() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (var i = 0; i < _cardControllers.length; i++) {
+        Future.delayed(Duration(milliseconds: 100 * i), () {
+          if (mounted) {
+            _cardControllers[i].forward();
+          }
+        });
+      }
+    });
   }
 
   // Update order status using OrderService.updateOrderStatus
@@ -194,7 +222,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     try {
       // Use OrderService.updateOrderStatus
       await OrderService.updateOrderStatus(
-        orderId: _orderId,
+        orderId: widget.orderId,
         status: status,
         notes: 'Status updated by driver',
       );
@@ -203,7 +231,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       _playSound('audio/alert.wav');
 
       // Refresh order data
-      await _fetchOrderData();
+      await _fetchOrderDetail();
 
       // Show success message
       if (mounted) {
@@ -230,7 +258,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   // Start delivery using TrackingService.startDelivery
   Future<void> _startDelivery() async {
     try {
-      await TrackingService.startDelivery(_orderId);
+      await TrackingService.startDelivery(widget.orderId);
       await _updateOrderStatus('on_delivery');
     } catch (e) {
       print('Error starting delivery: $e');
@@ -242,7 +270,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   // Complete delivery using TrackingService.completeDelivery
   Future<void> _completeDelivery() async {
     try {
-      await TrackingService.completeDelivery(_orderId);
+      await TrackingService.completeDelivery(widget.orderId);
       await _updateOrderStatus('delivered');
       _showCompletionDialog();
     } catch (e) {
@@ -274,6 +302,29 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
         return 'Dibatalkan';
       default:
         return status;
+    }
+  }
+
+  // Get status color
+  Color _getStatusColor(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'confirmed':
+        return Colors.blue;
+      case 'preparing':
+        return Colors.indigo;
+      case 'ready_for_pickup':
+        return Colors.purple;
+      case 'on_delivery':
+        return Colors.teal;
+      case 'delivered':
+        return Colors.green;
+      case 'cancelled':
+      case 'rejected':
+        return Colors.red;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -546,7 +597,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       formattedPhone = '62$phoneNumber';
     }
 
-    String message = 'Halo, saya driver dari Del Pick mengenai pesanan #${_orderData?.id ?? _orderId}';
+    String message = 'Halo, saya driver dari Del Pick mengenai pesanan #${widget.orderId}';
     String url = 'https://wa.me/$formattedPhone?text=${Uri.encodeComponent(message)}';
 
     if (await canLaunchUrlString(url)) {
@@ -584,29 +635,95 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   Widget _buildOrderStatusCard() {
     if (_orderData == null) return const SizedBox.shrink();
 
-    return DriverOrderStatusCard(
-      orderId: _orderId,
-      initialOrderData: {
-        'id': _orderData!.id,
-        'order_status': _orderData!.orderStatus.value,
-        'delivery_status': _orderData!.deliveryStatus.value,
-        'total_amount': _orderData!.totalAmount,
-        'delivery_fee': _orderData!.deliveryFee,
-        'delivery_address': _orderData!.deliveryAddress,
-        'customer': _customerData?.toJson() ?? _orderData!.customer?.toJson(),
-        'store': _storeData?.toJson() ?? _orderData!.store?.toJson(),
-        'driver': _orderData!.driver?.toJson(),
-        'order_items': _orderItems.map((item) => item.toJson()).toList(),
-        'created_at': _orderData!.createdAt.toIso8601String(),
-        'updated_at': _orderData!.updatedAt.toIso8601String(),
-      },
-      animation: _cardAnimations[0],
+    final status = _orderData!['status'] ?? _orderData!['order_status'] ?? 'pending';
+    final statusColor = _getStatusColor(status);
+    final statusText = _getStatusDisplayName(status);
+    final createdAt = _orderData!['created_at'] ?? _orderData!['createdAt'];
+    final orderDate = createdAt != null ? DateTime.tryParse(createdAt) : DateTime.now();
+    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(orderDate ?? DateTime.now());
+
+    return _buildCard(
+      index: 0,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.receipt_long, color: GlobalStyle.primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  'Order #${widget.orderId}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Status Pesanan',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  child: Text(
+                    statusText,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: statusColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Tanggal Pesanan',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                Text(
+                  formattedDate,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildStoreInfoCard() {
-    final store = _storeData ?? _orderData?.store;
-    if (store == null) return const SizedBox.shrink();
+    if (_storeData == null) return const SizedBox.shrink();
 
     return _buildCard(
       index: 1,
@@ -633,24 +750,29 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
             const SizedBox(height: 16),
             Row(
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: ImageService.displayImage(
-                    imageSource: store.imageUrl ?? '',
-                    width: 60,
-                    height: 60,
-                    fit: BoxFit.cover,
-                    placeholder: Container(
-                      width: 60,
-                      height: 60,
-                      color: Colors.grey[300],
-                      child: Icon(Icons.store, color: Colors.grey[600], size: 20),
-                    ),
-                    errorWidget: Container(
-                      width: 60,
-                      height: 60,
-                      color: Colors.grey[300],
-                      child: Icon(Icons.store, color: Colors.grey[600], size: 20),
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: GlobalStyle.lightColor,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: _storeData!['image_url'] != null && _storeData!['image_url'].toString().isNotEmpty
+                        ? Image.network(
+                      _storeData!['image_url'],
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                        Icons.store,
+                        color: GlobalStyle.primaryColor,
+                        size: 28,
+                      ),
+                    )
+                        : Icon(
+                      Icons.store,
+                      color: GlobalStyle.primaryColor,
+                      size: 28,
                     ),
                   ),
                 ),
@@ -660,7 +782,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        store.name,
+                        _storeData!['name'] ?? 'Unknown Store',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -675,7 +797,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              store.address,
+                              _storeData!['address'] ?? 'Alamat tidak tersedia',
                               style: TextStyle(
                                 color: Colors.grey[600],
                                 fontSize: 14,
@@ -687,49 +809,53 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.star, color: Colors.amber, size: 16),
-                          const SizedBox(width: 4),
-                          Text(
-                            store.rating.toString(),
-                            style: TextStyle(
-                              color: Colors.grey[800],
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14,
-                              fontFamily: GlobalStyle.fontFamily,
+                      if (_storeData!['rating'] != null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.star, color: Colors.amber, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              _storeData!['rating'].toString(),
+                              style: TextStyle(
+                                color: Colors.grey[800],
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.call, color: Colors.white),
-                    label: const Text(
-                      'Hubungi Toko',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: GlobalStyle.primaryColor,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+            if (_storeData!['phone'] != null) ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.call, color: Colors.white),
+                      label: const Text(
+                        'Hubungi Toko',
+                        style: TextStyle(color: Colors.white),
                       ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () => _openWhatsApp(_storeData!['phone']),
                     ),
-                    onPressed: () => _openWhatsApp(store.phone),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -737,8 +863,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   }
 
   Widget _buildCustomerInfoCard() {
-    final customer = _customerData ?? _orderData?.customer;
-    if (customer == null) return const SizedBox.shrink();
+    if (_customerData == null) return const SizedBox.shrink();
 
     return _buildCard(
       index: 2,
@@ -765,29 +890,28 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
             const SizedBox(height: 16),
             Row(
               children: [
-                ClipOval(
-                  child: ImageService.displayImage(
-                    imageSource: customer.avatar ?? '',
-                    width: 60,
-                    height: 60,
-                    fit: BoxFit.cover,
-                    placeholder: Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.grey[300]!),
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: GlobalStyle.lightColor,
+                  ),
+                  child: ClipOval(
+                    child: _customerData!['avatar'] != null && _customerData!['avatar'].toString().isNotEmpty
+                        ? Image.network(
+                      _customerData!['avatar'],
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                        Icons.person,
+                        color: GlobalStyle.primaryColor,
+                        size: 28,
                       ),
-                      child: Icon(Icons.person, size: 30, color: Colors.grey[400]),
-                    ),
-                    errorWidget: Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      child: Icon(Icons.person, size: 30, color: Colors.grey[400]),
+                    )
+                        : Icon(
+                      Icons.person,
+                      color: GlobalStyle.primaryColor,
+                      size: 28,
                     ),
                   ),
                 ),
@@ -797,7 +921,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        customer.name,
+                        _customerData!['name'] ?? 'Unknown Customer',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -812,7 +936,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              _orderData?.deliveryAddress ?? 'Alamat tidak tersedia',
+                              _orderData?['delivery_address'] ?? _orderData?['deliveryAddress'] ?? 'Alamat tidak tersedia',
                               style: TextStyle(
                                 color: Colors.grey[600],
                                 fontSize: 14,
@@ -824,48 +948,52 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.phone, color: Colors.grey[600], size: 16),
-                          const SizedBox(width: 4),
-                          Text(
-                            customer.phone,
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 14,
-                              fontFamily: GlobalStyle.fontFamily,
+                      if (_customerData!['phone'] != null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.phone, color: Colors.grey[600], size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              _customerData!['phone'],
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.call, color: Colors.white),
-                    label: const Text(
-                      'Hubungi Pelanggan',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: GlobalStyle.primaryColor,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+            if (_customerData!['phone'] != null) ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.call, color: Colors.white),
+                      label: const Text(
+                        'Hubungi Pelanggan',
+                        style: TextStyle(color: Colors.white),
                       ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () => _openWhatsApp(_customerData!['phone']),
                     ),
-                    onPressed: () => _openWhatsApp(customer.phone),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -874,6 +1002,17 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
 
   Widget _buildItemsCard() {
     if (_orderItems.isEmpty) return const SizedBox.shrink();
+
+    // Calculate totals
+    double subtotal = 0.0;
+    for (var item in _orderItems) {
+      final price = (item['price'] ?? item['menu_item']?['price'] ?? 0.0) as num;
+      final quantity = (item['quantity'] ?? 1) as num;
+      subtotal += price * quantity;
+    }
+
+    final deliveryFee = (_orderData?['delivery_fee'] ?? _orderData?['deliveryFee'] ?? 0.0) as num;
+    final total = (_orderData?['total_amount'] ?? _orderData?['totalAmount'] ?? _orderData?['total'] ?? 0.0) as num;
 
     return _buildCard(
       index: 3,
@@ -898,73 +1037,84 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               ],
             ),
             const SizedBox(height: 16),
-            ..._orderItems.map((item) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                border: Border.all(color: GlobalStyle.borderColor),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: ImageService.displayImage(
-                      imageSource: item.imageUrl ?? '',
+            ..._orderItems.map((item) {
+              final menuItem = item['menu_item'] ?? item;
+              final itemName = menuItem['name'] ?? 'Unknown Item';
+              final itemPrice = (item['price'] ?? menuItem['price'] ?? 0.0) as num;
+              final quantity = (item['quantity'] ?? 1) as num;
+              final imageUrl = menuItem['image_url'] ?? '';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  border: Border.all(color: GlobalStyle.borderColor),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Container(
                       width: 60,
                       height: 60,
-                      fit: BoxFit.cover,
-                      placeholder: Container(
-                        width: 60,
-                        height: 60,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
                         color: Colors.grey[300],
-                        child: const Icon(Icons.image),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: imageUrl.isNotEmpty
+                            ? Image.network(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.image),
+                        )
+                            : const Icon(Icons.image),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.name,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontFamily: GlobalStyle.fontFamily,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            itemName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          item.formatPrice(),
-                          style: TextStyle(
-                            color: GlobalStyle.primaryColor,
-                            fontWeight: FontWeight.w500,
-                            fontFamily: GlobalStyle.fontFamily,
+                          const SizedBox(height: 4),
+                          Text(
+                            GlobalStyle.formatRupiah(itemPrice.toDouble()),
+                            style: TextStyle(
+                              color: GlobalStyle.primaryColor,
+                              fontWeight: FontWeight.w500,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: GlobalStyle.lightColor,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      'x${item.quantity}',
-                      style: TextStyle(
-                        color: GlobalStyle.primaryColor,
-                        fontWeight: FontWeight.w600,
-                        fontFamily: GlobalStyle.fontFamily,
+                        ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-            )).toList(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: GlobalStyle.lightColor,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        'x${quantity.toInt()}',
+                        style: TextStyle(
+                          color: GlobalStyle.primaryColor,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Divider(),
@@ -981,7 +1131,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                   ),
                 ),
                 Text(
-                  _orderData?.formatDeliveryFee() ?? GlobalStyle.formatRupiah(0),
+                  GlobalStyle.formatRupiah(deliveryFee.toDouble()),
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontFamily: GlobalStyle.fontFamily,
@@ -1001,7 +1151,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                   ),
                 ),
                 Text(
-                  _orderData?.formatTotalAmount() ?? GlobalStyle.formatRupiah(0),
+                  GlobalStyle.formatRupiah(total.toDouble()),
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: GlobalStyle.primaryColor,
@@ -1022,17 +1172,17 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       return const Center(child: CircularProgressIndicator());
     }
 
-    final status = _orderData!.orderStatus;
+    final status = _orderData!['status'] ?? _orderData!['order_status'] ?? 'pending';
 
     // If order is completed or cancelled, don't show action buttons
-    if (status.isCompleted) {
+    if (['delivered', 'cancelled', 'rejected'].contains(status.toLowerCase())) {
       return const SizedBox.shrink();
     }
 
-    switch (status) {
-      case OrderStatus.confirmed:
-      case OrderStatus.preparing:
-      case OrderStatus.readyForPickup:
+    switch (status.toLowerCase()) {
+      case 'confirmed':
+      case 'preparing':
+      case 'ready_for_pickup':
         return ElevatedButton(
           onPressed: _showPickupConfirmationDialog,
           style: ElevatedButton.styleFrom(
@@ -1052,7 +1202,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
           ),
         );
 
-      case OrderStatus.onDelivery:
+      case 'on_delivery':
         return Row(
           children: [
             Expanded(
@@ -1112,7 +1262,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
           CircularProgressIndicator(color: GlobalStyle.primaryColor),
           const SizedBox(height: 16),
           Text(
-            'Memuat data pesanan...',
+            'Memuat detail pesanan...',
             style: TextStyle(
               color: GlobalStyle.fontColor,
               fontFamily: GlobalStyle.fontFamily,
@@ -1141,7 +1291,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
           ),
           const SizedBox(height: 8),
           Text(
-            _errorMessage ?? 'Gagal memuat data pesanan',
+            _errorMessage ?? 'Gagal memuat detail pesanan',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.grey[600],
@@ -1150,13 +1300,19 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: _fetchOrderData,
+            onPressed: () {
+              if (!_isAuthenticated) {
+                _initializeAuthentication();
+              } else {
+                _fetchOrderDetail();
+              }
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: GlobalStyle.primaryColor,
             ),
-            child: const Text(
-              'Coba Lagi',
-              style: TextStyle(color: Colors.white),
+            child: Text(
+              !_isAuthenticated ? 'Login Ulang' : 'Coba Lagi',
+              style: const TextStyle(color: Colors.white),
             ),
           ),
         ],
@@ -1192,7 +1348,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               size: 18,
             ),
           ),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context, 'refresh'),
         ),
       ),
       body: SafeArea(

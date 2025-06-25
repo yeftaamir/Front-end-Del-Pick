@@ -36,8 +36,8 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
 
-  // Tab categories
-  final List<String> _tabs = ['Semua', 'Diproses', 'Selesai', 'Dibatalkan'];
+  // Updated tab categories based on new status mapping
+  final List<String> _tabs = ['Semua', 'Menunggu', 'Disiapkan', 'Diantar', 'Selesai', 'Dibatalkan'];
 
   @override
   void initState() {
@@ -233,72 +233,82 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     super.dispose();
   }
 
-  // Get filtered orders based on tab index
+  // Get filtered orders based on tab index with updated status mapping
   List<Map<String, dynamic>> getFilteredOrders(int tabIndex) {
     switch (tabIndex) {
-      case 0: // All orders
+      case 0: // Semua - All orders
         return _orders;
-      case 1: // In progress
+      case 1: // Menunggu - Waiting (pending, confirmed)
         return _orders.where((order) {
           final status = order['status']?.toString().toLowerCase() ?? '';
-          return !['completed', 'cancelled', 'delivered'].contains(status);
+          return ['pending', 'confirmed'].contains(status);
         }).toList();
-      case 2: // Completed
+      case 2: // Disiapkan - Being prepared (preparing, ready_for_pickup)
         return _orders.where((order) {
           final status = order['status']?.toString().toLowerCase() ?? '';
-          return ['completed', 'delivered'].contains(status);
+          return ['preparing', 'ready_for_pickup'].contains(status);
         }).toList();
-      case 3: // Cancelled
+      case 3: // Diantar - On delivery (on_delivery)
         return _orders.where((order) {
           final status = order['status']?.toString().toLowerCase() ?? '';
-          return status == 'cancelled';
+          return status == 'on_delivery';
+        }).toList();
+      case 4: // Selesai - Completed (delivered)
+        return _orders.where((order) {
+          final status = order['status']?.toString().toLowerCase() ?? '';
+          return status == 'delivered';
+        }).toList();
+      case 5: // Dibatalkan - Cancelled (cancelled, rejected)
+        return _orders.where((order) {
+          final status = order['status']?.toString().toLowerCase() ?? '';
+          return ['cancelled', 'rejected'].contains(status);
         }).toList();
       default:
         return _orders;
     }
   }
 
-  // Convert API status to display text
+  // Updated status text mapping
   String _getStatusText(String? status) {
     switch (status?.toLowerCase()) {
       case 'pending':
         return 'Menunggu';
-      case 'approved':
-        return 'Disetujui';
+      case 'confirmed':
+        return 'Dikonfirmasi';
       case 'preparing':
         return 'Disiapkan';
       case 'ready_for_pickup':
         return 'Siap Diambil';
-      case 'picked_up':
+      case 'on_delivery':
         return 'Sedang Diantar';
-      case 'completed':
-        return 'Selesai';
       case 'delivered':
-        return 'Terkirim';
+        return 'Selesai';
       case 'cancelled':
         return 'Dibatalkan';
+      case 'rejected':
+        return 'Ditolak';
       default:
         return 'Diproses';
     }
   }
 
-  // Get status color
+  // Updated status color mapping
   Color _getStatusColor(String? status) {
     switch (status?.toLowerCase()) {
       case 'pending':
         return Colors.orange;
-      case 'approved':
+      case 'confirmed':
         return Colors.blue;
       case 'preparing':
         return Colors.indigo;
       case 'ready_for_pickup':
         return Colors.purple;
-      case 'picked_up':
+      case 'on_delivery':
         return Colors.teal;
-      case 'completed':
       case 'delivered':
         return Colors.green;
       case 'cancelled':
+      case 'rejected':
         return Colors.red;
       default:
         return Colors.grey;

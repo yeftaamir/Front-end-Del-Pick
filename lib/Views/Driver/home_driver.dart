@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/driver_bottom_navigation.dart';
 import 'package:del_pick/Views/Driver/history_driver_detail.dart';
+import 'package:del_pick/Views/Driver/contact_user.dart';
 import 'package:del_pick/Views/Driver/profil_driver.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -15,14 +16,8 @@ import 'dart:async';
 import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/driver_request_service.dart';
 import 'package:del_pick/Services/order_service.dart';
-import 'package:del_pick/Services/tracking_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
-import 'package:del_pick/Services/user_service.dart';
 import 'package:del_pick/Services/image_service.dart';
-import 'package:del_pick/Models/driver.dart';
-import 'package:del_pick/Models/order.dart';
-import 'package:del_pick/Models/order_enum.dart';
-import '../../Services/Core/token_service.dart';
 
 class HomeDriverPage extends StatefulWidget {
   static const String route = '/Driver/HomePage';
@@ -49,18 +44,13 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   bool _isUpdatingStatus = false;
 
   // Driver & User Data
-  DriverModel? _driverProfile;
   Map<String, dynamic>? _driverData;
   Map<String, dynamic>? _userData;
-  String? _userId;
-  String? _userRole;
-  String? _authToken;
-  String? _driverId; // Store driver ID separately
+  String? _driverId;
 
-  // Orders Data
+  // Orders & Requests Data
   List<Map<String, dynamic>> _regularOrders = [];
   List<Map<String, dynamic>> _jasaTitipRequests = [];
-  List<Map<String, dynamic>> _driverRequests = [];
 
   // Loading States
   bool _isLoadingOrders = false;
@@ -102,7 +92,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     _requestPermissions();
 
     // Load Initial Data
-    _loadInitialData();
+    _initializeAuthentication();
 
     // Start Periodic Updates
     _startPeriodicUpdates();
@@ -119,7 +109,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
 
     _cardControllers = List.generate(
-      6, // Number of card sections
+      6,
           (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
@@ -174,271 +164,91 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     await Permission.location.request();
   }
 
-  Future<void> _loadInitialData() async {
+  // Initialize authentication and load driver data
+  Future<void> _initializeAuthentication() async {
     setState(() {
       _isInitialLoading = true;
       _errorMessage = null;
     });
 
     try {
-      // First verify authentication
-      if (!await _verifyAuthentication()) {
-        _handleAuthenticationError();
-        return;
+      print('🔍 HomeDriver: Initializing authentication...');
+
+      // Check authentication status
+      final isAuth = await AuthService.isAuthenticated();
+      if (!isAuth) {
+        throw Exception('User not authenticated');
       }
 
-      // Load user and driver profile data using AuthService properly
-      await _loadUserAndDriverProfileWithAuthService();
-
-      // Load orders and requests only if we have valid driver data
-      if (_driverId != null) {
-        await Future.wait([
-          _loadRegularOrders(),
-          _loadJasaTitipRequests(),
-          _loadDriverRequests(),
-        ]);
-      } else {
-        setState(() {
-          _errorMessage = 'Data driver tidak ditemukan. Silakan login ulang.';
-        });
+      // Get user data
+      final userData = await AuthService.getUserData();
+      if (userData == null) {
+        throw Exception('No user data found');
       }
+
+      // Get role-specific data
+      final roleSpecificData = await AuthService.getRoleSpecificData();
+      if (roleSpecificData == null) {
+        throw Exception('No role-specific data found');
+      }
+
+      // Verify user role
+      final userRole = await AuthService.getUserRole();
+      if (userRole?.toLowerCase() != 'driver') {
+        throw Exception('User is not a driver');
+      }
+
+      // Extract driver information
+      _userData = userData;
+      _driverData = roleSpecificData;
+
+      // Get driver ID from various possible locations
+      if (roleSpecificData['driver'] != null) {
+        _driverId = roleSpecificData['driver']['id']?.toString();
+        _driverStatus = roleSpecificData['driver']['status'] ?? 'inactive';
+      } else if (roleSpecificData['user'] != null) {
+        _driverId = roleSpecificData['user']['id']?.toString();
+      } else if (userData['id'] != null) {
+        _driverId = userData['id']?.toString();
+      }
+
+      if (_driverId == null || _driverId!.isEmpty) {
+        throw Exception('Driver ID not found');
+      }
+
+      print('✅ HomeDriver: Authentication successful, Driver ID: $_driverId, Status: $_driverStatus');
+
+      // Load initial data
+      await _loadInitialData();
 
     } catch (e) {
+      print('❌ HomeDriver: Authentication error: $e');
       setState(() {
-        _errorMessage = 'Gagal memuat data: $e';
+        _isInitialLoading = false;
+        _errorMessage = 'Authentication failed: $e';
       });
-      print('Error loading initial data: $e');
-    } finally {
+    }
+  }
+
+  // Load initial orders and requests data
+  Future<void> _loadInitialData() async {
+    try {
+      await Future.wait([
+        _loadRegularOrders(),
+        _loadJasaTitipRequests(),
+      ]);
+
       setState(() {
         _isInitialLoading = false;
       });
-    }
-  }
-
-  // Verify authentication using TokenService
-  Future<bool> _verifyAuthentication() async {
-    try {
-      // Check if user is authenticated
-      final isAuthenticated = await TokenService.isAuthenticated();
-      if (!isAuthenticated) {
-        print('User is not authenticated');
-        return false;
-      }
-
-      // Get authentication token
-      _authToken = await TokenService.getToken();
-      if (_authToken == null) {
-        print('No authentication token found');
-        return false;
-      }
-
-      // Get user role and verify it's driver
-      _userRole = await TokenService.getUserRole();
-      if (_userRole?.toLowerCase() != 'driver') {
-        print('User role is not driver: $_userRole');
-        return false;
-      }
-
-      // Get user ID
-      _userId = await TokenService.getUserId();
-      if (_userId == null) {
-        print('No user ID found');
-        return false;
-      }
-
-      print('Authentication verified - User ID: $_userId, Role: $_userRole');
-      return true;
 
     } catch (e) {
-      print('Error verifying authentication: $e');
-      return false;
+      print('❌ HomeDriver: Error loading initial data: $e');
+      setState(() {
+        _isInitialLoading = false;
+        _errorMessage = 'Failed to load data: $e';
+      });
     }
-  }
-
-  // Load user and driver profile using AuthService properly with role-specific data
-  Future<void> _loadUserAndDriverProfileWithAuthService() async {
-    try {
-      print('Loading user and driver profile with AuthService...');
-
-      // Step 1: Try to get role-specific data first
-      final roleSpecificData = await AuthService.getRoleSpecificData();
-      if (roleSpecificData != null) {
-        _userData = roleSpecificData;
-        print('Role-specific data loaded: ${roleSpecificData.keys}');
-
-        // Process role-specific data
-        await _processRoleSpecificData(roleSpecificData);
-      } else {
-        // Step 2: If no role-specific data, try fresh profile
-        await _refreshProfileData();
-      }
-
-      // Step 3: Extract driver information
-      await _extractDriverInformation();
-
-      // Step 4: Create DriverModel if possible
-      _createDriverModel();
-
-      // Step 5: Verify we have driver data
-      if (_driverId == null) {
-        throw Exception('Driver ID tidak ditemukan setelah memuat profil');
-      }
-
-      print('Successfully loaded driver profile - Driver ID: $_driverId');
-
-    } catch (e) {
-      print('Error loading user and driver profile with AuthService: $e');
-      throw Exception('Gagal memuat profil driver: $e');
-    }
-  }
-
-  // Process role-specific data from AuthService
-  Future<void> _processRoleSpecificData(Map<String, dynamic> roleData) async {
-    try {
-      // Check if this is driver role-specific data
-      if (roleData['driver'] != null) {
-        await _processDriverData(roleData['driver']);
-      }
-
-      // Process user data
-      if (roleData['user'] != null) {
-        final userData = roleData['user'];
-        _userId = userData['id']?.toString();
-        _userRole = userData['role'];
-      }
-
-      print('Role-specific data processed successfully');
-    } catch (e) {
-      print('Error processing role-specific data: $e');
-      throw Exception('Gagal memproses data role-specific: $e');
-    }
-  }
-
-  // Process driver data specifically
-  Future<void> _processDriverData(Map<String, dynamic> driverData) async {
-    try {
-      _driverData = driverData;
-      _driverId = driverData['id']?.toString();
-      _driverStatus = driverData['status'] ?? 'inactive';
-
-      print('Driver data processed - Driver ID: $_driverId, Status: $_driverStatus');
-    } catch (e) {
-      print('Error processing driver data: $e');
-      throw Exception('Gagal memproses data driver: $e');
-    }
-  }
-
-  // Refresh profile data using AuthService
-  Future<void> _refreshProfileData() async {
-    try {
-      print('Refreshing profile data...');
-
-      final freshProfileData = await AuthService.refreshUserData();
-      if (freshProfileData != null) {
-        _userData = {'user': freshProfileData};
-
-        // Check if fresh data contains driver info
-        if (freshProfileData['driver'] != null) {
-          _userData!['driver'] = freshProfileData['driver'];
-          await _processDriverData(freshProfileData['driver']);
-        }
-
-        print('Fresh profile data loaded');
-      } else {
-        throw Exception('Gagal mendapatkan data profil fresh');
-      }
-    } catch (e) {
-      print('Error refreshing profile data: $e');
-      throw Exception('Gagal refresh data profil: $e');
-    }
-  }
-
-  // Extract driver information from user data
-  Future<void> _extractDriverInformation() async {
-    try {
-      // Check if driver data exists in user data
-      if (_userData != null && _userData!['driver'] != null) {
-        _driverData = _userData!['driver'];
-        _driverId = _driverData!['id']?.toString();
-        _driverStatus = _driverData!['status'] ?? 'inactive';
-
-        print('Driver data found in user data - Driver ID: $_driverId, Status: $_driverStatus');
-        return;
-      }
-
-      // If no driver data found, try to fetch it using DriverService
-      if (_userId != null) {
-        try {
-          print('Fetching driver data using DriverService...');
-          final driverDataResponse = await DriverService.getDriverById(_userId!);
-
-          if (driverDataResponse.isNotEmpty) {
-            _driverData = driverDataResponse['driver'] ?? driverDataResponse;
-            _driverId = _driverData!['id']?.toString() ?? _userId;
-            _driverStatus = _driverData!['status'] ?? 'inactive';
-
-            // Update user data with driver info
-            if (_userData == null) _userData = {};
-            _userData!['driver'] = _driverData;
-
-            print('Driver data fetched successfully - Driver ID: $_driverId, Status: $_driverStatus');
-          } else {
-            throw Exception('Response driver data kosong');
-          }
-        } catch (e) {
-          print('Error fetching driver data by ID: $e');
-          // Use user ID as driver ID as fallback
-          _driverId = _userId;
-          _driverStatus = 'inactive';
-          print('Using user ID as driver ID (fallback): $_driverId');
-        }
-      } else {
-        throw Exception('User ID tidak tersedia untuk mengambil data driver');
-      }
-
-    } catch (e) {
-      print('Error extracting driver information: $e');
-      // Final fallback
-      _driverId = _userId;
-      _driverStatus = 'inactive';
-    }
-  }
-
-  // Create DriverModel from available data
-  void _createDriverModel() {
-    try {
-      if (_userData != null) {
-        // Try to create DriverModel
-        if (_userData!['driver'] != null || _userData!['user'] != null) {
-          _driverProfile = DriverModel.fromJson(_userData!);
-          print('DriverModel created successfully');
-        } else {
-          print('Insufficient data to create DriverModel');
-        }
-      }
-    } catch (e) {
-      print('Error creating DriverModel: $e');
-      // Continue without DriverModel, we still have driver ID
-    }
-  }
-
-  // Handle authentication error
-  void _handleAuthenticationError() {
-    setState(() {
-      _errorMessage = 'Sesi login telah berakhir. Silakan login kembali.';
-      _isInitialLoading = false;
-    });
-
-    // Navigate to login after a delay
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          '/login',
-              (route) => false,
-        );
-      }
-    });
   }
 
   // Load regular orders using DriverService.getDriverOrders()
@@ -450,6 +260,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     });
 
     try {
+      print('🔄 HomeDriver: Loading regular orders...');
+
       final response = await DriverService.getDriverOrders(
         page: 1,
         limit: 20,
@@ -458,13 +270,15 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         sortOrder: 'desc',
       );
 
-      final ordersData = response['data'] ?? [];
+      print('📦 HomeDriver: Regular orders response received');
+
+      final ordersData = response['orders'] ?? response['data'] ?? [];
       List<Map<String, dynamic>> activeOrders = [];
 
       // Filter only active orders (not completed/cancelled)
       for (var orderData in ordersData) {
-        final String status = orderData['orderStatus'] ?? 'pending';
-        if (['confirmed', 'preparing', 'ready_for_pickup', 'on_delivery'].contains(status)) {
+        final String status = orderData['status'] ?? orderData['orderStatus'] ?? 'pending';
+        if (['confirmed', 'preparing', 'ready_for_pickup', 'on_delivery'].contains(status.toLowerCase())) {
           activeOrders.add(orderData);
         }
       }
@@ -474,11 +288,14 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         _isLoadingOrders = false;
       });
 
+      print('✅ HomeDriver: Loaded ${activeOrders.length} regular orders');
+
     } catch (e) {
+      print('❌ HomeDriver: Error loading regular orders: $e');
       setState(() {
+        _regularOrders = [];
         _isLoadingOrders = false;
       });
-      print('Error loading regular orders: $e');
     }
   }
 
@@ -491,6 +308,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     });
 
     try {
+      print('🔄 HomeDriver: Loading jasa titip requests...');
+
       final response = await DriverRequestService.getDriverRequests(
         page: 1,
         limit: 20,
@@ -499,60 +318,44 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         sortOrder: 'desc',
       );
 
-      final requestsData = response['requests'] ?? [];
+      print('📦 HomeDriver: Jasa titip requests response received');
+
+      final requestsData = response['requests'] ?? response['data'] ?? [];
 
       setState(() {
         _jasaTitipRequests = List<Map<String, dynamic>>.from(requestsData);
         _isLoadingRequests = false;
       });
 
+      print('✅ HomeDriver: Loaded ${requestsData.length} jasa titip requests');
+
     } catch (e) {
+      print('❌ HomeDriver: Error loading jasa titip requests: $e');
       setState(() {
+        _jasaTitipRequests = [];
         _isLoadingRequests = false;
       });
-      print('Error loading jasa titip requests: $e');
-    }
-  }
-
-  // Load all driver requests for history
-  Future<void> _loadDriverRequests() async {
-    if (_driverId == null) return;
-
-    try {
-      final response = await DriverRequestService.getDriverRequestHistory(
-        page: 1,
-        limit: 10,
-        status: null,
-      );
-
-      final requestsData = response['requests'] ?? [];
-      setState(() {
-        _driverRequests = List<Map<String, dynamic>>.from(requestsData);
-      });
-
-    } catch (e) {
-      print('Error loading driver requests: $e');
     }
   }
 
   // Start periodic polling for new orders and requests
   void _startPeriodicUpdates() {
-    // Poll for new orders every 15 seconds when active
-    _orderPollingTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+    // Poll for new orders every 30 seconds when active
+    _orderPollingTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (_driverStatus == 'active' && mounted && _driverId != null) {
         _loadRegularOrders();
       }
     });
 
-    // Poll for new requests every 10 seconds when active
-    _requestPollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    // Poll for new requests every 20 seconds when active
+    _requestPollingTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
       if (_driverStatus == 'active' && mounted && _driverId != null) {
         _loadJasaTitipRequests();
       }
     });
   }
 
-  // Toggle driver status - FIXED TO USE PROPER ENDPOINT
+  // Toggle driver status
   Future<void> _toggleDriverStatus() async {
     if (_isUpdatingStatus || _driverId == null) return;
 
@@ -563,7 +366,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // FIXED: Use UserService to update driver status instead of DriverService
+  // Set driver status using AuthService.updateProfile
   Future<void> _setDriverStatus(String newStatus) async {
     if (_driverId == null) {
       _showErrorDialog('Driver ID tidak ditemukan. Silakan login ulang.');
@@ -575,8 +378,9 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     });
 
     try {
-      // Use AuthService to update profile instead of DriverService.updateDriverStatus
-      // This avoids unauthorized access error
+      print('🔄 HomeDriver: Updating driver status to: $newStatus');
+
+      // Use AuthService to update profile
       final updateData = {
         'driver': {
           'status': newStatus,
@@ -590,189 +394,155 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         _isUpdatingStatus = false;
       });
 
-      // Update local cached data
-      if (_driverData != null) {
-        _driverData!['status'] = newStatus;
-      }
-      if (_userData != null && _userData!['driver'] != null) {
-        _userData!['driver']['status'] = newStatus;
-        await TokenService.saveUserData(_userData!);
-      }
+      print('✅ HomeDriver: Driver status updated to: $newStatus');
 
+      // Show status dialog
       if (newStatus == 'active') {
         _showDriverActiveDialog();
       }
 
-      // Refresh orders when status changes
+      // Refresh data when status changes to active
       if (newStatus == 'active') {
         _loadRegularOrders();
         _loadJasaTitipRequests();
       }
 
     } catch (e) {
+      print('❌ HomeDriver: Error updating driver status: $e');
       setState(() {
         _isUpdatingStatus = false;
       });
-
-      // If auth service fails, try alternative approach using UserService
-      try {
-        print('AuthService failed, trying UserService approach...');
-        await _updateDriverStatusAlternative(newStatus);
-      } catch (e2) {
-        _showErrorDialog('Gagal mengubah status driver: $e2');
-      }
+      _showErrorDialog('Gagal mengubah status driver: $e');
     }
   }
 
-  // Alternative method to update driver status using UserService
-  Future<void> _updateDriverStatusAlternative(String newStatus) async {
-    try {
-      // Try updating using UserService.updateProfile
-      final updateData = {
-        'status': newStatus,
-      };
-
-      await UserService.updateProfile(updateData: updateData);
-
-      setState(() {
-        _driverStatus = newStatus;
-        _isUpdatingStatus = false;
-      });
-
-      // Update local cached data
-      if (_driverData != null) {
-        _driverData!['status'] = newStatus;
-      }
-      if (_userData != null && _userData!['driver'] != null) {
-        _userData!['driver']['status'] = newStatus;
-        await TokenService.saveUserData(_userData!);
-      }
-
-      if (newStatus == 'active') {
-        _showDriverActiveDialog();
-      }
-
-      // Refresh orders when status changes
-      if (newStatus == 'active') {
-        _loadRegularOrders();
-        _loadJasaTitipRequests();
-      }
-
-    } catch (e) {
-      print('Alternative update method also failed: $e');
-      throw Exception('Semua metode update status gagal: $e');
-    }
-  }
-
-  // Accept regular order
+  // Accept regular order - Navigate to HistoryDriverDetailPage
   Future<void> _acceptRegularOrder(Map<String, dynamic> orderData) async {
     try {
       final String orderId = orderData['id'].toString();
 
-      // Update order status to accepted
+      print('🔄 HomeDriver: Accepting regular order: $orderId');
+
+      // Update order status to confirmed
       await OrderService.updateOrderStatus(
         orderId: orderId,
         status: 'confirmed',
         notes: 'Driver telah menerima pesanan',
       );
 
-      // Show success and refresh
+      // Play success sound
       _playSound('audio/kring.mp3');
-      _showOrderAcceptedDialog(orderData);
+
+      // Show success dialog and navigate to detail
+      _showOrderAcceptedDialog(orderData, () {
+        Navigator.pushNamed(
+          context,
+          HistoryDriverDetailPage.route,
+          arguments: orderId,
+        );
+      });
+
+      // Refresh orders list
       _loadRegularOrders();
 
+      print('✅ HomeDriver: Regular order accepted successfully');
+
     } catch (e) {
+      print('❌ HomeDriver: Error accepting regular order: $e');
       _showErrorDialog('Gagal menerima pesanan: $e');
     }
   }
 
-  // Accept jasa titip request using DriverRequestService.acceptDriverRequest()
+  // Accept jasa titip request using DriverRequestService.respondToDriverRequest() - Navigate to ContactUserPage
   Future<void> _acceptJasaTitipRequest(Map<String, dynamic> requestData) async {
     try {
       final String requestId = requestData['id'].toString();
 
-      await DriverRequestService.acceptDriverRequest(
+      print('🔄 HomeDriver: Accepting jasa titip request: $requestId');
+
+      // Use respondToDriverRequest with accept action
+      await DriverRequestService.respondToDriverRequest(
         requestId: requestId,
+        action: 'accept',
         estimatedPickupTime: DateTime.now().add(Duration(minutes: 15)).toIso8601String(),
         estimatedDeliveryTime: DateTime.now().add(Duration(hours: 1)).toIso8601String(),
-        notes: 'Driver akan segera menghubungi Anda',
+        notes: 'Driver akan segera menghubungi Anda untuk detail pembelian',
       );
 
+      // Play success sound
       _playSound('audio/kring.mp3');
-      _showRequestAcceptedDialog(requestData);
+
+      // Show success dialog and navigate to contact user
+      _showRequestAcceptedDialog(requestData, () {
+        // Extract order ID from request data
+        final orderId = requestData['order']?['id']?.toString() ?? requestData['orderId']?.toString();
+
+        if (orderId != null) {
+          Navigator.pushNamed(
+            context,
+            ContactUserPage.route,
+            arguments: {
+              'orderId': orderId,
+              'orderDetail': requestData,
+            },
+          );
+        } else {
+          _showErrorDialog('Order ID tidak ditemukan dalam request data');
+        }
+      });
+
+      // Refresh requests list
       _loadJasaTitipRequests();
 
+      print('✅ HomeDriver: Jasa titip request accepted successfully');
+
     } catch (e) {
+      print('❌ HomeDriver: Error accepting jasa titip request: $e');
       _showErrorDialog('Gagal menerima permintaan: $e');
     }
   }
 
-  // Reject jasa titip request using DriverRequestService.rejectDriverRequest()
+  // Reject jasa titip request using DriverRequestService.respondToDriverRequest()
   Future<void> _rejectJasaTitipRequest(Map<String, dynamic> requestData) async {
     try {
       final String requestId = requestData['id'].toString();
 
-      await DriverRequestService.rejectDriverRequest(
+      print('🔄 HomeDriver: Rejecting jasa titip request: $requestId');
+
+      // Use respondToDriverRequest with reject action
+      await DriverRequestService.respondToDriverRequest(
         requestId: requestId,
-        reason: 'Driver tidak tersedia saat ini',
+        action: 'reject',
+        notes: 'Driver tidak tersedia saat ini',
       );
 
+      // Play rejection sound
       _playSound('audio/wrong.mp3');
+
+      // Refresh requests list
       _loadJasaTitipRequests();
 
+      print('✅ HomeDriver: Jasa titip request rejected successfully');
+
     } catch (e) {
+      print('❌ HomeDriver: Error rejecting jasa titip request: $e');
       _showErrorDialog('Gagal menolak permintaan: $e');
     }
   }
 
-  // Start delivery using TrackingService.startDelivery()
-  Future<void> _startDelivery(String orderId) async {
-    try {
-      await TrackingService.startDelivery(orderId);
-
-      // Update local status
-      await _setDriverStatus('busy');
-      _showDeliveryStartedDialog();
-      _loadRegularOrders();
-
-    } catch (e) {
-      _showErrorDialog('Gagal memulai pengiriman: $e');
-    }
-  }
-
-  // Complete delivery using TrackingService.completeDelivery()
-  Future<void> _completeDelivery(String orderId) async {
-    try {
-      await TrackingService.completeDelivery(orderId);
-
-      // Update driver status back to active
-      await _setDriverStatus('active');
-
-      _showDeliveryCompletedDialog();
-      _loadRegularOrders();
-
-    } catch (e) {
-      _showErrorDialog('Gagal menyelesaikan pengiriman: $e');
-    }
-  }
-
-  // FIXED: Navigate to Profile with proper error handling
+  // Navigate to Profile
   void _navigateToProfile() async {
     try {
-      print('Navigating to ProfileDriverPage...');
-
-      // Ensure we have the route registered properly
+      print('🔄 HomeDriver: Navigating to ProfileDriverPage...');
       await Navigator.pushNamed(context, ProfileDriverPage.route);
-
     } catch (e) {
-      print('Error navigating to profile: $e');
+      print('❌ HomeDriver: Error navigating to profile: $e');
       _showErrorDialog('Gagal membuka halaman profil: $e');
     }
   }
 
   // Handle notification tap
   void _handleNotificationTap(NotificationResponse details) {
-    // Navigate to appropriate screen based on notification
     if (details.payload != null) {
       final data = details.payload!.split('|');
       if (data.length >= 2) {
@@ -780,26 +550,12 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         final id = data[1];
 
         if (type == 'order') {
-          _navigateToOrderDetail(id);
+          Navigator.pushNamed(context, HistoryDriverDetailPage.route, arguments: id);
         } else if (type == 'request') {
-          _navigateToRequestDetail(id);
+          Navigator.pushNamed(context, ContactUserPage.route, arguments: {'orderId': id});
         }
       }
     }
-  }
-
-  void _navigateToOrderDetail(String orderId) {
-    // Navigate to order detail page
-    Navigator.pushNamed(
-      context,
-      HistoryDriverDetailPage.route,
-      arguments: orderId,
-    );
-  }
-
-  void _navigateToRequestDetail(String requestId) {
-    // Navigate to request detail page
-    // Implementation depends on your request detail page
   }
 
   // Sound effects
@@ -842,11 +598,12 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Anda akan menerima pesanan baru.',
+                  'Anda akan menerima pesanan dan permintaan jasa titip.',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
                   ),
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),
@@ -891,7 +648,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
             ),
           ),
           content: Text(
-            'Anda yakin ingin menonaktifkan status? Anda tidak akan menerima pesanan baru.',
+            'Anda yakin ingin menonaktifkan status? Anda tidak akan menerima pesanan atau permintaan baru.',
             style: TextStyle(
               fontFamily: GlobalStyle.fontFamily,
             ),
@@ -929,7 +686,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
-  void _showOrderAcceptedDialog(Map<String, dynamic> orderData) {
+  void _showOrderAcceptedDialog(Map<String, dynamic> orderData, VoidCallback onViewDetail) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -970,7 +727,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               child: ElevatedButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  _navigateToOrderDetail(orderData['id'].toString());
+                  onViewDetail();
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
@@ -978,7 +735,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   minimumSize: const Size(double.infinity, 45),
                 ),
                 child: Text(
-                  'Lihat Detail',
+                  'Lihat Detail Pesanan',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -993,7 +750,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
-  void _showRequestAcceptedDialog(Map<String, dynamic> requestData) {
+  void _showRequestAcceptedDialog(Map<String, dynamic> requestData, VoidCallback onContactCustomer) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1011,7 +768,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 16),
               Text(
-                'Permintaan Jasa Titip Diterima!',
+                'Jasa Titip Diterima!',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -1021,7 +778,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 8),
               Text(
-                'Silakan hubungi customer untuk detail lebih lanjut.',
+                'Silakan hubungi customer untuk koordinasi lebih lanjut.',
                 style: TextStyle(
                   fontSize: 14,
                   fontFamily: GlobalStyle.fontFamily,
@@ -1034,137 +791,17 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           actions: [
             Center(
               child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  onContactCustomer();
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   minimumSize: const Size(double.infinity, 45),
                 ),
                 child: Text(
-                  'Mengerti',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showDeliveryStartedDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Lottie.asset(
-                'assets/animations/diantar.json',
-                width: 150,
-                height: 150,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Pengiriman Dimulai!',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Selamat mengantar. Hati-hati di jalan!',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontFamily: GlobalStyle.fontFamily,
-                  color: Colors.grey[600],
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-          actions: [
-            Center(
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: GlobalStyle.primaryColor,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  minimumSize: const Size(double.infinity, 45),
-                ),
-                child: Text(
-                  'OK',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showDeliveryCompletedDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Lottie.asset(
-                'assets/animations/pesanan_selesai.json',
-                width: 150,
-                height: 150,
-                repeat: false,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Pengiriman Selesai!',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Terima kasih atas pelayanan yang baik!',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontFamily: GlobalStyle.fontFamily,
-                  color: Colors.grey[600],
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-          actions: [
-            Center(
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: GlobalStyle.primaryColor,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  minimumSize: const Size(double.infinity, 45),
-                ),
-                child: Text(
-                  'OK',
+                  'Hubungi Customer',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -1230,7 +867,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     super.dispose();
   }
 
-  // Helper method to get status color
+  // Helper methods for status
   Color _getStatusColor(String status) {
     switch (status) {
       case 'active':
@@ -1243,7 +880,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // Helper method to get status label
   String _getStatusLabel(String status) {
     switch (status) {
       case 'active':
@@ -1258,11 +894,12 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
   // Build regular order card
   Widget _buildRegularOrderCard(Map<String, dynamic> orderData, int index) {
-    final String customerName = orderData['customer']?['name'] ?? 'Customer';
+    final String customerName = orderData['customer']?['name'] ?? orderData['user']?['name'] ?? 'Customer';
     final String storeName = orderData['store']?['name'] ?? 'Store';
-    final double totalAmount = (orderData['total_amount'] ?? 0).toDouble();
-    final String status = orderData['orderStatus'] ?? 'pending';
+    final double totalAmount = ((orderData['total_amount'] ?? orderData['totalAmount'] ?? orderData['total']) ?? 0).toDouble();
+    final String status = orderData['status'] ?? orderData['orderStatus'] ?? 'pending';
     final String orderId = orderData['id'].toString();
+    final createdAt = orderData['created_at'] ?? orderData['createdAt'] ?? DateTime.now().toIso8601String();
 
     return SlideTransition(
       position: _cardAnimations[index % _cardAnimations.length],
@@ -1407,9 +1044,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                         ),
                       ),
                       Text(
-                        DateFormat('dd/MM, HH:mm').format(
-                            DateTime.parse(orderData['created_at'] ?? DateTime.now().toIso8601String())
-                        ),
+                        DateFormat('dd/MM, HH:mm').format(DateTime.parse(createdAt)),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[600],
@@ -1427,7 +1062,13 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => _navigateToOrderDetail(orderId),
+                      onPressed: () {
+                        Navigator.pushNamed(
+                          context,
+                          HistoryDriverDetailPage.route,
+                          arguments: orderId,
+                        );
+                      },
                       style: OutlinedButton.styleFrom(
                         foregroundColor: GlobalStyle.primaryColor,
                         side: BorderSide(color: GlobalStyle.primaryColor),
@@ -1439,48 +1080,19 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                     ),
                   ),
                   const SizedBox(width: 8),
-                  if (status == 'confirmed' || status == 'preparing')
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _acceptRegularOrder(orderData),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: GlobalStyle.primaryColor,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _acceptRegularOrder(orderData),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Text('Terima'),
                       ),
+                      child: const Text('Terima'),
                     ),
-                  if (status == 'ready_for_pickup')
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _startDelivery(orderId),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text('Mulai Antar'),
-                      ),
-                    ),
-                  if (status == 'on_delivery')
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _completeDelivery(orderId),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text('Selesai'),
-                      ),
-                    ),
+                  ),
                 ],
               ),
             ],
@@ -1493,11 +1105,12 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   // Build jasa titip request card
   Widget _buildJasaTitipCard(Map<String, dynamic> requestData, int index) {
     final Map<String, dynamic> orderData = requestData['order'] ?? {};
-    final String customerName = orderData['customer']?['name'] ?? 'Customer';
-    final String notes = requestData['notes'] ?? 'Tidak ada catatan';
-    final String location = requestData['location'] ?? 'Lokasi tidak tersedia';
-    final double deliveryFee = (requestData['delivery_fee'] ?? 0).toDouble();
+    final String customerName = orderData['customer']?['name'] ?? orderData['user']?['name'] ?? 'Customer';
+    final String notes = requestData['notes'] ?? orderData['notes'] ?? orderData['description'] ?? 'Tidak ada catatan';
+    final String location = requestData['location'] ?? orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? 'Lokasi tidak tersedia';
+    final double deliveryFee = ((requestData['delivery_fee'] ?? requestData['deliveryFee'] ?? orderData['delivery_fee'] ?? orderData['deliveryFee']) ?? 0).toDouble();
     final String requestId = requestData['id'].toString();
+    final createdAt = requestData['created_at'] ?? requestData['createdAt'] ?? DateTime.now().toIso8601String();
 
     return SlideTransition(
       position: _cardAnimations[index % _cardAnimations.length],
@@ -1576,28 +1189,45 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 16),
 
-              // Customer Info
+              // Customer Info & Date
               Row(
                 children: [
-                  Icon(Icons.person, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 8),
-                  Text(
-                    customerName,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      fontFamily: GlobalStyle.fontFamily,
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Icon(Icons.person, size: 16, color: Colors.grey[600]),
+                        const SizedBox(width: 8),
+                        Text(
+                          customerName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const Spacer(),
-                  Text(
-                    GlobalStyle.formatRupiah(deliveryFee),
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        GlobalStyle.formatRupiah(deliveryFee),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                      Text(
+                        DateFormat('dd/MM, HH:mm').format(DateTime.parse(createdAt)),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1700,7 +1330,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
   // Helper methods for order status
   Color _getOrderStatusColor(String status) {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'confirmed':
         return Colors.blue;
       case 'preparing':
@@ -1715,7 +1345,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   }
 
   String _getOrderStatusLabel(String status) {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'confirmed':
         return 'Dikonfirmasi';
       case 'preparing':
@@ -1827,7 +1457,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _loadInitialData,
+                onPressed: _initializeAuthentication,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   foregroundColor: Colors.white,
@@ -1885,10 +1515,10 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                               fontFamily: GlobalStyle.fontFamily,
                             ),
                           ),
-                          if (_userData != null) ...[
+                          if (_driverId != null) ...[
                             const SizedBox(height: 4),
                             Text(
-                              'ID Driver: ${_driverId ?? 'N/A'}',
+                              'ID Driver: $_driverId',
                               style: TextStyle(
                                 color: GlobalStyle.fontColor.withOpacity(0.7),
                                 fontSize: 12,
@@ -1899,7 +1529,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                         ],
                       ),
                       GestureDetector(
-                        onTap: _navigateToProfile, // FIXED: Use proper navigation method
+                        onTap: _navigateToProfile,
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
