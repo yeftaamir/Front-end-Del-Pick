@@ -19,7 +19,7 @@ import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/image_service.dart';
-import 'package:del_pick/Services/tracking_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
 
 // Import Components
 import '../Component/cust_order_status.dart';
@@ -64,6 +64,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
   List<MenuItemModel> _menuItems = [];
   Map<String, dynamic>? _orderReviews;
   Map<String, dynamic>? _driverReviews;
+  Map<String, dynamic>? _customerData;
 
   // Status tracking
   Timer? _statusUpdateTimer;
@@ -73,8 +74,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
   void initState() {
     super.initState();
     _initializeAnimations();
-    _loadOrderDetail();
-    _startStatusTracking();
+    _validateAndLoadData();
   }
 
   void _initializeAnimations() {
@@ -144,24 +144,34 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     super.dispose();
   }
 
-  // Load order detail using OrderService.getOrderById()
-  Future<void> _loadOrderDetail() async {
+  // ✅ PERBAIKAN: Validate customer access and load data
+  Future<void> _validateAndLoadData() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      // Get order detail
-      final orderData = await OrderService.getOrderById(widget.order.id.toString());
-      _orderDetail = OrderModel.fromJson(orderData);
+      print('🔍 HistoryDetailPage: Validating customer access...');
 
-      // Load related data
-      await Future.wait([
-        _loadDriverDetail(),
-        _loadStoreDetail(),
-        _loadOrderReviews(),
-      ]);
+      // ✅ PERBAIKAN: Validate customer access first
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required');
+      }
+
+      // ✅ PERBAIKAN: Get customer data
+      _customerData = await AuthService.getCustomerData();
+      if (_customerData == null) {
+        throw Exception('Unable to retrieve customer data');
+      }
+
+      print('✅ HistoryDetailPage: Customer access validated');
+      print('   - Customer ID: ${_customerData!['id']}');
+      print('   - Customer Name: ${_customerData!['name']}');
+
+      // Load order detail
+      await _loadOrderDetail();
 
       setState(() {
         _isLoading = false;
@@ -175,59 +185,121 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         _reviewCardController.forward();
       }
     } catch (e) {
+      print('❌ HistoryDetailPage: Validation/Load error: $e');
       setState(() {
         _isLoading = false;
         _errorMessage = 'Failed to load order details: $e';
       });
-      print('Error loading order detail: $e');
     }
   }
 
-  // Load driver detail using DriverService.getDriverById()
+  // ✅ PERBAIKAN: Load order detail using OrderService.getOrderById() with enhanced auth
+  Future<void> _loadOrderDetail() async {
+    try {
+      print('🔍 HistoryDetailPage: Loading order detail: ${widget.order.id}');
+
+      // ✅ PERBAIKAN: Ensure valid user session
+      final hasValidSession = await AuthService.ensureValidUserData();
+      if (!hasValidSession) {
+        throw Exception('Invalid user session. Please login again.');
+      }
+
+      // Get order detail with enhanced error handling
+      final orderData = await OrderService.getOrderById(widget.order.id.toString());
+      _orderDetail = OrderModel.fromJson(orderData);
+
+      print('✅ HistoryDetailPage: Order detail loaded successfully');
+      print('   - Order Status: ${_orderDetail!.orderStatus.name}');
+      print('   - Driver ID: ${_orderDetail?.driverId}');
+      print('   - Store ID: ${_orderDetail?.storeId}');
+
+      // Load related data
+      await Future.wait([
+        _loadDriverDetail(),
+        _loadStoreDetail(),
+        _loadOrderReviews(),
+      ]);
+
+      // Start status tracking if order is not completed
+      if (!_orderDetail!.orderStatus.isCompleted) {
+        _startStatusTracking();
+      }
+    } catch (e) {
+      print('❌ HistoryDetailPage: Error loading order detail: $e');
+      throw Exception('Failed to load order details: $e');
+    }
+  }
+
+  // ✅ PERBAIKAN: Load driver detail using DriverService.getDriverById() with validation
   Future<void> _loadDriverDetail() async {
-    if (_orderDetail?.driverId == null) return;
+    if (_orderDetail?.driverId == null) {
+      print('⚠️ HistoryDetailPage: No driver assigned to this order');
+      return;
+    }
 
     setState(() {
       _isLoadingDriver = true;
     });
 
     try {
+      print('🔍 HistoryDetailPage: Loading driver detail: ${_orderDetail!.driverId}');
+
       final driverData = await DriverService.getDriverById(_orderDetail!.driverId.toString());
       setState(() {
         _driverDetail = DriverModel.fromJson(driverData);
         _isLoadingDriver = false;
       });
+
+      print('✅ HistoryDetailPage: Driver detail loaded successfully');
+      print('   - Driver Name: ${_driverDetail!.name}');
+      print('   - Driver Rating: ${_driverDetail!.rating}');
     } catch (e) {
       setState(() {
         _isLoadingDriver = false;
       });
-      print('Error loading driver detail: $e');
+      print('❌ HistoryDetailPage: Error loading driver detail: $e');
     }
   }
 
-  // Load store detail using StoreService.getStoreById()
+  // ✅ PERBAIKAN: Load store detail using StoreService.getStoreById() with validation
   Future<void> _loadStoreDetail() async {
-    if (_orderDetail?.storeId == null) return;
+    if (_orderDetail?.storeId == null) {
+      print('⚠️ HistoryDetailPage: No store ID found for this order');
+      return;
+    }
 
     setState(() {
       _isLoadingStore = true;
     });
 
     try {
+      print('🔍 HistoryDetailPage: Loading store detail: ${_orderDetail!.storeId}');
+
       final storeData = await StoreService.getStoreById(_orderDetail!.storeId.toString());
-      _storeDetail = StoreModel.fromJson(storeData);
+      if (storeData['success'] == true && storeData['data'] != null) {
+        _storeDetail = StoreModel.fromJson(storeData['data']);
 
-      // Load menu items from store using MenuItemService.getMenuItemsByStore()
-      final menuData = await MenuItemService.getMenuItemsByStore(
-        storeId: _orderDetail!.storeId.toString(),
-        page: 1,
-        limit: 50,
-      );
+        print('✅ HistoryDetailPage: Store detail loaded successfully');
+        print('   - Store Name: ${_storeDetail!.name}');
+        print('   - Store Rating: ${_storeDetail!.rating}');
 
-      if (menuData['data'] != null) {
-        _menuItems = (menuData['data'] as List)
-            .map((item) => MenuItemModel.fromJson(item))
-            .toList();
+        // Load menu items from store using MenuService.getMenuItemsByStore()
+        try {
+          final menuData = await MenuItemService.getMenuItemsByStore(
+            storeId: _orderDetail!.storeId.toString(),
+            page: 1,
+            limit: 50,
+          );
+
+          if (menuData['success'] == true && menuData['data'] != null) {
+            _menuItems = (menuData['data'] as List)
+                .map((item) => MenuItemModel.fromJson(item))
+                .toList();
+            print('✅ HistoryDetailPage: Menu items loaded: ${_menuItems.length} items');
+          }
+        } catch (menuError) {
+          print('⚠️ HistoryDetailPage: Error loading menu items: $menuError');
+        }
       }
 
       setState(() {
@@ -237,37 +309,64 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       setState(() {
         _isLoadingStore = false;
       });
-      print('Error loading store detail: $e');
+      print('❌ HistoryDetailPage: Error loading store detail: $e');
     }
   }
 
-  // Load existing reviews
+  // ✅ PERBAIKAN: Load existing reviews with enhanced structure
   Future<void> _loadOrderReviews() async {
     setState(() {
       _isLoadingReviews = true;
     });
 
     try {
-      // Check if order has reviews in the order detail data
-      if (_orderDetail != null) {
-        // Assume reviews are included in order detail response
-        // You may need to adjust this based on your actual API response structure
-        final orderData = await OrderService.getOrderById(_orderDetail!.id.toString());
+      print('🔍 HistoryDetailPage: Loading order reviews...');
 
-        if (orderData['reviews'] != null) {
-          final reviews = orderData['reviews'] as List;
-          for (var review in reviews) {
-            if (review['type'] == 'store' || review['target_type'] == 'store') {
-              _orderReviews = review;
-            } else if (review['type'] == 'driver' || review['target_type'] == 'driver') {
-              _driverReviews = review;
-            }
+      // Get fresh order data to check for reviews
+      final orderData = await OrderService.getOrderById(_orderDetail!.id.toString());
+
+      // ✅ PERBAIKAN: Check for reviews in different possible structures
+      if (orderData['orderReviews'] != null) {
+        final reviews = orderData['orderReviews'];
+        if (reviews is List && reviews.isNotEmpty) {
+          _orderReviews = Map<String, dynamic>.from(reviews.first as Map);
+          print('✅ HistoryDetailPage: Order review found');
+        } else if (reviews is Map) {
+          _orderReviews = Map<String, dynamic>.from(reviews as Map);
+          print('✅ HistoryDetailPage: Order review found (Map structure)');
+        }
+      }
+
+      if (orderData['driverReviews'] != null) {
+        final reviews = orderData['driverReviews'];
+        if (reviews is List && reviews.isNotEmpty) {
+          _driverReviews = Map<String, dynamic>.from(reviews.first as Map);
+          print('✅ HistoryDetailPage: Driver review found');
+        } else if (reviews is Map) {
+          _driverReviews = Map<String, dynamic>.from(reviews as Map);
+          print('✅ HistoryDetailPage: Driver review found (Map structure)');
+        }
+      }
+
+      // ✅ PERBAIKAN: Alternative review structure check
+      if (orderData['reviews'] != null) {
+        final reviews = orderData['reviews'] as List;
+        for (var review in reviews) {
+          if (review['type'] == 'store' || review['target_type'] == 'store') {
+            _orderReviews = review;
+          } else if (review['type'] == 'driver' || review['target_type'] == 'driver') {
+            _driverReviews = review;
           }
         }
-
-        // Check if user has given rating
-        _hasGivenRating = _orderReviews != null || _driverReviews != null;
       }
+
+      // Check if user has given rating
+      _hasGivenRating = _orderReviews != null || _driverReviews != null;
+
+      print('📊 HistoryDetailPage: Review status:');
+      print('   - Has Order Review: ${_orderReviews != null}');
+      print('   - Has Driver Review: ${_driverReviews != null}');
+      print('   - Has Given Rating: $_hasGivenRating');
 
       setState(() {
         _isLoadingReviews = false;
@@ -276,31 +375,50 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       setState(() {
         _isLoadingReviews = false;
       });
-      print('Error loading reviews: $e');
+      print('❌ HistoryDetailPage: Error loading reviews: $e');
     }
   }
 
-  // Start periodic status tracking for active orders
+  // ✅ PERBAIKAN: Enhanced status tracking for active orders
   void _startStatusTracking() {
-    if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) return;
+    if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
+      print('⚠️ HistoryDetailPage: Order is completed, skipping status tracking');
+      return;
+    }
+
+    print('🔄 HistoryDetailPage: Starting status tracking for order ${_orderDetail!.id}');
 
     _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
       if (!mounted) {
+        print('⚠️ HistoryDetailPage: Widget unmounted, stopping timer');
         timer.cancel();
         return;
       }
 
       try {
+        print('📡 HistoryDetailPage: Checking order status update...');
+
+        // ✅ PERBAIKAN: Ensure valid session before API call
+        final hasValidSession = await AuthService.ensureValidUserData();
+        if (!hasValidSession) {
+          print('❌ HistoryDetailPage: Invalid session, stopping tracking');
+          timer.cancel();
+          return;
+        }
+
         final updatedOrderData = await OrderService.getOrderById(widget.order.id.toString());
         final updatedOrder = OrderModel.fromJson(updatedOrderData);
 
         if (mounted) {
+          print('✅ HistoryDetailPage: Order status updated: ${updatedOrder.orderStatus.name}');
+
           setState(() {
             _orderDetail = updatedOrder;
           });
 
           // Load driver if newly assigned
           if (updatedOrder.driverId != null && _driverDetail == null) {
+            print('🚗 HistoryDetailPage: New driver assigned, loading driver details...');
             await _loadDriverDetail();
             if (_driverDetail != null) {
               _driverCardController.forward();
@@ -309,17 +427,22 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
           // Stop tracking if order is completed
           if (updatedOrder.orderStatus.isCompleted) {
+            print('✅ HistoryDetailPage: Order completed, stopping tracking');
             timer.cancel();
             await _loadOrderReviews();
+            if (_orderReviews != null || _driverReviews != null) {
+              _reviewCardController.forward();
+            }
           }
         }
       } catch (e) {
-        print('Error updating order status: $e');
+        print('❌ HistoryDetailPage: Error updating order status: $e');
+        // Don't stop tracking on temporary errors
       }
     });
   }
 
-  // Cancel order using OrderService.cancelOrder()
+  // ✅ PERBAIKAN: Cancel order using OrderService.cancelOrder() with validation
   Future<void> _cancelOrder() async {
     // Show confirmation dialog
     final shouldCancel = await showDialog<bool>(
@@ -349,10 +472,20 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     });
 
     try {
+      print('🚫 HistoryDetailPage: Cancelling order: ${_orderDetail!.id}');
+
+      // ✅ PERBAIKAN: Validate customer access before cancelling
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required');
+      }
+
       await OrderService.cancelOrder(_orderDetail!.id.toString());
 
       // Refresh order detail
       await _loadOrderDetail();
+
+      print('✅ HistoryDetailPage: Order cancelled successfully');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -365,6 +498,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         );
       }
     } catch (e) {
+      print('❌ HistoryDetailPage: Error cancelling order: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -382,11 +516,19 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
   }
 
-  // Handle rating submission using OrderService.createReview()
+  // ✅ PERBAIKAN: Handle rating submission using OrderService.createReview() with validation
   Future<void> _handleRatingSubmission() async {
     if (_orderDetail == null) return;
 
     try {
+      print('⭐ HistoryDetailPage: Opening rating page for order: ${_orderDetail!.id}');
+
+      // ✅ PERBAIKAN: Validate customer access before rating
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required for rating');
+      }
+
       final result = await Navigator.push(
         context,
         MaterialPageRoute(
@@ -397,24 +539,22 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       );
 
       if (result != null && result is Map<String, dynamic>) {
-        // Submit review using OrderService.createReview()
-        final reviewData = {
-          'orderId': _orderDetail!.id.toString(),
-          'orderReview': {
+        print('📝 HistoryDetailPage: Rating received, submitting review...');
+
+        // ✅ PERBAIKAN: Submit review using OrderService.createReview()
+        await OrderService.createReview(
+          orderId: _orderDetail!.id.toString(),
+          orderReview: {
             'rating': result['storeRating'] ?? 5,
             'comment': result['storeComment'] ?? '',
           },
-          'driverReview': {
+          driverReview: {
             'rating': result['driverRating'] ?? 5,
             'comment': result['driverComment'] ?? '',
           },
-        };
-
-        await OrderService.createReview(
-          orderId: reviewData['orderId'] as String,
-          orderReview: reviewData['orderReview'] as Map<String, dynamic>,
-          driverReview: reviewData['driverReview'] as Map<String, dynamic>,
         );
+
+        print('✅ HistoryDetailPage: Review submitted successfully');
 
         // Reload reviews to display them
         await _loadOrderReviews();
@@ -435,6 +575,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         }
       }
     } catch (e) {
+      print('❌ HistoryDetailPage: Error handling rating submission: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -527,6 +668,11 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 'assets/animations/loading_animation.json',
                 width: 150,
                 height: 150,
+                errorBuilder: (context, error, stackTrace) {
+                  return CircularProgressIndicator(
+                    color: GlobalStyle.primaryColor,
+                  );
+                },
               ),
               const SizedBox(height: 16),
               Text(
@@ -570,6 +716,13 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 'assets/animations/caution.json',
                 width: 150,
                 height: 150,
+                errorBuilder: (context, error, stackTrace) {
+                  return Icon(
+                    Icons.warning_amber_rounded,
+                    size: 100,
+                    color: Colors.orange,
+                  );
+                },
               ),
               const SizedBox(height: 16),
               Text(
@@ -594,7 +747,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
-                onPressed: _loadOrderDetail,
+                onPressed: _validateAndLoadData,
                 icon: const Icon(Icons.refresh),
                 label: const Text("Coba Lagi"),
                 style: ElevatedButton.styleFrom(
@@ -655,22 +808,38 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Order Status Card
+          // ✅ PERBAIKAN: CustomerOrderStatusCard integration
           if (_orderDetail != null)
-            CustomerOrderStatusCard(
-              initialOrderData: {
-                'id': _orderDetail!.id,
-                'order_status': _orderDetail!.orderStatus.name,
-                'total': _orderDetail!.totalAmount,
-                'customer': {
-                  'name': _orderDetail!.customer?.name ?? 'Customer',
-                  'avatar': _orderDetail!.customer?.avatar,
-                  'phone': _orderDetail!.customer?.phone ?? '',
-                },
-                'estimatedDeliveryTime': _orderDetail!.estimatedDeliveryTime?.toIso8601String() ??
-                    DateTime.now().add(Duration(minutes: 30)).toIso8601String(),
-              },
-              animation: _cardAnimations[0],
+            SlideTransition(
+              position: _cardAnimations[0],
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                child: CustomerOrderStatusCard(
+                  initialOrderData: {
+                    'id': _orderDetail!.id,
+                    'order_status': _orderDetail!.orderStatus.name,
+                    'total': _orderDetail!.totalAmount,
+                    'estimatedDeliveryTime': _orderDetail!.estimatedDeliveryTime?.toIso8601String() ??
+                        DateTime.now().add(const Duration(minutes: 30)).toIso8601String(),
+                    'store': _storeDetail != null ? {
+                      'name': _storeDetail!.name,
+                      'address': _storeDetail!.address,
+                      'phone': _storeDetail!.phone,
+                    } : null,
+                    'driver': _driverDetail != null ? {
+                      'name': _driverDetail!.name,
+                      'phone': _driverDetail!.phone,
+                      'vehicle_plate': _driverDetail!.vehiclePlate,
+                      'rating': _driverDetail!.rating,
+                    } : null,
+                    'customer': _customerData != null ? {
+                      'name': _customerData!['name'],
+                      'phone': _customerData!['phone'] ?? '',
+                      'avatar': _customerData!['avatar'],
+                    } : null,
+                  },
+                ),
+              ),
             ),
 
           // Order Date Section
@@ -1316,7 +1485,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           ),
         ),
         Text(
-          _orderDetail!.formatTotalAmount(),
+          GlobalStyle.formatRupiah(amount),
           style: TextStyle(
             fontSize: isTotal ? 16 : 14,
             fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,

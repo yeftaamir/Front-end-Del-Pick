@@ -9,12 +9,11 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'dart:async';
 
 // Import services
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
-
-import '../../Services/service_manager.dart';
 
 class HomeStore extends StatefulWidget {
   static const String route = '/Store/HomePage';
@@ -40,6 +39,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   // Service data
   List<Map<String, dynamic>> _orders = [];
   Map<String, dynamic>? _storeData;
+  Map<String, dynamic>? _userData;
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
@@ -58,11 +58,21 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   String? _newOrderId;
   bool _showCelebration = false;
 
+  // Real-time order monitoring
+  Timer? _orderMonitorTimer;
+  Set<String> _existingOrderIds = {};
+
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
+    _initializeNotifications();
+    _requestPermissions();
+    _validateAndInitializeData();
+    _setupScrollListener();
+  }
 
-    // Initialize animation controllers
+  void _initializeAnimations() {
     _statisticsController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
@@ -83,76 +93,99 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       vsync: this,
     );
 
-    // Start continuous animations
     _pulseController.repeat(reverse: true);
     _rotationController.repeat();
-
-    // Initialize notifications
-    _initializeNotifications();
-
-    // Request notification permissions
-    _requestPermissions();
-
-    // Load initial data
-    _initializeData();
-
-    // Setup scroll listener for pagination
-    _setupScrollListener();
   }
 
-  Future<void> _initializeData() async {
+  // ✅ PERBAIKAN: Enhanced validation and initialization
+  Future<void> _validateAndInitializeData() async {
     try {
       setState(() {
         _isLoading = true;
         _hasError = false;
       });
 
-      // Get store-specific data
+      print('🏪 HomeStore: Starting validation and initialization...');
+
+      // ✅ PERBAIKAN: Validate store access
+      final hasStoreAccess = await AuthService.hasRole('store');
+      if (!hasStoreAccess) {
+        throw Exception('Access denied: Store authentication required');
+      }
+
+      // ✅ PERBAIKAN: Ensure valid user session
+      final hasValidSession = await AuthService.ensureValidUserData();
+      if (!hasValidSession) {
+        throw Exception('Invalid user session. Please login again.');
+      }
+
+      print('✅ HomeStore: Store access validated');
+
+      // Load store-specific data
       await _loadStoreData();
 
       // Load orders and statistics
       await _loadOrders();
       await _calculateStatistics();
 
+      // Start real-time monitoring
+      _startOrderMonitoring();
+
       // Start statistics animation
       _statisticsController.forward();
 
+      setState(() {
+        _isLoading = false;
+      });
+
+      print('✅ HomeStore: Initialization completed successfully');
+
     } catch (e) {
+      print('❌ HomeStore: Initialization error: $e');
       setState(() {
         _hasError = true;
         _errorMessage = e.toString();
-      });
-    } finally {
-      setState(() {
         _isLoading = false;
       });
     }
   }
 
+  // ✅ PERBAIKAN: Enhanced store data loading with proper AuthService usage
   Future<void> _loadStoreData() async {
     try {
-      // Get role-specific data from ServiceManager
+      print('🔍 HomeStore: Loading store data...');
+
+      // ✅ PERBAIKAN: Get role-specific data using AuthService
       final roleData = await AuthService.getRoleSpecificData();
 
       if (roleData != null && roleData['store'] != null) {
         setState(() {
           _storeData = roleData['store'];
+          _userData = roleData['user'];
         });
 
-        // Process store data
         _processStoreData(_storeData!);
+        print('✅ HomeStore: Store data loaded from cache');
+        print('   - Store ID: ${_storeData!['id']}');
+        print('   - Store Name: ${_storeData!['name']}');
       } else {
-        // Fallback: get fresh profile data
-        final profileData = await AuthService.getProfile();
-        if (profileData['store'] != null) {
+        // ✅ PERBAIKAN: Fallback to fresh profile data
+        print('⚠️ HomeStore: No cached store data, fetching fresh data...');
+        final profileData = await AuthService.refreshUserData();
+
+        if (profileData != null && profileData['store'] != null) {
           setState(() {
             _storeData = profileData['store'];
+            _userData = profileData;
           });
           _processStoreData(_storeData!);
+          print('✅ HomeStore: Fresh store data loaded');
+        } else {
+          throw Exception('Unable to load store data from profile');
         }
       }
     } catch (e) {
-      print('Error loading store data: $e');
+      print('❌ HomeStore: Error loading store data: $e');
       throw Exception('Failed to load store data: $e');
     }
   }
@@ -163,10 +196,24 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     storeData['review_count'] = storeData['review_count'] ?? 0;
     storeData['total_products'] = storeData['total_products'] ?? 0;
     storeData['status'] = storeData['status'] ?? 'active';
+
+    print('📊 HomeStore: Store data processed');
+    print('   - Rating: ${storeData['rating']}');
+    print('   - Review Count: ${storeData['review_count']}');
+    print('   - Status: ${storeData['status']}');
   }
 
+  // ✅ PERBAIKAN: Enhanced order loading with auth validation
   Future<void> _loadOrders({bool isRefresh = false}) async {
     try {
+      print('📋 HomeStore: Loading orders (refresh: $isRefresh)...');
+
+      // ✅ PERBAIKAN: Validate store access before loading orders
+      final hasStoreAccess = await AuthService.hasRole('store');
+      if (!hasStoreAccess) {
+        throw Exception('Access denied: Store authentication required');
+      }
+
       if (isRefresh) {
         setState(() {
           _currentPage = 1;
@@ -174,7 +221,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         });
       }
 
-      // Get orders by store using OrderService
+      // ✅ PERBAIKAN: Get orders by store using OrderService with auth validation
       final response = await OrderService.getOrdersByStore(
         page: _currentPage,
         limit: 10,
@@ -185,10 +232,27 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       final orders = List<Map<String, dynamic>>.from(response['orders'] ?? []);
       final totalPages = response['totalPages'] ?? 1;
 
+      print('📋 HomeStore: Retrieved ${orders.length} orders');
+
+      // ✅ PERBAIKAN: Detect new orders for celebration
+      if (!isRefresh && _existingOrderIds.isNotEmpty) {
+        for (var order in orders) {
+          final orderId = order['id']?.toString();
+          if (orderId != null && !_existingOrderIds.contains(orderId)) {
+            print('🎉 HomeStore: New order detected: $orderId');
+            _triggerNewOrderCelebration(orderId);
+            _showNotification(order);
+          }
+        }
+      }
+
+      // Update existing order IDs
+      _existingOrderIds = orders.map((order) => order['id']?.toString() ?? '').toSet();
+
       setState(() {
         if (isRefresh) {
           _orders = orders;
-          _initializeAnimations();
+          _initialAnimations();
         } else {
           _orders.addAll(orders);
           _addNewAnimations(orders.length);
@@ -205,17 +269,21 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         _startNewAnimations();
       }
 
+      print('✅ HomeStore: Orders loaded successfully');
+
     } catch (e) {
-      print('Error loading orders: $e');
+      print('❌ HomeStore: Error loading orders: $e');
       if (isRefresh) {
         throw e;
       }
     }
   }
 
+  // ✅ PERBAIKAN: Enhanced statistics calculation
   Future<void> _calculateStatistics() async {
     try {
-      // Calculate statistics from current orders
+      print('📊 HomeStore: Calculating statistics...');
+
       int pending = 0;
       int processing = 0;
       int today = 0;
@@ -249,12 +317,246 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         _todayRevenue = revenue;
       });
 
+      print('📊 HomeStore: Statistics calculated');
+      print('   - Pending: $pending, Processing: $processing');
+      print('   - Today: $today orders, Revenue: ${GlobalStyle.formatRupiah(revenue)}');
+
     } catch (e) {
-      print('Error calculating statistics: $e');
+      print('❌ HomeStore: Error calculating statistics: $e');
     }
   }
 
-  void _initializeAnimations() {
+  // ✅ PERBAIKAN: Real-time order monitoring
+  void _startOrderMonitoring() {
+    print('🔄 HomeStore: Starting real-time order monitoring...');
+
+    _orderMonitorTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      try {
+        print('📡 HomeStore: Checking for new orders...');
+
+        // ✅ PERBAIKAN: Validate session before monitoring
+        final hasValidSession = await AuthService.ensureValidUserData();
+        if (!hasValidSession) {
+          print('❌ HomeStore: Invalid session, stopping monitoring');
+          timer.cancel();
+          return;
+        }
+
+        // Get latest orders
+        final response = await OrderService.getOrdersByStore(
+          page: 1,
+          limit: 5, // Just check latest 5 orders
+          sortBy: 'created_at',
+          sortOrder: 'desc',
+        );
+
+        final latestOrders = List<Map<String, dynamic>>.from(response['orders'] ?? []);
+
+        // Check for new orders
+        bool hasNewOrders = false;
+        for (var order in latestOrders) {
+          final orderId = order['id']?.toString();
+          if (orderId != null && !_existingOrderIds.contains(orderId)) {
+            hasNewOrders = true;
+            print('🎉 HomeStore: New order detected during monitoring: $orderId');
+            break;
+          }
+        }
+
+        if (hasNewOrders) {
+          print('🔄 HomeStore: Refreshing orders due to new orders...');
+          await _refreshOrders();
+        }
+
+      } catch (e) {
+        print('❌ HomeStore: Error during order monitoring: $e');
+      }
+    });
+  }
+
+  // ✅ PERBAIKAN: Enhanced order processing with proper validation
+  Future<void> _processOrder(String orderId, String action) async {
+    try {
+      print('⚙️ HomeStore: Processing order $orderId with action: $action');
+
+      // ✅ PERBAIKAN: Validate store access before processing
+      final hasStoreAccess = await AuthService.hasRole('store');
+      if (!hasStoreAccess) {
+        throw Exception('Access denied: Store authentication required');
+      }
+
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: GlobalStyle.primaryColor),
+                const SizedBox(height: 16),
+                Text(
+                  action == 'approve' ? 'Menyetujui pesanan...' : 'Menolak pesanan...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      // ✅ PERBAIKAN: Process order using OrderService with proper action mapping
+      final mappedAction = action == 'approve' ? 'accept' : 'reject';
+      await OrderService.processOrderByStore(
+        orderId: orderId,
+        action: mappedAction,
+        estimatedPreparationTime: action == 'approve' ? '30' : null, // 30 minutes estimate
+        rejectionReason: action == 'reject' ? 'Toko sedang tutup atau item tidak tersedia' : null,
+      );
+
+      Navigator.of(context).pop(); // Close loading dialog
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              action == 'approve'
+                  ? 'Pesanan berhasil disetujui'
+                  : 'Pesanan berhasil ditolak'
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+
+      print('✅ HomeStore: Order processed successfully');
+
+      // Refresh orders and statistics
+      await _refreshOrders();
+
+    } catch (e) {
+      Navigator.of(context).pop(); // Close loading dialog
+
+      print('❌ HomeStore: Error processing order: $e');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memproses pesanan: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
+  // ✅ PERBAIKAN: Enhanced order detail viewing with validation
+  Future<void> _viewOrderDetail(String orderId) async {
+    try {
+      print('👁️ HomeStore: Viewing order detail: $orderId');
+
+      // ✅ PERBAIKAN: Validate access before viewing details
+      final hasStoreAccess = await AuthService.hasRole('store');
+      if (!hasStoreAccess) {
+        throw Exception('Access denied: Store authentication required');
+      }
+
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: GlobalStyle.primaryColor),
+                const SizedBox(height: 16),
+                Text(
+                  'Memuat detail pesanan...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      // ✅ PERBAIKAN: Get order detail with validation
+      final orderDetail = await OrderService.getOrderById(orderId);
+
+      Navigator.of(context).pop(); // Close loading dialog
+
+      if (orderDetail.isNotEmpty) {
+        // Navigate to detail page
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HistoryStoreDetailPage(
+              orderId: orderId,
+            ),
+          ),
+        );
+
+        print('✅ HomeStore: Navigated to order detail');
+      } else {
+        throw Exception('Order detail is empty');
+      }
+
+    } catch (e) {
+      Navigator.of(context).pop(); // Close loading dialog
+
+      print('❌ HomeStore: Error viewing order detail: $e');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memuat detail pesanan: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
+  // ✅ PERBAIKAN: Enhanced refresh with proper error handling
+  Future<void> _refreshOrders() async {
+    try {
+      print('🔄 HomeStore: Refreshing orders...');
+      await _loadOrders(isRefresh: true);
+      await _calculateStatistics();
+      print('✅ HomeStore: Orders refreshed successfully');
+    } catch (e) {
+      print('❌ HomeStore: Error refreshing orders: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memuat pesanan: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
+  void _initialAnimations() {
     // Dispose old controllers
     for (var controller in _cardControllers) {
       controller.dispose();
@@ -303,7 +605,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     Future.delayed(const Duration(milliseconds: 100), () {
       for (int i = 0; i < _cardControllers.length; i++) {
         Future.delayed(Duration(milliseconds: i * 100), () {
-          _cardControllers[i].forward();
+          if (mounted) _cardControllers[i].forward();
         });
       }
     });
@@ -314,7 +616,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     if (startIndex < 0) startIndex = 0;
 
     for (int i = startIndex; i < _cardControllers.length; i++) {
-      _cardControllers[i].forward();
+      if (mounted) _cardControllers[i].forward();
     }
   }
 
@@ -339,109 +641,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     try {
       await _loadOrders();
     } catch (e) {
-      print('Error loading more orders: $e');
+      print('❌ HomeStore: Error loading more orders: $e');
     } finally {
       setState(() {
         _isLoadingMore = false;
       });
-    }
-  }
-
-  Future<void> _refreshOrders() async {
-    try {
-      await _loadOrders(isRefresh: true);
-      await _calculateStatistics();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal memuat pesanan: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _processOrder(String orderId, String action) async {
-    try {
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-
-      // Process order using OrderService
-      await OrderService.processOrderByStore(
-        orderId: orderId,
-        action: action, // 'approve' or 'reject'
-      );
-
-      Navigator.of(context).pop(); // Close loading dialog
-
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              action == 'approve'
-                  ? 'Pesanan berhasil disetujui'
-                  : 'Pesanan berhasil ditolak'
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      // Refresh orders and statistics
-      await _refreshOrders();
-
-    } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal memproses pesanan: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _viewOrderDetail(String orderId) async {
-    try {
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-
-      // Get order detail using OrderService
-      final orderDetail = await OrderService.getOrderById(orderId);
-
-      Navigator.of(context).pop(); // Close loading dialog
-
-      // Navigate to detail page
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => HistoryStoreDetailPage(
-            orderId: orderId,
-          ),
-        ),
-      );
-
-    } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal memuat detail pesanan: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
     }
   }
 
@@ -487,7 +691,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     await _flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse details) {
-        // Handle notification tap
         _refreshOrders();
       },
     );
@@ -531,6 +734,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     _rotationController.dispose();
     _audioPlayer.dispose();
     _scrollController.dispose();
+    _orderMonitorTimer?.cancel();
     super.dispose();
   }
 
@@ -1168,6 +1372,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                       height: 60,
                       repeat: false,
                       animate: _celebrationController.isAnimating,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Icon(
+                          Icons.celebration,
+                          color: Colors.yellow,
+                          size: 60,
+                        );
+                      },
                     ),
                   ),
                 ],
@@ -1196,6 +1407,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             width: 200,
             height: 200,
             fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return Icon(
+                Icons.inbox_outlined,
+                size: 100,
+                color: Colors.grey[400],
+              );
+            },
           ),
           const SizedBox(height: 16),
           Text(
@@ -1233,6 +1451,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             style: TextStyle(
               color: Colors.grey.shade600,
               fontSize: 16,
+              fontFamily: GlobalStyle.fontFamily,
             ),
           ),
         ],
@@ -1261,29 +1480,34 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            _errorMessage,
-            style: TextStyle(
-              color: GlobalStyle.fontColor.withOpacity(0.7),
-              fontSize: 14,
-              fontFamily: GlobalStyle.fontFamily,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              _errorMessage,
+              style: TextStyle(
+                color: GlobalStyle.fontColor.withOpacity(0.7),
+                fontSize: 14,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: _initializeData,
+            onPressed: _validateAndInitializeData,
             style: ElevatedButton.styleFrom(
               backgroundColor: GlobalStyle.primaryColor,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
             child: Text(
               'Coba Lagi',
               style: TextStyle(
                 color: Colors.white,
                 fontFamily: GlobalStyle.fontFamily,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
