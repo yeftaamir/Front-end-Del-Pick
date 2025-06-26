@@ -6,21 +6,22 @@ import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 
 // Services
-import 'package:del_pick/Services/customer_service.dart';
-import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/service_order_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
+
+import '../../Services/master_location.dart';
 
 class ContactUserPage extends StatefulWidget {
   static const String route = '/Driver/ContactUser';
 
-  final String orderId;
-  final Map<String, dynamic>? orderData;
+  final String serviceOrderId;
+  final Map<String, dynamic>? serviceOrderData;
 
   const ContactUserPage({
     Key? key,
-    required this.orderId,
-    this.orderData,
+    required this.serviceOrderId,
+    this.serviceOrderData,
   }) : super(key: key);
 
   @override
@@ -38,9 +39,11 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
   late Animation<double> _pulseAnimation;
 
   // Data state
-  Map<String, dynamic>? _orderData;
+  Map<String, dynamic>? _serviceOrderData;
   Map<String, dynamic>? _customerData;
   Map<String, dynamic>? _driverData;
+  Map<String, dynamic>? _pickupLocationData;
+  Map<String, dynamic>? _destinationLocationData;
 
   bool _isLoading = true;
   bool _isProcessing = false;
@@ -56,7 +59,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
 
     // Initialize animation controllers
     _cardControllers = List.generate(
-      3, // Three card sections
+      4, // Four card sections
           (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
@@ -137,8 +140,8 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
 
       print('✅ ContactUser: Authentication successful');
 
-      // Load order and customer data
-      await _loadOrderData();
+      // Load service order and customer data
+      await _loadServiceOrderData();
 
     } catch (e) {
       print('❌ ContactUser: Authentication error: $e');
@@ -150,10 +153,10 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
     }
   }
 
-  // Load order and customer data
-  Future<void> _loadOrderData() async {
+  // Load service order and customer data
+  Future<void> _loadServiceOrderData() async {
     if (!_isAuthenticated) {
-      print('❌ ContactUser: Cannot load order data - not authenticated');
+      print('❌ ContactUser: Cannot load service order data - not authenticated');
       return;
     }
 
@@ -163,27 +166,35 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
         _errorMessage = null;
       });
 
-      print('🔄 ContactUser: Loading order data for ID: ${widget.orderId}');
+      print('🔄 ContactUser: Loading service order data for ID: ${widget.serviceOrderId}');
 
-      // 1. Get order details using OrderService.getOrderById
-      final orderResponse = await OrderService.getOrderById(widget.orderId);
-      _orderData = orderResponse;
+      // 1. Get service order details using ServiceOrderService.getServiceOrderById
+      final serviceOrderResponse = await ServiceOrderService.getServiceOrderById(widget.serviceOrderId);
+      _serviceOrderData = serviceOrderResponse;
 
-      print('📦 ContactUser: Order data loaded');
+      print('📦 ContactUser: Service order data loaded');
 
-      // 2. Get customer details if customerId available
-      if (_orderData!['customer_id'] != null || _orderData!['customerId'] != null) {
-        final customerId = (_orderData!['customer_id'] ?? _orderData!['customerId']).toString();
+      // 2. Extract customer data from service order
+      if (_serviceOrderData!['customer'] != null) {
+        _customerData = _serviceOrderData!['customer'];
+        print('👤 ContactUser: Customer data extracted from service order');
+      }
 
+      // 3. Load pickup location data if available
+      if (_serviceOrderData!['pickup_location_id'] != null) {
         try {
-          final customerResponse = await CustomerService.getCustomerById(customerId);
-          _customerData = customerResponse;
-          print('👤 ContactUser: Customer data loaded');
+          final pickupLocationResponse = await MasterLocationService.getLocationById(
+            _serviceOrderData!['pickup_location_id'].toString(),
+          );
+          _pickupLocationData = pickupLocationResponse;
+          print('📍 ContactUser: Pickup location data loaded');
         } catch (e) {
-          print('❌ ContactUser: Error fetching customer data: $e');
-          // Continue without customer data
+          print('❌ ContactUser: Error loading pickup location: $e');
         }
       }
+
+      // 4. Get IT Del destination data (fixed destination)
+      _destinationLocationData = MasterLocationService.getITDelDestination();
 
       setState(() {
         _isLoading = false;
@@ -192,12 +203,12 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
       // Start animations after data is loaded
       _startAnimations();
 
-      print('✅ ContactUser: Order and customer data loaded successfully');
+      print('✅ ContactUser: Service order and related data loaded successfully');
 
     } catch (e) {
-      print('❌ ContactUser: Error loading order data: $e');
+      print('❌ ContactUser: Error loading service order data: $e');
       setState(() {
-        _errorMessage = 'Failed to load order data: $e';
+        _errorMessage = 'Failed to load service order data: $e';
         _isLoading = false;
       });
     }
@@ -217,8 +228,8 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
     _pulseController.repeat(reverse: true);
   }
 
-  // Update order status using OrderService.updateOrderStatus
-  Future<void> _updateOrderStatus(String status, {String? notes}) async {
+  // Update service order status using ServiceOrderService.updateServiceOrderStatus
+  Future<void> _updateServiceOrderStatus(String status, {String? notes}) async {
     if (_isProcessing) return;
 
     setState(() {
@@ -226,11 +237,11 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
     });
 
     try {
-      print('🔄 ContactUser: Updating order status to: $status');
+      print('🔄 ContactUser: Updating service order status to: $status');
 
-      // Use OrderService.updateOrderStatus
-      await OrderService.updateOrderStatus(
-        orderId: widget.orderId,
+      // Use ServiceOrderService.updateServiceOrderStatus
+      await ServiceOrderService.updateServiceOrderStatus(
+        serviceOrderId: widget.serviceOrderId,
         status: status,
         notes: notes ?? 'Status updated by driver',
       );
@@ -238,26 +249,26 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
       // Play sound
       _playSound('audio/alert.wav');
 
-      // Refresh order data
-      await _loadOrderData();
+      // Refresh service order data
+      await _loadServiceOrderData();
 
       // Show success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Status berhasil diperbarui ke: ${_getStatusDisplayName(status)}'),
-            backgroundColor: status == 'confirmed' ? Colors.green : Colors.orange,
+            content: Text('Status berhasil diperbarui ke: ${ServiceOrderService.getStatusDisplayText(status)}'),
+            backgroundColor: status == 'in_progress' ? Colors.green : Colors.orange,
           ),
         );
       }
 
-      // If confirmed, show success dialog
-      if (status == 'confirmed') {
+      // If in_progress, show success dialog
+      if (status == 'in_progress') {
         _showSuccessDialog();
       }
 
     } catch (e) {
-      print('❌ ContactUser: Error updating order status: $e');
+      print('❌ ContactUser: Error updating service order status: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -273,46 +284,103 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
     }
   }
 
-  // Helper to get display name for status
-  String _getStatusDisplayName(String status) {
-    switch (status.toLowerCase()) {
-      case 'pending':
-        return 'Menunggu Konfirmasi';
-      case 'confirmed':
-        return 'Dikonfirmasi';
-      case 'preparing':
-        return 'Sedang Disiapkan';
-      case 'on_delivery':
-        return 'Dalam Pengantaran';
-      case 'delivered':
-        return 'Selesai';
-      case 'cancelled':
-        return 'Dibatalkan';
-      case 'rejected':
-        return 'Ditolak';
-      default:
-        return status;
+  // Accept service order using ServiceOrderService.acceptServiceOrder
+  Future<void> _acceptServiceOrder() async {
+    if (_serviceOrderData == null || _isProcessing) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      print('🤝 ContactUser: Accepting service order...');
+
+      // Use ServiceOrderService.acceptServiceOrder
+      await ServiceOrderService.acceptServiceOrder(
+        customerId: _serviceOrderData!['customer_id'],
+        pickupAddress: _serviceOrderData!['pickup_address'],
+        pickupLatitude: double.parse(_serviceOrderData!['pickup_latitude'].toString()),
+        pickupLongitude: double.parse(_serviceOrderData!['pickup_longitude'].toString()),
+        destinationAddress: _serviceOrderData!['destination_address'],
+        destinationLatitude: double.parse(_serviceOrderData!['destination_latitude'].toString()),
+        destinationLongitude: double.parse(_serviceOrderData!['destination_longitude'].toString()),
+        customerPhone: _serviceOrderData!['customer_phone'],
+        description: _serviceOrderData!['description'],
+      );
+
+      // Play sound
+      _playSound('audio/kring.mp3');
+
+      // Refresh service order data
+      await _loadServiceOrderData();
+
+      // Show success dialog
+      _showAcceptSuccessDialog();
+
+    } catch (e) {
+      print('❌ ContactUser: Error accepting service order: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal menerima pesanan: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
     }
   }
 
-  // Get status color
-  Color _getStatusColor(String? status) {
-    switch (status?.toLowerCase()) {
-      case 'pending':
-        return Colors.orange;
-      case 'confirmed':
-        return Colors.blue;
-      case 'preparing':
-        return Colors.indigo;
-      case 'on_delivery':
-        return Colors.teal;
-      case 'delivered':
-        return Colors.green;
-      case 'cancelled':
-      case 'rejected':
-        return Colors.red;
-      default:
-        return Colors.grey;
+  // Cancel service order for customer
+  Future<void> _cancelServiceOrder({String? reason}) async {
+    if (_serviceOrderData == null || _isProcessing) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      print('❌ ContactUser: Cancelling service order...');
+
+      // Use ServiceOrderService.cancelServiceOrder
+      await ServiceOrderService.cancelServiceOrder(
+        serviceOrderId: widget.serviceOrderId,
+        reason: reason ?? 'Cancelled by driver',
+      );
+
+      // Play sound
+      _playSound('audio/alert.wav');
+
+      // Refresh service order data
+      await _loadServiceOrderData();
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Pesanan berhasil dibatalkan'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+
+    } catch (e) {
+      print('❌ ContactUser: Error cancelling service order: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal membatalkan pesanan: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
     }
   }
 
@@ -325,10 +393,8 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
     }
   }
 
-  // Show success dialog after confirming order
-  void _showSuccessDialog() {
-    _playSound('audio/kring.mp3');
-
+  // Show success dialog after accepting service order
+  void _showAcceptSuccessDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -354,7 +420,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  'Pesanan Diterima!',
+                  'Jasa Titip Diterima!',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -407,40 +473,105 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
     );
   }
 
+  // Show success dialog after updating status
+  void _showSuccessDialog() {
+    _playSound('audio/kring.mp3');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/success.json',
+                  width: 120,
+                  height: 120,
+                  repeat: false,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Status Diperbarui!',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Status jasa titip telah diperbarui. Customer akan mendapatkan notifikasi.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(); // Close dialog
+                        },
+                        child: const Text('Tutup'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(); // Close dialog
+                          _openWhatsApp(); // Open WhatsApp
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GlobalStyle.primaryColor,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Chat Customer'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // Open WhatsApp to contact customer
   Future<void> _openWhatsApp() async {
     try {
-      final customerPhone = _customerData?['phone'] ?? _customerData?['phoneNumber'] ?? '';
-      if (customerPhone.isEmpty) {
+      if (_serviceOrderData == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Nomor telepon customer tidak tersedia')),
+            const SnackBar(content: Text('Data pesanan tidak tersedia')),
           );
         }
         return;
       }
 
-      String formattedPhone = customerPhone;
-      if (customerPhone.startsWith('0')) {
-        formattedPhone = '62${customerPhone.substring(1)}';
-      } else if (!customerPhone.startsWith('+') && !customerPhone.startsWith('62')) {
-        formattedPhone = '62$customerPhone';
-      }
+      // Generate WhatsApp URL using ServiceOrderService
+      final whatsappUrl = _serviceOrderData!['customer_whatsapp_link'] ??
+          _generateCustomerWhatsAppUrl();
 
-      final customerName = _customerData?['name'] ?? 'Customer';
-      String message = 'Halo $customerName, saya driver dari Del Pick. Saya telah menerima pesanan jasa titip Anda #${widget.orderId}. ';
-
-      final notes = _orderData?['notes'] ?? _orderData?['description'] ?? '';
-      if (notes.isNotEmpty) {
-        message += 'Detail pesanan: $notes. ';
-      }
-
-      message += 'Mohon berikan detail lebih lanjut untuk pembelian barang yang Anda inginkan.';
-
-      String url = 'https://wa.me/$formattedPhone?text=${Uri.encodeComponent(message)}';
-
-      if (await canLaunchUrlString(url)) {
-        await launchUrlString(url);
+      if (await canLaunchUrlString(whatsappUrl)) {
+        await launchUrlString(whatsappUrl);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -456,6 +587,43 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
         );
       }
     }
+  }
+
+  // Generate WhatsApp URL for customer communication
+  String _generateCustomerWhatsAppUrl() {
+    if (_serviceOrderData == null) return '';
+
+    final customerPhone = _serviceOrderData!['customer_phone'] ?? '';
+    if (customerPhone.isEmpty) return '';
+
+    final cleanPhone = customerPhone.replaceAll(RegExp(r'\D'), '');
+    String formattedPhone = cleanPhone;
+
+    if (cleanPhone.startsWith('0')) {
+      formattedPhone = '62${cleanPhone.substring(1)}';
+    } else if (!cleanPhone.startsWith('62')) {
+      formattedPhone = '62$cleanPhone';
+    }
+
+    final customerName = _customerData?['name'] ?? 'Customer';
+    final pickupAddress = _serviceOrderData!['pickup_address'] ?? '';
+    final destinationAddress = _serviceOrderData!['destination_address'] ?? 'IT Del';
+    final serviceFee = _serviceOrderData!['service_fee']?.toDouble() ?? 0.0;
+    final description = _serviceOrderData!['description'] ?? '';
+
+    String message = 'Halo $customerName, saya driver dari DelPick. ';
+    message += 'Saya telah menerima pesanan jasa titip Anda #${widget.serviceOrderId}.\n\n';
+    message += '📍 Pickup: $pickupAddress\n';
+    message += '📍 Tujuan: $destinationAddress\n';
+    message += '💰 Biaya: ${MasterLocationService.formatServiceFee(serviceFee)}\n';
+
+    if (description.isNotEmpty) {
+      message += '📝 Detail: $description\n';
+    }
+
+    message += '\nSaya akan segera menuju lokasi pickup. Terima kasih!';
+
+    return 'https://wa.me/$formattedPhone?text=${Uri.encodeComponent(message)}';
   }
 
   Widget _buildCard({required Widget child, required int index}) {
@@ -479,15 +647,16 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
     );
   }
 
-  Widget _buildOrderStatusCard() {
-    if (_orderData == null) return const SizedBox.shrink();
+  Widget _buildServiceOrderStatusCard() {
+    if (_serviceOrderData == null) return const SizedBox.shrink();
 
-    final status = _orderData!['status'] ?? 'pending';
+    final status = _serviceOrderData!['status'] ?? 'pending';
     final statusColor = _getStatusColor(status);
-    final statusText = _getStatusDisplayName(status);
-    final createdAt = _orderData!['created_at'] ?? _orderData!['createdAt'];
+    final statusText = ServiceOrderService.getStatusDisplayText(status);
+    final createdAt = _serviceOrderData!['created_at'];
     final orderDate = createdAt != null ? DateTime.tryParse(createdAt) : DateTime.now();
     final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(orderDate ?? DateTime.now());
+    final urgencyLevel = ServiceOrderService.getServiceOrderUrgency(_serviceOrderData!);
 
     return _buildCard(
       index: 0,
@@ -505,7 +674,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    Icons.shopping_bag,
+                    Icons.local_shipping,
                     color: GlobalStyle.primaryColor,
                     size: 24,
                   ),
@@ -513,7 +682,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Pesanan Jasa Titip #${widget.orderId}',
+                    'Jasa Titip #${widget.serviceOrderId}',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -522,6 +691,27 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                     ),
                   ),
                 ),
+                if (urgencyLevel != 'normal') ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: urgencyLevel == 'urgent'
+                          ? Colors.red.withOpacity(0.1)
+                          : Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      urgencyLevel == 'urgent' ? 'URGENT' : 'HIGH',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: urgencyLevel == 'urgent'
+                            ? Colors.red[700]
+                            : Colors.orange[700],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 16),
@@ -576,6 +766,33 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                 ),
               ],
             ),
+            if (_serviceOrderData!['service_fee'] != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Biaya Layanan',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                  Text(
+                    MasterLocationService.formatServiceFee(
+                      _serviceOrderData!['service_fee']?.toDouble() ?? 0.0,
+                    ),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: GlobalStyle.primaryColor,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -671,13 +888,13 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                         ),
                         const SizedBox(height: 4),
                       ],
-                      if (_customerData!['phone'] != null || _customerData!['phoneNumber'] != null) ...[
+                      if (_serviceOrderData!['customer_phone'] != null) ...[
                         Row(
                           children: [
                             Icon(Icons.phone, color: Colors.grey[600], size: 16),
                             const SizedBox(width: 4),
                             Text(
-                              _customerData!['phone'] ?? _customerData!['phoneNumber'] ?? '',
+                              _serviceOrderData!['customer_phone'],
                               style: TextStyle(
                                 color: Colors.grey[600],
                                 fontSize: 14,
@@ -720,13 +937,8 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
     );
   }
 
-  Widget _buildOrderDetailsCard() {
-    if (_orderData == null) return const SizedBox.shrink();
-
-    final notes = _orderData!['notes'] ?? _orderData!['description'] ?? '';
-    final location = _orderData!['delivery_address'] ?? _orderData!['deliveryAddress'] ?? '';
-    final totalAmount = _orderData!['total_amount'] ?? _orderData!['totalAmount'] ?? _orderData!['total'] ?? 0.0;
-    final deliveryFee = _orderData!['delivery_fee'] ?? _orderData!['deliveryFee'] ?? 0.0;
+  Widget _buildLocationDetailsCard() {
+    if (_serviceOrderData == null) return const SizedBox.shrink();
 
     return _buildCard(
       index: 2,
@@ -737,10 +949,10 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
           children: [
             Row(
               children: [
-                Icon(Icons.receipt_long, color: GlobalStyle.primaryColor),
+                Icon(Icons.location_on, color: GlobalStyle.primaryColor),
                 const SizedBox(width: 8),
                 Text(
-                  'Detail Pesanan',
+                  'Detail Lokasi',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -752,10 +964,135 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
             ),
             const SizedBox(height: 16),
 
-            // Order Notes/Description
-            if (notes.isNotEmpty) ...[
+            // Pickup Location
+            _buildLocationItem(
+              icon: Icons.radio_button_checked,
+              label: 'Lokasi Pickup',
+              address: _serviceOrderData!['pickup_address'] ?? '',
+              iconColor: Colors.green,
+            ),
+            const SizedBox(height: 12),
+
+            // Destination Location
+            _buildLocationItem(
+              icon: Icons.location_on,
+              label: 'Lokasi Tujuan',
+              address: _serviceOrderData!['destination_address'] ?? 'IT Del',
+              iconColor: Colors.red,
+            ),
+
+            if (_serviceOrderData!['estimated_duration'] != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.access_time, color: Colors.blue[700], size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Estimasi: ${MasterLocationService.formatEstimatedDuration(_serviceOrderData!['estimated_duration'])}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue[700],
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocationItem({
+    required IconData icon,
+    required String label,
+    required String address,
+    required Color iconColor,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: iconColor, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                'Catatan Pesanan:',
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[800],
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                address,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildServiceDetailsCard() {
+    if (_serviceOrderData == null) return const SizedBox.shrink();
+
+    final description = _serviceOrderData!['description'] ?? '';
+    final notes = _serviceOrderData!['notes'] ?? '';
+
+    return _buildCard(
+      index: 3,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.receipt_long, color: GlobalStyle.primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  'Detail Layanan',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Service Description
+            if (description.isNotEmpty) ...[
+              Text(
+                'Permintaan Customer:',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -773,7 +1110,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                   border: Border.all(color: Colors.grey[200]!),
                 ),
                 child: Text(
-                  notes,
+                  description,
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey[700],
@@ -785,96 +1122,35 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
               const SizedBox(height: 16),
             ],
 
-            // Delivery Location
-            if (location.isNotEmpty) ...[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.location_on, color: Colors.grey[600], size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Lokasi Pengantaran:',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[800],
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          location,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[700],
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // Pricing Info
-            const Divider(),
-            const SizedBox(height: 12),
-
-            if (deliveryFee > 0) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Biaya Pengiriman:',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[700],
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                  Text(
-                    GlobalStyle.formatRupiah(deliveryFee),
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ],
+            // Service Notes (if any)
+            if (notes.isNotEmpty) ...[
+              Text(
+                'Catatan Tambahan:',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[800],
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
               ),
               const SizedBox(height: 8),
-            ],
-
-            if (totalAmount > 0) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Total Pesanan:',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: GlobalStyle.fontColor,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber[200]!),
+                ),
+                child: Text(
+                  notes,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                    fontFamily: GlobalStyle.fontFamily,
+                    height: 1.4,
                   ),
-                  Text(
-                    GlobalStyle.formatRupiah(totalAmount),
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: GlobalStyle.primaryColor,
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ],
           ],
@@ -884,13 +1160,13 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
   }
 
   Widget _buildActionButtons() {
-    if (_orderData == null || _isProcessing) {
+    if (_serviceOrderData == null || _isProcessing) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final status = _orderData!['status'] ?? 'pending';
+    final status = _serviceOrderData!['status'] ?? 'pending';
 
-    // Show different buttons based on order status
+    // Show different buttons based on service order status
     if (status.toLowerCase() == 'pending') {
       return AnimatedBuilder(
         animation: _pulseAnimation,
@@ -904,7 +1180,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton.icon(
-                    onPressed: _isProcessing ? null : () => _updateOrderStatus('confirmed', notes: 'Pesanan jasa titip diterima'),
+                    onPressed: _isProcessing ? null : _acceptServiceOrder,
                     icon: const Icon(Icons.check_circle, color: Colors.white),
                     label: const Text(
                       'Terima Pesanan',
@@ -930,7 +1206,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
                   width: double.infinity,
                   height: 50,
                   child: OutlinedButton.icon(
-                    onPressed: _isProcessing ? null : () => _updateOrderStatus('rejected', notes: 'Pesanan jasa titip ditolak'),
+                    onPressed: _isProcessing ? null : () => _cancelServiceOrder(reason: 'Ditolak oleh driver'),
                     icon: const Icon(Icons.cancel, size: 20),
                     label: const Text(
                       'Tolak Pesanan',
@@ -953,8 +1229,116 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
           );
         },
       );
+    } else if (status.toLowerCase() == 'driver_found') {
+      return Column(
+        children: [
+          // Start Service Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _isProcessing ? null : () => _updateServiceOrderStatus('in_progress'),
+              icon: const Icon(Icons.play_arrow, color: Colors.white),
+              label: const Text(
+                'Mulai Mengerjakan',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                elevation: 4,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Chat Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: _openWhatsApp,
+              icon: const Icon(Icons.chat, size: 20),
+              label: const Text(
+                'Chat Customer',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: GlobalStyle.primaryColor,
+                side: BorderSide(color: GlobalStyle.primaryColor),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else if (status.toLowerCase() == 'in_progress') {
+      return Column(
+        children: [
+          // Complete Service Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _isProcessing ? null : () => _updateServiceOrderStatus('completed'),
+              icon: const Icon(Icons.check_circle, color: Colors.white),
+              label: const Text(
+                'Selesaikan Layanan',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                elevation: 4,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Chat Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: _openWhatsApp,
+              icon: const Icon(Icons.chat, size: 20),
+              label: const Text(
+                'Chat Customer',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: GlobalStyle.primaryColor,
+                side: BorderSide(color: GlobalStyle.primaryColor),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
     } else {
-      // For non-pending orders, show contact button only
+      // For completed/cancelled orders, show contact button only
       return SizedBox(
         width: double.infinity,
         height: 50,
@@ -978,6 +1362,24 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
           ),
         ),
       );
+    }
+  }
+
+  // Get status color
+  Color _getStatusColor(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'driver_found':
+        return Colors.blue;
+      case 'in_progress':
+        return Colors.indigo;
+      case 'completed':
+        return Colors.green;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -1031,7 +1433,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
               if (!_isAuthenticated) {
                 _initializeAuthentication();
               } else {
-                _loadOrderData();
+                _loadServiceOrderData();
               }
             },
             style: ElevatedButton.styleFrom(
@@ -1055,7 +1457,7 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
         elevation: 0,
         backgroundColor: Colors.white,
         title: Text(
-          'Pesanan Jasa Titip',
+          'Jasa Titip ke IT Del',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
@@ -1091,9 +1493,11 @@ class _ContactUserPageState extends State<ContactUserPage> with TickerProviderSt
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildOrderStatusCard(),
+              _buildServiceOrderStatusCard(),
               const SizedBox(height: 16),
-              _buildOrderDetailsCard(),
+              _buildLocationDetailsCard(),
+              const SizedBox(height: 16),
+              _buildServiceDetailsCard(),
               const SizedBox(height: 16),
               _buildCustomerInfoCard(),
               const SizedBox(height: 80), // Space for action buttons

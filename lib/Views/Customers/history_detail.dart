@@ -13,11 +13,8 @@ import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'package:del_pick/Models/order_item.dart';
 
-// Import Services
+// Import Services - Updated
 import 'package:del_pick/Services/order_service.dart';
-import 'package:del_pick/Services/driver_service.dart';
-import 'package:del_pick/Services/store_service.dart';
-import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 
@@ -51,24 +48,23 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
   // State variables
   bool _isLoading = false;
-  bool _isLoadingDriver = false;
-  bool _isLoadingStore = false;
-  bool _isLoadingReviews = false;
+  bool _isLoadingOrderDetail = false;
   bool _isCancelling = false;
   String? _errorMessage;
 
-  // Data objects
+  // Data objects - Updated structure
   OrderModel? _orderDetail;
-  DriverModel? _driverDetail;
-  StoreModel? _storeDetail;
-  List<MenuItemModel> _menuItems = [];
+  Map<String, dynamic>? _customerData;
+  Map<String, dynamic>? _roleSpecificData;
+
+  // Review tracking
   Map<String, dynamic>? _orderReviews;
   Map<String, dynamic>? _driverReviews;
-  Map<String, dynamic>? _customerData;
+  bool _hasGivenRating = false;
 
   // Status tracking
   Timer? _statusUpdateTimer;
-  bool _hasGivenRating = false;
+  OrderStatus? _previousStatus;
 
   @override
   void initState() {
@@ -144,7 +140,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     super.dispose();
   }
 
-  // ✅ PERBAIKAN: Validate customer access and load data
+  // ✅ UPDATED: Enhanced authentication and data validation
   Future<void> _validateAndLoadData() async {
     setState(() {
       _isLoading = true;
@@ -152,25 +148,32 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     });
 
     try {
-      print('🔍 HistoryDetailPage: Validating customer access...');
+      print('🔍 HistoryDetailPage: Starting authentication validation...');
 
-      // ✅ PERBAIKAN: Validate customer access first
+      // ✅ Step 1: Validate customer access using updated AuthService
       final hasAccess = await AuthService.validateCustomerAccess();
       if (!hasAccess) {
         throw Exception('Access denied: Customer authentication required');
       }
 
-      // ✅ PERBAIKAN: Get customer data
+      // ✅ Step 2: Get customer data using updated method
       _customerData = await AuthService.getCustomerData();
       if (_customerData == null) {
         throw Exception('Unable to retrieve customer data');
       }
 
-      print('✅ HistoryDetailPage: Customer access validated');
+      // ✅ Step 3: Get role-specific data for additional validation
+      _roleSpecificData = await AuthService.getRoleSpecificData();
+      if (_roleSpecificData == null) {
+        throw Exception('Unable to retrieve role-specific data');
+      }
+
+      print('✅ HistoryDetailPage: Authentication validated successfully');
       print('   - Customer ID: ${_customerData!['id']}');
       print('   - Customer Name: ${_customerData!['name']}');
+      print('   - Role: ${_roleSpecificData!['role'] ?? 'customer'}');
 
-      // Load order detail
+      // ✅ Step 4: Load order detail using updated OrderService
       await _loadOrderDetail();
 
       setState(() {
@@ -178,7 +181,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       });
 
       // Start animations for loaded content
-      if (_driverDetail != null) {
+      if (_orderDetail?.driverId != null) {
         _driverCardController.forward();
       }
       if (_orderReviews != null || _driverReviews != null) {
@@ -193,144 +196,64 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
   }
 
-  // ✅ PERBAIKAN: Load order detail using OrderService.getOrderById() with enhanced auth
+  // ✅ UPDATED: Load order detail using updated OrderService
   Future<void> _loadOrderDetail() async {
+    setState(() {
+      _isLoadingOrderDetail = true;
+    });
+
     try {
       print('🔍 HistoryDetailPage: Loading order detail: ${widget.order.id}');
 
-      // ✅ PERBAIKAN: Ensure valid user session
-      final hasValidSession = await AuthService.ensureValidUserData();
-      if (!hasValidSession) {
-        throw Exception('Invalid user session. Please login again.');
-      }
-
-      // Get order detail with enhanced error handling
+      // ✅ Use updated OrderService.getOrderById()
       final orderData = await OrderService.getOrderById(widget.order.id.toString());
+
+      // ✅ Process the order data with enhanced structure
       _orderDetail = OrderModel.fromJson(orderData);
 
       print('✅ HistoryDetailPage: Order detail loaded successfully');
       print('   - Order Status: ${_orderDetail!.orderStatus.name}');
       print('   - Driver ID: ${_orderDetail?.driverId}');
       print('   - Store ID: ${_orderDetail?.storeId}');
+      print('   - Items count: ${_orderDetail!.items.length}');
 
-      // Load related data
-      await Future.wait([
-        _loadDriverDetail(),
-        _loadStoreDetail(),
-        _loadOrderReviews(),
-      ]);
+      // ✅ Load reviews data from the order response
+      await _loadOrderReviews(orderData);
 
-      // Start status tracking if order is not completed
+      // ✅ Start status tracking if order is not completed
       if (!_orderDetail!.orderStatus.isCompleted) {
         _startStatusTracking();
       }
+
+      // ✅ Store previous status for change detection
+      _previousStatus = _orderDetail!.orderStatus;
+
     } catch (e) {
       print('❌ HistoryDetailPage: Error loading order detail: $e');
       throw Exception('Failed to load order details: $e');
+    } finally {
+      setState(() {
+        _isLoadingOrderDetail = false;
+      });
     }
   }
 
-  // ✅ PERBAIKAN: Load driver detail using DriverService.getDriverById() with validation
-  Future<void> _loadDriverDetail() async {
-    if (_orderDetail?.driverId == null) {
-      print('⚠️ HistoryDetailPage: No driver assigned to this order');
-      return;
-    }
-
-    setState(() {
-      _isLoadingDriver = true;
-    });
-
-    try {
-      print('🔍 HistoryDetailPage: Loading driver detail: ${_orderDetail!.driverId}');
-
-      final driverData = await DriverService.getDriverById(_orderDetail!.driverId.toString());
-      setState(() {
-        _driverDetail = DriverModel.fromJson(driverData);
-        _isLoadingDriver = false;
-      });
-
-      print('✅ HistoryDetailPage: Driver detail loaded successfully');
-      print('   - Driver Name: ${_driverDetail!.name}');
-      print('   - Driver Rating: ${_driverDetail!.rating}');
-    } catch (e) {
-      setState(() {
-        _isLoadingDriver = false;
-      });
-      print('❌ HistoryDetailPage: Error loading driver detail: $e');
-    }
-  }
-
-  // ✅ PERBAIKAN: Load store detail using StoreService.getStoreById() with validation
-  Future<void> _loadStoreDetail() async {
-    if (_orderDetail?.storeId == null) {
-      print('⚠️ HistoryDetailPage: No store ID found for this order');
-      return;
-    }
-
-    setState(() {
-      _isLoadingStore = true;
-    });
-
-    try {
-      print('🔍 HistoryDetailPage: Loading store detail: ${_orderDetail!.storeId}');
-
-      final storeData = await StoreService.getStoreById(_orderDetail!.storeId.toString());
-      if (storeData['success'] == true && storeData['data'] != null) {
-        _storeDetail = StoreModel.fromJson(storeData['data']);
-
-        print('✅ HistoryDetailPage: Store detail loaded successfully');
-        print('   - Store Name: ${_storeDetail!.name}');
-        print('   - Store Rating: ${_storeDetail!.rating}');
-
-        // Load menu items from store using MenuService.getMenuItemsByStore()
-        try {
-          final menuData = await MenuItemService.getMenuItemsByStore(
-            storeId: _orderDetail!.storeId.toString(),
-            page: 1,
-            limit: 50,
-          );
-
-          if (menuData['success'] == true && menuData['data'] != null) {
-            _menuItems = (menuData['data'] as List)
-                .map((item) => MenuItemModel.fromJson(item))
-                .toList();
-            print('✅ HistoryDetailPage: Menu items loaded: ${_menuItems.length} items');
-          }
-        } catch (menuError) {
-          print('⚠️ HistoryDetailPage: Error loading menu items: $menuError');
-        }
-      }
-
-      setState(() {
-        _isLoadingStore = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingStore = false;
-      });
-      print('❌ HistoryDetailPage: Error loading store detail: $e');
-    }
-  }
-
-  // ✅ PERBAIKAN: Load existing reviews with enhanced structure
-  Future<void> _loadOrderReviews() async {
-    setState(() {
-      _isLoadingReviews = true;
-    });
-
+  // ✅ UPDATED: Enhanced review loading with better structure handling
+  Future<void> _loadOrderReviews(Map<String, dynamic> orderData) async {
     try {
       print('🔍 HistoryDetailPage: Loading order reviews...');
 
-      // Get fresh order data to check for reviews
-      final orderData = await OrderService.getOrderById(_orderDetail!.id.toString());
+      // ✅ Reset review states
+      _orderReviews = null;
+      _driverReviews = null;
+      _hasGivenRating = false;
 
-      // ✅ PERBAIKAN: Check for reviews in different possible structures
+      // ✅ Check for reviews in order data - multiple possible structures
       if (orderData['orderReviews'] != null) {
         final reviews = orderData['orderReviews'];
         if (reviews is List && reviews.isNotEmpty) {
           _orderReviews = Map<String, dynamic>.from(reviews.first as Map);
-          print('✅ HistoryDetailPage: Order review found');
+          print('✅ HistoryDetailPage: Order review found (List structure)');
         } else if (reviews is Map) {
           _orderReviews = Map<String, dynamic>.from(reviews as Map);
           print('✅ HistoryDetailPage: Order review found (Map structure)');
@@ -341,14 +264,14 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         final reviews = orderData['driverReviews'];
         if (reviews is List && reviews.isNotEmpty) {
           _driverReviews = Map<String, dynamic>.from(reviews.first as Map);
-          print('✅ HistoryDetailPage: Driver review found');
+          print('✅ HistoryDetailPage: Driver review found (List structure)');
         } else if (reviews is Map) {
           _driverReviews = Map<String, dynamic>.from(reviews as Map);
           print('✅ HistoryDetailPage: Driver review found (Map structure)');
         }
       }
 
-      // ✅ PERBAIKAN: Alternative review structure check
+      // ✅ Alternative review structure check
       if (orderData['reviews'] != null) {
         final reviews = orderData['reviews'] as List;
         for (var review in reviews) {
@@ -360,7 +283,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         }
       }
 
-      // Check if user has given rating
+      // ✅ Update rating status
       _hasGivenRating = _orderReviews != null || _driverReviews != null;
 
       print('📊 HistoryDetailPage: Review status:');
@@ -368,18 +291,12 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       print('   - Has Driver Review: ${_driverReviews != null}');
       print('   - Has Given Rating: $_hasGivenRating');
 
-      setState(() {
-        _isLoadingReviews = false;
-      });
     } catch (e) {
-      setState(() {
-        _isLoadingReviews = false;
-      });
       print('❌ HistoryDetailPage: Error loading reviews: $e');
     }
   }
 
-  // ✅ PERBAIKAN: Enhanced status tracking for active orders
+  // ✅ UPDATED: Enhanced status tracking with better session management
   void _startStatusTracking() {
     if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
       print('⚠️ HistoryDetailPage: Order is completed, skipping status tracking');
@@ -398,7 +315,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       try {
         print('📡 HistoryDetailPage: Checking order status update...');
 
-        // ✅ PERBAIKAN: Ensure valid session before API call
+        // ✅ Ensure valid session before API call using updated method
         final hasValidSession = await AuthService.ensureValidUserData();
         if (!hasValidSession) {
           print('❌ HistoryDetailPage: Invalid session, stopping tracking');
@@ -406,30 +323,35 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           return;
         }
 
+        // ✅ Get updated order data
         final updatedOrderData = await OrderService.getOrderById(widget.order.id.toString());
         final updatedOrder = OrderModel.fromJson(updatedOrderData);
 
         if (mounted) {
-          print('✅ HistoryDetailPage: Order status updated: ${updatedOrder.orderStatus.name}');
+          final statusChanged = _previousStatus != updatedOrder.orderStatus;
+
+          print('✅ HistoryDetailPage: Order status checked');
+          print('   - Previous: ${_previousStatus?.name}');
+          print('   - Current: ${updatedOrder.orderStatus.name}');
+          print('   - Changed: $statusChanged');
 
           setState(() {
             _orderDetail = updatedOrder;
           });
 
-          // Load driver if newly assigned
-          if (updatedOrder.driverId != null && _driverDetail == null) {
-            print('🚗 HistoryDetailPage: New driver assigned, loading driver details...');
-            await _loadDriverDetail();
-            if (_driverDetail != null) {
-              _driverCardController.forward();
-            }
+          // ✅ Handle status change notifications
+          if (statusChanged) {
+            _handleStatusChange(_previousStatus, updatedOrder.orderStatus);
+            _previousStatus = updatedOrder.orderStatus;
           }
 
-          // Stop tracking if order is completed
+          // ✅ Stop tracking if order is completed
           if (updatedOrder.orderStatus.isCompleted) {
             print('✅ HistoryDetailPage: Order completed, stopping tracking');
             timer.cancel();
-            await _loadOrderReviews();
+
+            // ✅ Reload reviews for completed orders
+            await _loadOrderReviews(updatedOrderData);
             if (_orderReviews != null || _driverReviews != null) {
               _reviewCardController.forward();
             }
@@ -442,7 +364,122 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     });
   }
 
-  // ✅ PERBAIKAN: Cancel order using OrderService.cancelOrder() with validation
+  // ✅ NEW: Handle status change notifications
+  void _handleStatusChange(OrderStatus? previousStatus, OrderStatus newStatus) {
+    String? notification;
+
+    switch (newStatus) {
+      case OrderStatus.confirmed:
+        notification = 'Pesanan Anda telah dikonfirmasi oleh toko.';
+        break;
+      case OrderStatus.preparing:
+        notification = 'Pesanan Anda sedang diproses oleh toko.';
+        break;
+      case OrderStatus.readyForPickup:
+        notification = 'Pesanan Anda siap untuk diambil oleh driver.';
+        break;
+      case OrderStatus.delivered:
+        notification = 'Pesanan Anda telah selesai diantar.';
+        break;
+      case OrderStatus.cancelled:
+        notification = 'Pesanan Anda telah dibatalkan.';
+        break;
+      case OrderStatus.rejected:
+        notification = 'Pesanan Anda ditolak oleh toko.';
+        break;
+      default:
+        break;
+    }
+
+    if (notification != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(notification),
+          backgroundColor: newStatus.isCompleted
+              ? (newStatus == OrderStatus.delivered ? Colors.green : Colors.red)
+              : GlobalStyle.primaryColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+  // ✅ UPDATED: Enhanced rating submission using updated OrderService
+  Future<void> _handleRatingSubmission() async {
+    if (_orderDetail == null) return;
+
+    try {
+      print('⭐ HistoryDetailPage: Opening rating page for order: ${_orderDetail!.id}');
+
+      // ✅ Validate customer access before rating using updated method
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required for rating');
+      }
+
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RatingCustomerPage(
+            order: _orderDetail!,
+          ),
+        ),
+      );
+
+      if (result != null && result is Map<String, dynamic>) {
+        print('📝 HistoryDetailPage: Rating received, submitting review...');
+
+        // ✅ Submit review using updated OrderService.createReview()
+        await OrderService.createReview(
+          orderId: _orderDetail!.id.toString(),
+          orderReview: {
+            'rating': result['storeRating'] ?? 5,
+            'comment': result['storeComment'] ?? '',
+          },
+          driverReview: {
+            'rating': result['driverRating'] ?? 5,
+            'comment': result['driverComment'] ?? '',
+          },
+        );
+
+        print('✅ HistoryDetailPage: Review submitted successfully');
+
+        // ✅ Reload order data to get updated reviews
+        await _loadOrderDetail();
+
+        if (_orderReviews != null || _driverReviews != null) {
+          _reviewCardController.forward();
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Rating berhasil dikirim. Terima kasih!'),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('❌ HistoryDetailPage: Error handling rating submission: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal mengirim rating: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  // ✅ UPDATED: Cancel order using updated validation
   Future<void> _cancelOrder() async {
     // Show confirmation dialog
     final shouldCancel = await showDialog<bool>(
@@ -474,15 +511,19 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     try {
       print('🚫 HistoryDetailPage: Cancelling order: ${_orderDetail!.id}');
 
-      // ✅ PERBAIKAN: Validate customer access before cancelling
+      // ✅ Validate customer access before cancelling using updated method
       final hasAccess = await AuthService.validateCustomerAccess();
       if (!hasAccess) {
         throw Exception('Access denied: Customer authentication required');
       }
 
-      await OrderService.cancelOrder(_orderDetail!.id.toString());
+      // ✅ Use OrderService to update order status to cancelled
+      await OrderService.updateOrderStatus(
+        orderId: _orderDetail!.id.toString(),
+        orderStatus: 'cancelled',
+      );
 
-      // Refresh order detail
+      // ✅ Refresh order detail
       await _loadOrderDetail();
 
       print('✅ HistoryDetailPage: Order cancelled successfully');
@@ -516,126 +557,52 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
   }
 
-  // ✅ PERBAIKAN: Handle rating submission using OrderService.createReview() with validation
-  Future<void> _handleRatingSubmission() async {
-    if (_orderDetail == null) return;
-
-    try {
-      print('⭐ HistoryDetailPage: Opening rating page for order: ${_orderDetail!.id}');
-
-      // ✅ PERBAIKAN: Validate customer access before rating
-      final hasAccess = await AuthService.validateCustomerAccess();
-      if (!hasAccess) {
-        throw Exception('Access denied: Customer authentication required for rating');
-      }
-
-      final result = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => RatingCustomerPage(
-            order: _orderDetail!,
-          ),
-        ),
-      );
-
-      if (result != null && result is Map<String, dynamic>) {
-        print('📝 HistoryDetailPage: Rating received, submitting review...');
-
-        // ✅ PERBAIKAN: Submit review using OrderService.createReview()
-        await OrderService.createReview(
-          orderId: _orderDetail!.id.toString(),
-          orderReview: {
-            'rating': result['storeRating'] ?? 5,
-            'comment': result['storeComment'] ?? '',
-          },
-          driverReview: {
-            'rating': result['driverRating'] ?? 5,
-            'comment': result['driverComment'] ?? '',
-          },
-        );
-
-        print('✅ HistoryDetailPage: Review submitted successfully');
-
-        // Reload reviews to display them
-        await _loadOrderReviews();
-
-        if (_orderReviews != null || _driverReviews != null) {
-          _reviewCardController.forward();
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Rating berhasil dikirim. Terima kasih!'),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      print('❌ HistoryDetailPage: Error handling rating submission: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal mengirim rating: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
+  // Helper methods for UI components
+  Color _getStatusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.delivered:
+        return Colors.green;
+      case OrderStatus.cancelled:
+      case OrderStatus.rejected:
+        return Colors.red;
+      case OrderStatus.onDelivery:
+        return Colors.blue;
+      case OrderStatus.preparing:
+        return Colors.orange;
+      default:
+        return GlobalStyle.primaryColor;
     }
   }
 
-  // Call driver
-  Future<void> _callDriver() async {
-    if (_driverDetail?.phone == null || _driverDetail!.phone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Nomor telepon driver tidak tersedia'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    final Uri uri = Uri.parse('tel:${_driverDetail!.phone}');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Tidak dapat memulai panggilan'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+  String _getStatusText(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return 'Menunggu';
+      case OrderStatus.confirmed:
+        return 'Dikonfirmasi';
+      case OrderStatus.preparing:
+        return 'Diproses';
+      case OrderStatus.readyForPickup:
+        return 'Siap Diambil';
+      case OrderStatus.onDelivery:
+        return 'Diantar';
+      case OrderStatus.delivered:
+        return 'Selesai';
+      case OrderStatus.cancelled:
+        return 'Dibatalkan';
+      case OrderStatus.rejected:
+        return 'Ditolak';
+      default:
+        return 'Unknown';
     }
   }
 
-  // Message driver
-  Future<void> _messageDriver() async {
-    if (_driverDetail?.phone == null || _driverDetail!.phone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Nomor telepon driver tidak tersedia'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    final Uri uri = Uri.parse('sms:${_driverDetail!.phone}');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Tidak dapat memulai pesan'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+  String _getPaymentMethodText(PaymentMethod method) {
+    switch (method) {
+      case PaymentMethod.cash:
+        return 'Tunai';
+      default:
+        return 'Unknown';
     }
   }
 
@@ -808,41 +775,59 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ✅ PERBAIKAN: CustomerOrderStatusCard integration
+          // ✅ UPDATED: CustomerOrderStatusCard integration with real-time data
           if (_orderDetail != null)
             SlideTransition(
               position: _cardAnimations[0],
               child: Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 child: CustomerOrderStatusCard(
+                  orderId: _orderDetail!.id.toString(),
                   initialOrderData: {
                     'id': _orderDetail!.id,
-                    'order_status': _orderDetail!.orderStatus.name,
-                    'total': _orderDetail!.totalAmount,
-                    'estimatedDeliveryTime': _orderDetail!.estimatedDeliveryTime?.toIso8601String() ??
-                        DateTime.now().add(const Duration(minutes: 30)).toIso8601String(),
-                    'store': _storeDetail != null ? {
-                      'name': _storeDetail!.name,
-                      'address': _storeDetail!.address,
-                      'phone': _storeDetail!.phone,
+                    'order_status': _orderDetail!.orderStatus.value,
+                    'total_amount': _orderDetail!.totalAmount,
+                    'delivery_fee': _orderDetail!.deliveryFee,
+                    'estimated_delivery_time': _orderDetail!.estimatedDeliveryTime?.toIso8601String(),
+                    'created_at': _orderDetail!.createdAt.toIso8601String(),
+                    'updated_at': _orderDetail!.updatedAt.toIso8601String(),
+                    'store': _orderDetail!.store != null ? {
+                      'id': _orderDetail!.store!.storeId,
+                      'name': _orderDetail!.store!.name,
+                      'address': _orderDetail!.store!.address,
+                      'phone': _orderDetail!.store!.phone,
+                      'image_url': _orderDetail!.store!.imageUrl,
                     } : null,
-                    'driver': _driverDetail != null ? {
-                      'name': _driverDetail!.name,
-                      'phone': _driverDetail!.phone,
-                      'vehicle_plate': _driverDetail!.vehiclePlate,
-                      'rating': _driverDetail!.rating,
+                    'driver': _orderDetail!.driver != null ? {
+                      'id': _orderDetail!.driver!.driverId,
+                      'name': _orderDetail!.driver!.name,
+                      'phone': _orderDetail!.driver!.phone,
+                      'vehicle_plate': _orderDetail!.driver!.vehiclePlate,
+                      'rating': _orderDetail!.driver!.rating,
+                      'user': {
+                        'name': _orderDetail!.driver!.name,
+                        'avatar': _orderDetail!.driver!.avatar,
+                      },
                     } : null,
                     'customer': _customerData != null ? {
+                      'id': _customerData!['id'],
                       'name': _customerData!['name'],
                       'phone': _customerData!['phone'] ?? '',
                       'avatar': _customerData!['avatar'],
                     } : null,
+                    'items': _orderDetail!.items.map((item) => {
+                      'id': item.id,
+                      'name': item.name,
+                      'quantity': item.quantity,
+                      'price': item.price,
+                      'image_url': item.imageUrl,
+                    }).toList(),
                   },
                 ),
               ),
             ),
 
-          // Order Date Section
+          // Order Date and Status Section
           _buildCard(
             index: 1,
             child: Column(
@@ -853,7 +838,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                     Icon(Icons.calendar_today, color: GlobalStyle.primaryColor),
                     const SizedBox(width: 8),
                     Text(
-                      'Tanggal Pesanan',
+                      'Informasi Pesanan',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -864,90 +849,15 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                   ],
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  _orderDetail != null
-                      ? DateFormat('dd MMM yyyy, hh.mm a').format(_orderDetail!.createdAt)
-                      : 'Tanggal tidak tersedia',
-                  style: TextStyle(
-                    color: GlobalStyle.fontColor,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-                if (_orderDetail?.orderStatus != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: _getStatusColor(_orderDetail!.orderStatus).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      child: Text(
-                        _getStatusText(_orderDetail!.orderStatus),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: _getStatusColor(_orderDetail!.orderStatus),
-                        ),
-                      ),
-                    ),
-                  ),
+                _buildInfoRow('Tanggal Pesanan',
+                    DateFormat('dd MMM yyyy, hh.mm a').format(_orderDetail!.createdAt)),
+                const SizedBox(height: 8),
+                _buildInfoRow('Status Pesanan', _getStatusText(_orderDetail!.orderStatus)),
+                const SizedBox(height: 8),
+                _buildInfoRow('Total Pembayaran', _orderDetail!.formatTotalAmount()),
               ],
             ),
           ),
-
-          // Delivery Address Section
-          _buildCard(
-            index: 2,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.location_on, color: GlobalStyle.primaryColor),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Alamat Pengiriman',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: GlobalStyle.fontColor,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey[200]!),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.home_rounded, color: GlobalStyle.primaryColor),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _orderDetail?.deliveryAddress ?? 'Alamat tidak tersedia',
-                          style: TextStyle(
-                            color: GlobalStyle.fontColor,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Driver Information Section
-          if (_driverDetail != null || _isLoadingDriver)
-            _buildDriverCard(),
 
           // Store and Items Section
           if (_orderDetail != null)
@@ -956,6 +866,10 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           // Payment Details Section
           if (_orderDetail != null)
             _buildPaymentDetailsCard(),
+
+          // Driver Information Section
+          if (_orderDetail?.driver != null)
+            _buildDriverCard(),
 
           // Reviews Section (shown after rating is given)
           if (_orderReviews != null || _driverReviews != null)
@@ -971,6 +885,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     );
   }
 
+  // ✅ UPDATED: Enhanced card builder with better animation handling
   Widget _buildCard({required int index, required Widget child}) {
     return SlideTransition(
       position: _cardAnimations[index < _cardAnimations.length ? index : 0],
@@ -995,283 +910,42 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     );
   }
 
-  Widget _buildDriverCard() {
-    return SlideTransition(
-      position: _driverCardAnimation,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white,
-              Colors.orange.withOpacity(0.05),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.orange.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
+  // ✅ UPDATED: Enhanced info row builder
+  Widget _buildInfoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 120,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+              fontFamily: GlobalStyle.fontFamily,
             ),
-          ],
-          border: Border.all(
-            color: Colors.orange.withOpacity(0.1),
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.delivery_dining,
-                    color: Colors.orange,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Informasi Driver',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.orange,
-                  ),
-                ),
-              ],
+        const Text(': '),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: GlobalStyle.fontColor,
+              fontFamily: GlobalStyle.fontFamily,
             ),
-            const SizedBox(height: 20),
-            if (_isLoadingDriver)
-              const Center(
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(color: Colors.orange),
-                    SizedBox(height: 12),
-                    Text('Memuat data driver...'),
-                  ],
-                ),
-              )
-            else if (_driverDetail != null)
-              Row(
-                children: [
-                  // Driver Avatar
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.orange.withOpacity(0.3),
-                        width: 3,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 5,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: _driverDetail!.avatar != null && _driverDetail!.avatar!.isNotEmpty
-                        ? ClipOval(
-                      child: ImageService.displayImage(
-                        imageSource: _driverDetail!.avatar!,
-                        width: 80,
-                        height: 80,
-                        fit: BoxFit.cover,
-                        placeholder: const Center(
-                          child: Icon(
-                            Icons.person,
-                            size: 30,
-                            color: Colors.orange,
-                          ),
-                        ),
-                        errorWidget: const Center(
-                          child: Icon(
-                            Icons.person,
-                            size: 30,
-                            color: Colors.orange,
-                          ),
-                        ),
-                      ),
-                    )
-                        : ClipOval(
-                      child: Container(
-                        color: Colors.orange.withOpacity(0.1),
-                        child: const Icon(
-                          Icons.person,
-                          size: 40,
-                          color: Colors.orange,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _driverDetail!.name,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.star, color: Colors.amber, size: 16),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    _driverDetail!.rating.toStringAsFixed(1),
-                                    style: TextStyle(
-                                      color: Colors.amber[800],
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[200],
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.motorcycle, color: Colors.grey[700], size: 16),
-                              const SizedBox(width: 4),
-                              Text(
-                                _driverDetail!.vehiclePlate,
-                                style: TextStyle(
-                                  color: Colors.grey[700],
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${_driverDetail!.reviewsCount} reviews',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              )
-            else
-              const Center(
-                child: Text(
-                  'Driver belum ditugaskan',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-
-            // Contact buttons for active orders
-            if (_driverDetail != null &&
-                _orderDetail != null &&
-                !_orderDetail!.orderStatus.isCompleted)
-              Padding(
-                padding: const EdgeInsets.only(top: 20.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.call, color: Colors.white, size: 18),
-                        label: const Text(
-                          'Hubungi',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          elevation: 2,
-                        ),
-                        onPressed: _callDriver,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.message, color: Colors.white, size: 18),
-                        label: const Text(
-                          'Pesan',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[700],
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          elevation: 2,
-                        ),
-                        onPressed: _messageDriver,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
+  // ✅ UPDATED: Enhanced store and items card with better data handling
   Widget _buildStoreAndItemsCard() {
     return _buildCard(
-      index: 3,
+      index: 2,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1281,7 +955,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  _storeDetail?.name ?? _orderDetail!.store?.name ?? 'Store',
+                  _orderDetail!.store?.name ?? 'Store',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -1293,7 +967,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               ),
             ],
           ),
-          if (_storeDetail != null)
+          if (_orderDetail!.store?.address != null)
             Padding(
               padding: const EdgeInsets.only(top: 8.0),
               child: Row(
@@ -1302,7 +976,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      _storeDetail!.address,
+                      _orderDetail!.store!.address,
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey[600],
@@ -1328,6 +1002,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     );
   }
 
+  // ✅ UPDATED: Enhanced order item row with better image handling
   Widget _buildOrderItemRow(OrderItemModel item) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1389,6 +1064,18 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                     ),
                   ),
                 ),
+                if (item.notes != null && item.notes!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Catatan: ${item.notes}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1406,9 +1093,10 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     );
   }
 
+  // ✅ UPDATED: Enhanced payment details card
   Widget _buildPaymentDetailsCard() {
     return _buildCard(
-      index: 4,
+      index: 3,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1497,6 +1185,259 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     );
   }
 
+  // ✅ UPDATED: Enhanced driver card with better data handling
+  Widget _buildDriverCard() {
+    return SlideTransition(
+      position: _driverCardAnimation,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              Colors.orange.withOpacity(0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.orange.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+          border: Border.all(
+            color: Colors.orange.withOpacity(0.1),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.delivery_dining,
+                    color: Colors.orange,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Informasi Driver',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                // Driver Avatar
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.orange.withOpacity(0.3),
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 5,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: _orderDetail!.driver!.avatar != null && _orderDetail!.driver!.avatar!.isNotEmpty
+                      ? ClipOval(
+                    child: ImageService.displayImage(
+                      imageSource: _orderDetail!.driver!.avatar!,
+                      width: 80,
+                      height: 80,
+                      fit: BoxFit.cover,
+                      placeholder: const Center(
+                        child: Icon(
+                          Icons.person,
+                          size: 30,
+                          color: Colors.orange,
+                        ),
+                      ),
+                      errorWidget: const Center(
+                        child: Icon(
+                          Icons.person,
+                          size: 30,
+                          color: Colors.orange,
+                        ),
+                      ),
+                    ),
+                  )
+                      : ClipOval(
+                    child: Container(
+                      color: Colors.orange.withOpacity(0.1),
+                      child: const Icon(
+                        Icons.person,
+                        size: 40,
+                        color: Colors.orange,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _orderDetail!.driver!.name,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.star, color: Colors.amber, size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _orderDetail!.driver!.rating.toStringAsFixed(1),
+                                  style: TextStyle(
+                                    color: Colors.amber[800],
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.motorcycle, color: Colors.grey[700], size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              _orderDetail!.driver!.vehiclePlate,
+                              style: TextStyle(
+                                color: Colors.grey[700],
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${_orderDetail!.driver!.reviewsCount} reviews',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            // Contact buttons for active orders
+            if (!_orderDetail!.orderStatus.isCompleted)
+              Padding(
+                padding: const EdgeInsets.only(top: 20.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.call, color: Colors.white, size: 18),
+                        label: const Text(
+                          'Hubungi',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          elevation: 2,
+                        ),
+                        onPressed: () => _callDriver(_orderDetail!.driver!.phone),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.message, color: Colors.white, size: 18),
+                        label: const Text(
+                          'Pesan',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[700],
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          elevation: 2,
+                        ),
+                        onPressed: () => _messageDriver(_orderDetail!.driver!.phone),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ UPDATED: Enhanced reviews card with better structure
   Widget _buildReviewsCard() {
     return SlideTransition(
       position: _reviewCardAnimation,
@@ -1686,6 +1627,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     );
   }
 
+  // ✅ UPDATED: Enhanced action buttons with better state management
   Widget _buildActionButtonsCard() {
     final bool canCancel = _orderDetail!.canBeCancelled &&
         !_orderDetail!.orderStatus.isCompleted;
@@ -1694,7 +1636,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     final bool isCompleted = _orderDetail!.orderStatus.isCompleted;
 
     return _buildCard(
-      index: 5,
+      index: 4,
       child: Column(
         children: [
           // Cancel Order Button (only for pending/confirmed orders)
@@ -1779,51 +1721,52 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     );
   }
 
-  // Helper methods
-  Color _getStatusColor(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.delivered:
-        return Colors.green;
-      case OrderStatus.cancelled:
-        return Colors.red;
-      case OrderStatus.onDelivery:
-        return Colors.blue;
-      case OrderStatus.preparing:
-        return Colors.orange;
-      default:
-        return GlobalStyle.primaryColor;
+  // Helper methods for phone actions
+  Future<void> _callDriver(String phone) async {
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nomor telepon driver tidak tersedia'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final Uri uri = Uri.parse('tel:$phone');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tidak dapat memulai panggilan'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
-  String _getStatusText(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.pending:
-        return 'Menunggu';
-      case OrderStatus.confirmed:
-        return 'Dikonfirmasi';
-      case OrderStatus.preparing:
-        return 'Diproses';
-      case OrderStatus.readyForPickup:
-        return 'Siap Diambil';
-      case OrderStatus.onDelivery:
-        return 'Diantar';
-      case OrderStatus.delivered:
-        return 'Selesai';
-      case OrderStatus.cancelled:
-        return 'Dibatalkan';
-      case OrderStatus.rejected:
-        return 'Ditolak';
-      default:
-        return 'Unknown';
+  Future<void> _messageDriver(String phone) async {
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nomor telepon driver tidak tersedia'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
     }
-  }
 
-  String _getPaymentMethodText(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Tunai';
-      default:
-        return 'Unknown';
+    final Uri uri = Uri.parse('sms:$phone');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tidak dapat memulai pesan'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 }

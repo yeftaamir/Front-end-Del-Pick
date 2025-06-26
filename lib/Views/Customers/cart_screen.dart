@@ -22,6 +22,7 @@ import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 
 import '../../Models/order_enum.dart';
+import '../../Models/order_item.dart';
 
 class CartScreen extends StatefulWidget {
   static const String route = "/Customers/Cart";
@@ -54,8 +55,8 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
-  // Service charge will be calculated using Geolocator
-  double _serviceCharge = 0;
+  // ✅ PERBAIKAN: Simplified state management - backend handle delivery fee calculation
+  double _estimatedDeliveryFee = 0;
   String? _deliveryAddress;
   double? _latitude;
   double? _longitude;
@@ -65,6 +66,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   String? _errorMessage;
   bool _isLoading = false;
   bool _isCreatingOrder = false;
+  String? _orderNotes = '';
 
   // Location specific variables
   bool _isLoadingLocation = false;
@@ -165,25 +167,25 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       print('✅ CartScreen: Customer location initialized: $_latitude, $_longitude');
     }
 
-    _calculateInitialDeliveryFee();
+    _calculateEstimatedDeliveryFee();
   }
 
-  void _calculateInitialDeliveryFee() {
+  void _calculateEstimatedDeliveryFee() {
     if (_storeDistance != null) {
       setState(() {
         double fee = calculateDeliveryFee(_storeDistance!);
-        _serviceCharge = (fee % 1000 == 0) ? fee : ((fee / 1000).ceil() * 1000);
+        _estimatedDeliveryFee = (fee % 1000 == 0) ? fee : ((fee / 1000).ceil() * 1000);
       });
-      print('✅ CartScreen: Initial delivery fee calculated: ${GlobalStyle.formatRupiah(_serviceCharge)}');
+      print('✅ CartScreen: Estimated delivery fee calculated: ${GlobalStyle.formatRupiah(_estimatedDeliveryFee)}');
       return;
     }
 
     if (_latitude != null && _longitude != null &&
         _storeLatitude != null && _storeLongitude != null) {
       _updateDeliveryFee();
-      print('✅ CartScreen: Initial delivery fee calculated from coordinates');
+      print('✅ CartScreen: Estimated delivery fee calculated from coordinates');
     } else {
-      print('⚠️ CartScreen: Cannot calculate initial delivery fee - missing location data');
+      print('⚠️ CartScreen: Cannot calculate estimated delivery fee - missing location data');
     }
   }
 
@@ -193,10 +195,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _isLoading = true;
       });
 
-      // Validate customer access
+      // ✅ PERBAIKAN: Validate customer access using new AuthService method
       final hasAccess = await AuthService.validateCustomerAccess();
       if (!hasAccess) {
-        throw Exception('Invalid customer access');
+        throw Exception('Invalid customer access. Please login as customer.');
       }
 
       // Get user data
@@ -204,6 +206,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       if (_userData == null) {
         throw Exception('Unable to get customer data');
       }
+
+      print('✅ CartScreen: Customer data loaded - ${_userData!['name']}');
 
       // Get store details if location is not available
       if (_storeLatitude == null || _storeLongitude == null) {
@@ -230,7 +234,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _errorMessage = 'Failed to load data: $e';
         _isLoading = false;
       });
-      print('Error loading initial data: $e');
+      print('❌ CartScreen: Error loading initial data: $e');
     }
   }
 
@@ -276,7 +280,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       _updateDeliveryFee();
 
     } catch (e) {
-      print('Error getting location: $e');
+      print('❌ CartScreen: Error getting location: $e');
       setState(() {
         _hasLocationPermission = false;
         _userLocation = 'Lokasi tidak tersedia';
@@ -299,12 +303,12 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       final calculatedFee = calculateDeliveryFee(_storeDistance!);
 
       setState(() {
-        _serviceCharge = calculatedFee;
+        _estimatedDeliveryFee = calculatedFee;
       });
 
       print('✅ CartScreen: Delivery fee updated successfully!');
       print('   - Distance: ${_getFormattedDistance()}');
-      print('   - Fee: ${GlobalStyle.formatRupiah(_serviceCharge)}');
+      print('   - Fee: ${GlobalStyle.formatRupiah(_estimatedDeliveryFee)}');
     } else {
       print('⚠️ CartScreen: Cannot update delivery fee - missing location data');
     }
@@ -365,121 +369,148 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: GlobalStyle.primaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              LucideIcons.mapPin,
-              color: GlobalStyle.primaryColor,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Lokasi Pengiriman',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: GlobalStyle.primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  _userLocation ?? 'Memuat lokasi...',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
+                child: Icon(
+                  LucideIcons.mapPin,
+                  color: GlobalStyle.primaryColor,
+                  size: 24,
                 ),
-                if (_hasLocationPermission && _currentPosition != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Lat: ${_currentPosition!.latitude.toStringAsFixed(4)}, Lng: ${_currentPosition!.longitude.toStringAsFixed(4)}',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.grey[500],
-                      fontFamily: GlobalStyle.fontFamily,
-                    ),
-                  ),
-                ],
-                if (_storeDistance != null) ...[
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.route,
-                        size: 12,
-                        color: GlobalStyle.primaryColor,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Lokasi Pengiriman',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontFamily: GlobalStyle.fontFamily,
                       ),
-                      const SizedBox(width: 4),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _userLocation ?? 'Memuat lokasi...',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                    if (_hasLocationPermission && _currentPosition != null) ...[
+                      const SizedBox(height: 2),
                       Text(
-                        'Jarak: ${_getFormattedDistance()}',
+                        'Lat: ${_currentPosition!.latitude.toStringAsFixed(4)}, Lng: ${_currentPosition!.longitude.toStringAsFixed(4)}',
                         style: TextStyle(
-                          fontSize: 12,
-                          color: GlobalStyle.primaryColor,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 10,
+                          color: Colors.grey[500],
                           fontFamily: GlobalStyle.fontFamily,
                         ),
                       ),
                     ],
+                    if (_storeDistance != null) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.route,
+                            size: 12,
+                            color: GlobalStyle.primaryColor,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Jarak: ${_getFormattedDistance()}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: GlobalStyle.primaryColor,
+                              fontWeight: FontWeight.w500,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (_isLoadingLocation)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (!_hasLocationPermission)
+                IconButton(
+                  onPressed: _getCurrentLocation,
+                  icon: Icon(
+                    LucideIcons.refreshCw,
+                    color: GlobalStyle.primaryColor,
+                    size: 20,
                   ),
-                ],
-              ],
-            ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        LucideIcons.checkCircle,
+                        color: Colors.green[700],
+                        size: 14,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Aktif',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green[700],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
-          if (_isLoadingLocation)
-            const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else if (!_hasLocationPermission)
-            IconButton(
-              onPressed: _getCurrentLocation,
-              icon: Icon(
-                LucideIcons.refreshCw,
-                color: GlobalStyle.primaryColor,
-                size: 20,
+          const SizedBox(height: 12),
+
+          // ✅ BARU: Notes input field
+          TextField(
+            decoration: InputDecoration(
+              labelText: 'Catatan untuk Driver (Opsional)',
+              hintText: 'Contoh: Tolong hubungi saat sampai, rumah cat biru',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: Colors.grey[300]!),
               ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(6),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: GlobalStyle.primaryColor),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    LucideIcons.checkCircle,
-                    color: Colors.green[700],
-                    size: 14,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Aktif',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.green[700],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
+            maxLines: 2,
+            onChanged: (value) {
+              _orderNotes = value;
+            },
+          ),
         ],
       ),
     );
@@ -505,8 +536,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     return total;
   }
 
-  double get total {
-    return subtotal + _serviceCharge;
+  double get estimatedTotal {
+    return subtotal + _estimatedDeliveryFee;
   }
 
   Future<void> _playSound(String assetPath) async {
@@ -518,11 +549,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
+  // ✅ PERBAIKAN: Updated untuk struktur backend yang baru
   List<Map<String, dynamic>> _prepareOrderItems() {
     return widget.cartItems.map((item) {
       final quantity = _getItemQuantity(item);
       return {
-        'itemId': item.id,
+        'id': item.id,              // Frontend menggunakan 'id'
+        'menu_item_id': item.id,    // Backend expect 'menu_item_id'
         'quantity': quantity,
         'notes': '',
       };
@@ -546,7 +579,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _showNoAddressDialog() async {
+  Future<void> _showNoLocationDialog() async {
     await _playSound('audio/wrong.mp3');
 
     await showDialog(
@@ -581,7 +614,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  "Alamat Pengiriman Diperlukan",
+                  "Lokasi Diperlukan",
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -590,7 +623,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  "Mohon tentukan alamat pengiriman untuk melanjutkan pesanan",
+                  "Mohon aktifkan lokasi untuk menghitung biaya pengiriman yang akurat",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -619,7 +652,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       Icon(Icons.location_on, size: 18),
                       SizedBox(width: 8),
                       Text(
-                        "Tentukan Alamat",
+                        "Aktifkan Lokasi",
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -668,29 +701,24 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ✅ PERBAIKAN: Completely updated untuk menggunakan OrderService yang baru
   Future<void> _createOrder() async {
-    // Validate delivery address
-    if (_deliveryAddress == null || _deliveryAddress!.isEmpty) {
-      await _showNoAddressDialog();
-      return;
-    }
+    // ✅ PERBAIKAN: Basic validation tidak lagi memerlukan delivery address
+    // karena backend menggunakan lokasi statis
 
-    // Validate coordinates
-    if (_latitude == null || _longitude == null) {
-      await _showErrorDialog(
-          'Lokasi Tidak Valid',
-          'Tidak dapat menentukan koordinat lokasi Anda. Silakan pilih alamat pengiriman kembali.'
-      );
-      return;
-    }
-
-    // Validate customer access
+    // Validate customer access first
     final hasAccess = await AuthService.validateCustomerAccess();
     if (!hasAccess) {
       await _showErrorDialog(
           'Akses Ditolak',
           'Anda harus login sebagai customer untuk membuat pesanan.'
       );
+      return;
+    }
+
+    // Check if location is available (for fee calculation display)
+    if (!_hasLocationPermission || _latitude == null || _longitude == null) {
+      await _showNoLocationDialog();
       return;
     }
 
@@ -746,6 +774,16 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       color: Colors.grey,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "Sistem otomatis akan mencarikan driver terdekat",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -755,43 +793,94 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
 
     try {
-      // Create order using OrderService.placeOrder()
+      print('🚀 CartScreen: Creating order with new OrderService...');
+      print('   - Store ID: ${widget.storeId}');
+      print('   - Items count: ${widget.cartItems.length}');
+      print('   - Notes: $_orderNotes');
+
+      // ✅ PERBAIKAN: Menggunakan OrderService.placeOrder() yang baru
       final orderResponse = await OrderService.placeOrder(
         storeId: widget.storeId.toString(),
         items: _prepareOrderItems(),
-        deliveryAddress: _deliveryAddress!,
-        latitude: _latitude!,
-        longitude: _longitude!,
-        serviceCharge: _serviceCharge,
-        notes: '',
+        notes: _orderNotes ?? '',
       );
 
       // Close creating order dialog
       Navigator.of(context, rootNavigator: true).pop();
 
       if (orderResponse.isNotEmpty && orderResponse['id'] != null) {
+        print('✅ CartScreen: Order created successfully!');
+        print('   - Order ID: ${orderResponse['id']}');
+        print('   - Backend automatically started driver search');
+
         // Show success and get order details
         await _showOrderCreatedSuccess(orderResponse['id'].toString());
 
-        // Get full order details for navigation
-        final orderDetails = await OrderService.getOrderById(orderResponse['id'].toString());
-        final createdOrder = OrderModel.fromJson(orderDetails);
+        // ✅ PERBAIKAN: Get full order details for navigation
+        try {
+          final orderDetails = await OrderService.getOrderById(orderResponse['id'].toString());
+          final createdOrder = OrderModel.fromJson(orderDetails);
 
-        setState(() {
-          _isCreatingOrder = false;
-        });
+          setState(() {
+            _isCreatingOrder = false;
+          });
 
-        // Navigate to history detail page
-        Navigator.pushReplacementNamed(
-          context,
-          HistoryDetailPage.route,
-          arguments: createdOrder,
-        );
+          // Navigate to history detail page
+          Navigator.pushReplacementNamed(
+            context,
+            HistoryDetailPage.route,
+            arguments: createdOrder,
+          );
+        } catch (detailError) {
+          print('⚠️ CartScreen: Error getting order details: $detailError');
+
+          // ✅ FALLBACK: Jika gagal get details, tetap navigate dengan data minimal
+          final minimumOrder = OrderModel(
+            id: int.parse(orderResponse['id'].toString()),
+            customerId: _userData?['id'] ?? 0,
+            storeId: widget.storeId,
+            totalAmount: subtotal,
+            deliveryFee: orderResponse['delivery_fee']?.toDouble() ?? _estimatedDeliveryFee,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            orderStatus: OrderStatus.pending,
+            deliveryStatus: DeliveryStatus.pending,
+            items: widget.cartItems.map((item) =>
+            // Create basic OrderItemModel from MenuItemModel
+            // This is a simplified conversion for navigation
+            OrderItemModel(
+              id: 0,
+              orderId: int.parse(orderResponse['id'].toString()),
+              menuItemId: item.id,
+              name: item.name,
+              description: item.description,
+              imageUrl: item.imageUrl,
+              category: item.category,
+              quantity: _getItemQuantity(item),
+              price: item.price,
+              notes: '',
+              menuItem: null,
+              createdAt: null,
+              updatedAt: null,
+            )
+            ).toList(),
+          );
+
+          setState(() {
+            _isCreatingOrder = false;
+          });
+
+          Navigator.pushReplacementNamed(
+            context,
+            HistoryDetailPage.route,
+            arguments: minimumOrder,
+          );
+        }
       } else {
         throw Exception('Order created but no order ID returned');
       }
     } catch (e) {
-      print('Error creating order: $e');
+      print('❌ CartScreen: Error creating order: $e');
 
       Navigator.of(context, rootNavigator: true).pop();
 
@@ -799,10 +888,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _isCreatingOrder = false;
       });
 
-      await _showErrorDialog(
-          'Gagal Membuat Pesanan',
-          'Terjadi kesalahan saat membuat pesanan: $e'
-      );
+      // ✅ PERBAIKAN: Enhanced error messages based on service errors
+      String errorMessage = 'Terjadi kesalahan saat membuat pesanan';
+
+      if (e.toString().contains('authentication') || e.toString().contains('Access denied')) {
+        errorMessage = 'Sesi login Anda telah berakhir. Silakan login kembali.';
+      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
+        errorMessage = 'Koneksi internet bermasalah. Periksa koneksi Anda dan coba lagi.';
+      } else if (e.toString().contains('validation')) {
+        errorMessage = 'Data pesanan tidak valid. Periksa item dan lokasi Anda.';
+      } else {
+        errorMessage = 'Gagal membuat pesanan: $e';
+      }
+
+      await _showErrorDialog('Gagal Membuat Pesanan', errorMessage);
     }
   }
 
@@ -863,6 +962,24 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     fontSize: 14,
                     color: Colors.grey[600],
                     fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // ✅ BARU: Informasi auto driver search
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    "🚗 Sistem otomatis mencari driver terdekat",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -1020,7 +1137,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              // Location card
+              // Location card with notes
               _buildCard(
                 index: 0,
                 child: _buildLocationCard(),
@@ -1153,7 +1270,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                           children: [
                             _buildPaymentRow('Subtotal', subtotal),
                             const SizedBox(height: 12),
-                            _buildPaymentRow('Biaya Pengiriman', _serviceCharge),
+                            _buildPaymentRow('Biaya Pengiriman (Est.)', _estimatedDeliveryFee),
                             if (_storeDistance != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 4.0),
@@ -1172,30 +1289,63 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                                 ),
                               ),
                             const Divider(thickness: 1, height: 24),
-                            _buildPaymentRow('Total', total, isTotal: true),
+                            _buildPaymentRow('Total (Est.)', estimatedTotal, isTotal: true),
                           ],
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            size: 16,
-                            color: Colors.blue[700],
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Pembayaran hanya menerima tunai saat ini.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.blue[700],
-                                fontStyle: FontStyle.italic,
-                              ),
+                      // ✅ BARU: Enhanced info section
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 16,
+                                  color: Colors.blue[700],
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Biaya pengiriman final akan dihitung sistem berdasarkan lokasi tujuan.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.blue[700],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.payment,
+                                  size: 16,
+                                  color: Colors.blue[700],
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Pembayaran hanya menerima tunai saat ini.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.blue[700],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -1264,7 +1414,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     const Icon(Icons.shopping_cart_checkout),
                     const SizedBox(width: 8),
                     Text(
-                      'Buat Pesanan - ${GlobalStyle.formatRupiah(total)}',
+                      'Buat Pesanan - ${GlobalStyle.formatRupiah(estimatedTotal)}',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,

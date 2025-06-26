@@ -15,7 +15,6 @@ import 'dart:async';
 // Import services
 import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/driver_request_service.dart';
-import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 
@@ -33,7 +32,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   @override
   bool get wantKeepAlive => true;
 
-  // Tab Controller for Regular Orders vs Jasa Titip
+  // Tab Controller - ✅ PERBAIKAN: Simplified menjadi hanya satu tab untuk semua driver requests
   late TabController _tabController;
 
   // Navigation
@@ -48,12 +47,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   Map<String, dynamic>? _userData;
   String? _driverId;
 
-  // Orders & Requests Data
-  List<Map<String, dynamic>> _regularOrders = [];
-  List<Map<String, dynamic>> _jasaTitipRequests = [];
+  // ✅ PERBAIKAN: Unified driver requests (sekarang semua melalui driver request system)
+  List<Map<String, dynamic>> _driverRequests = [];
+  Map<String, dynamic> _requestStats = {};
 
   // Loading States
-  bool _isLoadingOrders = false;
   bool _isLoadingRequests = false;
   bool _isInitialLoading = true;
 
@@ -72,15 +70,14 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Polling Timers
-  Timer? _orderPollingTimer;
   Timer? _requestPollingTimer;
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize Tab Controller
-    _tabController = TabController(length: 2, vsync: this);
+    // ✅ PERBAIKAN: Single tab controller untuk unified requests
+    _tabController = TabController(length: 1, vsync: this);
 
     // Initialize Animations
     _initializeAnimations();
@@ -164,7 +161,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     await Permission.location.request();
   }
 
-  // Initialize authentication and load driver data
+  // ✅ PERBAIKAN: Enhanced authentication dengan driver validation
   Future<void> _initializeAuthentication() async {
     setState(() {
       _isInitialLoading = true;
@@ -174,35 +171,24 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     try {
       print('🔍 HomeDriver: Initializing authentication...');
 
-      // Check authentication status
-      final isAuth = await AuthService.isAuthenticated();
-      if (!isAuth) {
-        throw Exception('User not authenticated');
+      // ✅ PERBAIKAN: Use new driver validation method
+      final hasDriverAccess = await AuthService.hasRole('driver');
+      if (!hasDriverAccess) {
+        throw Exception('User is not authenticated as driver');
       }
 
-      // Get user data
+      // Get user and driver data
       final userData = await AuthService.getUserData();
-      if (userData == null) {
-        throw Exception('No user data found');
-      }
-
-      // Get role-specific data
       final roleSpecificData = await AuthService.getRoleSpecificData();
-      if (roleSpecificData == null) {
-        throw Exception('No role-specific data found');
+
+      if (userData == null || roleSpecificData == null) {
+        throw Exception('Unable to retrieve user or driver data');
       }
 
-      // Verify user role
-      final userRole = await AuthService.getUserRole();
-      if (userRole?.toLowerCase() != 'driver') {
-        throw Exception('User is not a driver');
-      }
-
-      // Extract driver information
       _userData = userData;
       _driverData = roleSpecificData;
 
-      // Get driver ID from various possible locations
+      // Extract driver information
       if (roleSpecificData['driver'] != null) {
         _driverId = roleSpecificData['driver']['id']?.toString();
         _driverStatus = roleSpecificData['driver']['status'] ?? 'inactive';
@@ -230,12 +216,12 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // Load initial orders and requests data
+  // ✅ PERBAIKAN: Load all driver requests in one method
   Future<void> _loadInitialData() async {
     try {
       await Future.wait([
-        _loadRegularOrders(),
-        _loadJasaTitipRequests(),
+        _loadDriverRequests(),
+        _loadDriverStats(),
       ]);
 
       setState(() {
@@ -251,56 +237,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // Load regular orders using DriverService.getDriverOrders()
-  Future<void> _loadRegularOrders() async {
-    if (!mounted || _driverId == null) return;
-
-    setState(() {
-      _isLoadingOrders = true;
-    });
-
-    try {
-      print('🔄 HomeDriver: Loading regular orders...');
-
-      final response = await DriverService.getDriverOrders(
-        page: 1,
-        limit: 20,
-        status: null, // Get all active orders
-        sortBy: 'created_at',
-        sortOrder: 'desc',
-      );
-
-      print('📦 HomeDriver: Regular orders response received');
-
-      final ordersData = response['orders'] ?? response['data'] ?? [];
-      List<Map<String, dynamic>> activeOrders = [];
-
-      // Filter only active orders (not completed/cancelled)
-      for (var orderData in ordersData) {
-        final String status = orderData['status'] ?? orderData['orderStatus'] ?? 'pending';
-        if (['confirmed', 'preparing', 'ready_for_pickup', 'on_delivery'].contains(status.toLowerCase())) {
-          activeOrders.add(orderData);
-        }
-      }
-
-      setState(() {
-        _regularOrders = activeOrders;
-        _isLoadingOrders = false;
-      });
-
-      print('✅ HomeDriver: Loaded ${activeOrders.length} regular orders');
-
-    } catch (e) {
-      print('❌ HomeDriver: Error loading regular orders: $e');
-      setState(() {
-        _regularOrders = [];
-        _isLoadingOrders = false;
-      });
-    }
-  }
-
-  // Load jasa titip requests using DriverRequestService.getDriverRequests()
-  Future<void> _loadJasaTitipRequests() async {
+  // ✅ PERBAIKAN: Unified method untuk load semua driver requests
+  Future<void> _loadDriverRequests() async {
     if (!mounted || _driverId == null) return;
 
     setState(() {
@@ -308,49 +246,107 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     });
 
     try {
-      print('🔄 HomeDriver: Loading jasa titip requests...');
+      print('🔄 HomeDriver: Loading driver requests...');
 
+      // ✅ PERBAIKAN: Use DriverRequestService.getDriverRequests() untuk semua requests
       final response = await DriverRequestService.getDriverRequests(
         page: 1,
-        limit: 20,
+        limit: 50,
         status: 'pending', // Only pending requests
         sortBy: 'created_at',
         sortOrder: 'desc',
       );
 
-      print('📦 HomeDriver: Jasa titip requests response received');
+      print('📦 HomeDriver: Driver requests response received');
+      print('   - Response structure: ${response.keys}');
 
-      final requestsData = response['requests'] ?? response['data'] ?? [];
+      // ✅ PERBAIKAN: Process response sesuai struktur backend yang baru
+      final requestsData = response['requests'] ?? [];
+      List<Map<String, dynamic>> processedRequests = [];
+
+      for (var requestData in requestsData) {
+        try {
+          // Extract order information from nested structure
+          final orderData = requestData['order'] ?? {};
+
+          // Determine request type berdasarkan order data
+          String requestType = _determineRequestType(orderData);
+
+          // Add metadata untuk UI
+          Map<String, dynamic> processedRequest = Map<String, dynamic>.from(requestData);
+          processedRequest['request_type'] = requestType;
+          processedRequest['urgency'] = DriverRequestService.getRequestUrgency(requestData);
+          processedRequest['potential_earnings'] = DriverRequestService.calculatePotentialEarnings(requestData);
+
+          processedRequests.add(processedRequest);
+
+          print('   - Processed request ${requestData['id']}: $requestType');
+        } catch (e) {
+          print('⚠️ HomeDriver: Error processing request ${requestData['id']}: $e');
+        }
+      }
 
       setState(() {
-        _jasaTitipRequests = List<Map<String, dynamic>>.from(requestsData);
+        _driverRequests = processedRequests;
         _isLoadingRequests = false;
       });
 
-      print('✅ HomeDriver: Loaded ${requestsData.length} jasa titip requests');
+      print('✅ HomeDriver: Loaded ${processedRequests.length} driver requests');
 
     } catch (e) {
-      print('❌ HomeDriver: Error loading jasa titip requests: $e');
+      print('❌ HomeDriver: Error loading driver requests: $e');
       setState(() {
-        _jasaTitipRequests = [];
+        _driverRequests = [];
         _isLoadingRequests = false;
       });
     }
   }
 
-  // Start periodic polling for new orders and requests
-  void _startPeriodicUpdates() {
-    // Poll for new orders every 30 seconds when active
-    _orderPollingTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (_driverStatus == 'active' && mounted && _driverId != null) {
-        _loadRegularOrders();
-      }
-    });
+  // ✅ BARU: Load driver statistics
+  Future<void> _loadDriverStats() async {
+    try {
+      print('📊 HomeDriver: Loading driver statistics...');
 
-    // Poll for new requests every 20 seconds when active
-    _requestPollingTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
+      final stats = await DriverRequestService.getDriverRequestStats();
+
+      setState(() {
+        _requestStats = stats;
+      });
+
+      print('✅ HomeDriver: Driver stats loaded: ${stats.keys}');
+    } catch (e) {
+      print('❌ HomeDriver: Error loading driver stats: $e');
+      setState(() {
+        _requestStats = {};
+      });
+    }
+  }
+
+  // ✅ BARU: Determine request type dari order data
+  String _determineRequestType(Map<String, dynamic> orderData) {
+    // Check if it's a jasa titip request based on order characteristics
+    final items = orderData['items'] ?? orderData['order_items'] ?? [];
+    final notes = orderData['notes'] ?? '';
+    final description = orderData['description'] ?? '';
+
+    // Simple heuristic: if no items or contains certain keywords, it's jasa titip
+    if (items.isEmpty ||
+        notes.toLowerCase().contains('titip') ||
+        notes.toLowerCase().contains('belikan') ||
+        description.toLowerCase().contains('titip') ||
+        description.toLowerCase().contains('belikan')) {
+      return 'jasa_titip';
+    }
+
+    return 'regular';
+  }
+
+  // ✅ PERBAIKAN: Unified periodic updates
+  void _startPeriodicUpdates() {
+    // Poll for new requests every 15 seconds when active
+    _requestPollingTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (_driverStatus == 'active' && mounted && _driverId != null) {
-        _loadJasaTitipRequests();
+        _loadDriverRequests();
       }
     });
   }
@@ -366,7 +362,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // Set driver status using AuthService.updateProfile
+  // ✅ PERBAIKAN: Use DriverService.updateDriverStatus()
   Future<void> _setDriverStatus(String newStatus) async {
     if (_driverId == null) {
       _showErrorDialog('Driver ID tidak ditemukan. Silakan login ulang.');
@@ -380,14 +376,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     try {
       print('🔄 HomeDriver: Updating driver status to: $newStatus');
 
-      // Use AuthService to update profile
-      final updateData = {
-        'driver': {
-          'status': newStatus,
-        }
-      };
-
-      await AuthService.updateProfile(updateData: updateData);
+      // ✅ PERBAIKAN: Use DriverService.updateDriverStatus()
+      await DriverService.updateDriverStatus(
+        driverId: _driverId!,
+        status: newStatus,
+      );
 
       setState(() {
         _driverStatus = newStatus;
@@ -403,8 +396,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
       // Refresh data when status changes to active
       if (newStatus == 'active') {
-        _loadRegularOrders();
-        _loadJasaTitipRequests();
+        _loadDriverRequests();
+        _loadDriverStats();
       }
 
     } catch (e) {
@@ -416,116 +409,91 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // Accept regular order - Navigate to HistoryDriverDetailPage
-  Future<void> _acceptRegularOrder(Map<String, dynamic> orderData) async {
-    try {
-      final String orderId = orderData['id'].toString();
-
-      print('🔄 HomeDriver: Accepting regular order: $orderId');
-
-      // Update order status to confirmed
-      await OrderService.updateOrderStatus(
-        orderId: orderId,
-        status: 'confirmed',
-        notes: 'Driver telah menerima pesanan',
-      );
-
-      // Play success sound
-      _playSound('audio/kring.mp3');
-
-      // Show success dialog and navigate to detail
-      _showOrderAcceptedDialog(orderData, () {
-        Navigator.pushNamed(
-          context,
-          HistoryDriverDetailPage.route,
-          arguments: orderId,
-        );
-      });
-
-      // Refresh orders list
-      _loadRegularOrders();
-
-      print('✅ HomeDriver: Regular order accepted successfully');
-
-    } catch (e) {
-      print('❌ HomeDriver: Error accepting regular order: $e');
-      _showErrorDialog('Gagal menerima pesanan: $e');
-    }
-  }
-
-  // Accept jasa titip request using DriverRequestService.respondToDriverRequest() - Navigate to ContactUserPage
-  Future<void> _acceptJasaTitipRequest(Map<String, dynamic> requestData) async {
+  // ✅ PERBAIKAN: Accept request using DriverRequestService.acceptDriverRequest()
+  Future<void> _acceptDriverRequest(Map<String, dynamic> requestData) async {
     try {
       final String requestId = requestData['id'].toString();
+      final String requestType = requestData['request_type'] ?? 'regular';
 
-      print('🔄 HomeDriver: Accepting jasa titip request: $requestId');
+      print('🔄 HomeDriver: Accepting driver request: $requestId (type: $requestType)');
 
-      // Use respondToDriverRequest with accept action
-      await DriverRequestService.respondToDriverRequest(
+      // ✅ PERBAIKAN: Use convenience method acceptDriverRequest
+      await DriverRequestService.acceptDriverRequest(
         requestId: requestId,
-        action: 'accept',
-        estimatedPickupTime: DateTime.now().add(Duration(minutes: 15)).toIso8601String(),
-        estimatedDeliveryTime: DateTime.now().add(Duration(hours: 1)).toIso8601String(),
-        notes: 'Driver akan segera menghubungi Anda untuk detail pembelian',
+        notes: 'Driver telah menerima permintaan dan akan segera memproses',
       );
 
       // Play success sound
       _playSound('audio/kring.mp3');
 
-      // Show success dialog and navigate to contact user
-      _showRequestAcceptedDialog(requestData, () {
-        // Extract order ID from request data
-        final orderId = requestData['order']?['id']?.toString() ?? requestData['orderId']?.toString();
-
-        if (orderId != null) {
-          Navigator.pushNamed(
-            context,
-            ContactUserPage.route,
-            arguments: {
-              'orderId': orderId,
-              'orderDetail': requestData,
-            },
-          );
-        } else {
-          _showErrorDialog('Order ID tidak ditemukan dalam request data');
-        }
-      });
+      // Show success dialog and navigate based on request type
+      if (requestType == 'jasa_titip') {
+        _showRequestAcceptedDialog(requestData, () {
+          // Navigate to contact user for jasa titip
+          final orderId = requestData['order']?['id']?.toString();
+          if (orderId != null) {
+            Navigator.pushNamed(
+              context,
+              ContactUserPage.route,
+              arguments: {
+                'orderId': orderId,
+                'orderDetail': requestData,
+              },
+            );
+          } else {
+            _showErrorDialog('Order ID tidak ditemukan dalam request data');
+          }
+        });
+      } else {
+        _showOrderAcceptedDialog(requestData, () {
+          // Navigate to order detail for regular orders
+          final orderId = requestData['order']?['id']?.toString();
+          if (orderId != null) {
+            Navigator.pushNamed(
+              context,
+              HistoryDriverDetailPage.route,
+              arguments: orderId,
+            );
+          } else {
+            _showErrorDialog('Order ID tidak ditemukan dalam request data');
+          }
+        });
+      }
 
       // Refresh requests list
-      _loadJasaTitipRequests();
+      _loadDriverRequests();
 
-      print('✅ HomeDriver: Jasa titip request accepted successfully');
+      print('✅ HomeDriver: Driver request accepted successfully');
 
     } catch (e) {
-      print('❌ HomeDriver: Error accepting jasa titip request: $e');
+      print('❌ HomeDriver: Error accepting driver request: $e');
       _showErrorDialog('Gagal menerima permintaan: $e');
     }
   }
 
-  // Reject jasa titip request using DriverRequestService.respondToDriverRequest()
-  Future<void> _rejectJasaTitipRequest(Map<String, dynamic> requestData) async {
+  // ✅ PERBAIKAN: Reject request using DriverRequestService.rejectDriverRequest()
+  Future<void> _rejectDriverRequest(Map<String, dynamic> requestData) async {
     try {
       final String requestId = requestData['id'].toString();
 
-      print('🔄 HomeDriver: Rejecting jasa titip request: $requestId');
+      print('🔄 HomeDriver: Rejecting driver request: $requestId');
 
-      // Use respondToDriverRequest with reject action
-      await DriverRequestService.respondToDriverRequest(
+      // ✅ PERBAIKAN: Use convenience method rejectDriverRequest
+      await DriverRequestService.rejectDriverRequest(
         requestId: requestId,
-        action: 'reject',
-        notes: 'Driver tidak tersedia saat ini',
+        reason: 'Driver tidak tersedia saat ini',
       );
 
       // Play rejection sound
       _playSound('audio/wrong.mp3');
 
       // Refresh requests list
-      _loadJasaTitipRequests();
+      _loadDriverRequests();
 
-      print('✅ HomeDriver: Jasa titip request rejected successfully');
+      print('✅ HomeDriver: Driver request rejected successfully');
 
     } catch (e) {
-      print('❌ HomeDriver: Error rejecting jasa titip request: $e');
+      print('❌ HomeDriver: Error rejecting driver request: $e');
       _showErrorDialog('Gagal menolak permintaan: $e');
     }
   }
@@ -535,6 +503,10 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     try {
       print('🔄 HomeDriver: Navigating to ProfileDriverPage...');
       await Navigator.pushNamed(context, ProfileDriverPage.route);
+
+      // Refresh data when returning from profile
+      _loadDriverRequests();
+      _loadDriverStats();
     } catch (e) {
       print('❌ HomeDriver: Error navigating to profile: $e');
       _showErrorDialog('Gagal membuka halaman profil: $e');
@@ -598,7 +570,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Anda akan menerima pesanan dan permintaan jasa titip.',
+                  'Sistem akan otomatis mengirimkan permintaan pesanan terdekat kepada Anda.',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
@@ -648,7 +620,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
             ),
           ),
           content: Text(
-            'Anda yakin ingin menonaktifkan status? Anda tidak akan menerima pesanan atau permintaan baru.',
+            'Anda yakin ingin menonaktifkan status? Anda tidak akan menerima permintaan pesanan baru.',
             style: TextStyle(
               fontFamily: GlobalStyle.fontFamily,
             ),
@@ -686,7 +658,9 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
-  void _showOrderAcceptedDialog(Map<String, dynamic> orderData, VoidCallback onViewDetail) {
+  void _showOrderAcceptedDialog(Map<String, dynamic> requestData, VoidCallback onViewDetail) {
+    final orderId = requestData['order']?['id']?.toString() ?? requestData['id'].toString();
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -713,7 +687,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 8),
               Text(
-                'Order #${orderData['id']}',
+                'Order #$orderId',
                 style: TextStyle(
                   fontSize: 14,
                   fontFamily: GlobalStyle.fontFamily,
@@ -862,7 +836,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       controller.dispose();
     }
     _audioPlayer.dispose();
-    _orderPollingTimer?.cancel();
     _requestPollingTimer?.cancel();
     super.dispose();
   }
@@ -892,14 +865,24 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // Build regular order card
-  Widget _buildRegularOrderCard(Map<String, dynamic> orderData, int index) {
+  // ✅ PERBAIKAN: Unified driver request card
+  Widget _buildDriverRequestCard(Map<String, dynamic> requestData, int index) {
+    final Map<String, dynamic> orderData = requestData['order'] ?? {};
+    final String requestType = requestData['request_type'] ?? 'regular';
+    final String urgency = requestData['urgency'] ?? 'normal';
+    final double potentialEarnings = requestData['potential_earnings']?.toDouble() ?? 0.0;
+
     final String customerName = orderData['customer']?['name'] ?? orderData['user']?['name'] ?? 'Customer';
     final String storeName = orderData['store']?['name'] ?? 'Store';
     final double totalAmount = ((orderData['total_amount'] ?? orderData['totalAmount'] ?? orderData['total']) ?? 0).toDouble();
-    final String status = orderData['status'] ?? orderData['orderStatus'] ?? 'pending';
-    final String orderId = orderData['id'].toString();
-    final createdAt = orderData['created_at'] ?? orderData['createdAt'] ?? DateTime.now().toIso8601String();
+    final double deliveryFee = ((orderData['delivery_fee'] ?? orderData['deliveryFee']) ?? 0).toDouble();
+    final String requestId = requestData['id'].toString();
+    final String orderId = orderData['id']?.toString() ?? '';
+    final createdAt = requestData['created_at'] ?? requestData['createdAt'] ?? DateTime.now().toIso8601String();
+
+    // Request type specific data
+    final String notes = requestData['notes'] ?? orderData['notes'] ?? orderData['description'] ?? '';
+    final String location = requestData['location'] ?? orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? '';
 
     return SlideTransition(
       position: _cardAnimations[index % _cardAnimations.length],
@@ -915,23 +898,32 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               offset: const Offset(0, 4),
             ),
           ],
+          // ✅ BARU: Border indicator untuk urgency
+          border: urgency == 'urgent'
+              ? Border.all(color: Colors.red, width: 2)
+              : urgency == 'high'
+              ? Border.all(color: Colors.orange, width: 1)
+              : null,
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Header with type and urgency
               Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: GlobalStyle.primaryColor.withOpacity(0.1),
+                      color: requestType == 'jasa_titip'
+                          ? Colors.orange.withOpacity(0.1)
+                          : GlobalStyle.primaryColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
-                      Icons.shopping_bag,
-                      color: GlobalStyle.primaryColor,
+                      requestType == 'jasa_titip' ? Icons.local_shipping : Icons.shopping_bag,
+                      color: requestType == 'jasa_titip' ? Colors.orange : GlobalStyle.primaryColor,
                       size: 20,
                     ),
                   ),
@@ -941,7 +933,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Pesanan Regular',
+                          requestType == 'jasa_titip' ? 'Jasa Titip' : 'Pesanan Regular',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
@@ -949,7 +941,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           ),
                         ),
                         Text(
-                          'Order #$orderId',
+                          requestType == 'jasa_titip' ? 'Request #$requestId' : 'Order #$orderId',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -959,14 +951,33 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                       ],
                     ),
                   ),
+                  // ✅ BARU: Urgency indicator
+                  if (urgency != 'normal') ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: urgency == 'urgent' ? Colors.red : Colors.orange,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        urgency == 'urgent' ? 'URGENT' : 'HIGH',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: _getOrderStatusColor(status),
+                      color: Colors.blue,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      _getOrderStatusLabel(status),
+                      DriverRequestService.getRequestStatusText('pending'),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 11,
@@ -978,7 +989,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 16),
 
-              // Customer & Store Info
+              // Customer & Store/Location Info
               Row(
                 children: [
                   Expanded(
@@ -1007,219 +1018,81 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(Icons.store, size: 16, color: Colors.grey[600]),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Toko:',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
+
+                        if (requestType == 'regular') ...[
+                          Row(
+                            children: [
+                              Icon(Icons.store, size: 16, color: Colors.grey[600]),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Toko:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          storeName,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            fontFamily: GlobalStyle.fontFamily,
+                            ],
                           ),
-                        ),
+                          Text(
+                            storeName,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ] else ...[
+                          Row(
+                            children: [
+                              Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Lokasi:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            location.isNotEmpty ? location : 'Lokasi tidak tersedia',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[700],
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ],
                     ),
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(
-                        GlobalStyle.formatRupiah(totalAmount),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: GlobalStyle.primaryColor,
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                      Text(
-                        DateFormat('dd/MM, HH:mm').format(DateTime.parse(createdAt)),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // Action Buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pushNamed(
-                          context,
-                          HistoryDriverDetailPage.route,
-                          arguments: orderId,
-                        );
-                      },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: GlobalStyle.primaryColor,
-                        side: BorderSide(color: GlobalStyle.primaryColor),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Detail'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _acceptRegularOrder(orderData),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: GlobalStyle.primaryColor,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Terima'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Build jasa titip request card
-  Widget _buildJasaTitipCard(Map<String, dynamic> requestData, int index) {
-    final Map<String, dynamic> orderData = requestData['order'] ?? {};
-    final String customerName = orderData['customer']?['name'] ?? orderData['user']?['name'] ?? 'Customer';
-    final String notes = requestData['notes'] ?? orderData['notes'] ?? orderData['description'] ?? 'Tidak ada catatan';
-    final String location = requestData['location'] ?? orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? 'Lokasi tidak tersedia';
-    final double deliveryFee = ((requestData['delivery_fee'] ?? requestData['deliveryFee'] ?? orderData['delivery_fee'] ?? orderData['deliveryFee']) ?? 0).toDouble();
-    final String requestId = requestData['id'].toString();
-    final createdAt = requestData['created_at'] ?? requestData['createdAt'] ?? DateTime.now().toIso8601String();
-
-    return SlideTransition(
-      position: _cardAnimations[index % _cardAnimations.length],
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.local_shipping,
-                      color: Colors.orange,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                      if (requestType == 'regular') ...[
                         Text(
-                          'Jasa Titip',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                        Text(
-                          'Request #$requestId',
+                          GlobalStyle.formatRupiah(totalAmount),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
+                            color: GlobalStyle.primaryColor,
                             fontFamily: GlobalStyle.fontFamily,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.orange,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'Pending',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Customer Info & Date
-              Row(
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Icon(Icons.person, size: 16, color: Colors.grey[600]),
-                        const SizedBox(width: 8),
+                      ] else ...[
                         Text(
-                          customerName,
+                          GlobalStyle.formatRupiah(deliveryFee),
                           style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange,
                             fontFamily: GlobalStyle.fontFamily,
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        GlobalStyle.formatRupiah(deliveryFee),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange,
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
                       Text(
                         DateFormat('dd/MM, HH:mm').format(DateTime.parse(createdAt)),
                         style: TextStyle(
@@ -1227,65 +1100,65 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           color: Colors.grey[600],
                         ),
                       ),
+                      // ✅ BARU: Potential earnings display
+                      if (potentialEarnings > 0) ...[
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Est. ${GlobalStyle.formatRupiah(potentialEarnings)}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ],
               ),
 
-              const SizedBox(height: 12),
-
-              // Location
-              Row(
-                children: [
-                  Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      location,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[700],
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
+              // Notes for jasa titip
+              if (requestType == 'jasa_titip' && notes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[200]!),
                   ),
-                ],
-              ),
-
-              const SizedBox(height: 12),
-
-              // Notes
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey[200]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Catatan Permintaan:',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey[600],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Catatan Permintaan:',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[600],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      notes,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[800],
-                        fontFamily: GlobalStyle.fontFamily,
+                      const SizedBox(height: 4),
+                      Text(
+                        notes,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[800],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+              ],
 
               const SizedBox(height: 16),
 
@@ -1294,7 +1167,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => _rejectJasaTitipRequest(requestData),
+                      onPressed: () => _rejectDriverRequest(requestData),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.red,
                         side: const BorderSide(color: Colors.red),
@@ -1308,9 +1181,9 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   const SizedBox(width: 8),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () => _acceptJasaTitipRequest(requestData),
+                      onPressed: () => _acceptDriverRequest(requestData),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
+                        backgroundColor: requestType == 'jasa_titip' ? Colors.orange : GlobalStyle.primaryColor,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -1328,39 +1201,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
-  // Helper methods for order status
-  Color _getOrderStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'confirmed':
-        return Colors.blue;
-      case 'preparing':
-        return Colors.purple;
-      case 'ready_for_pickup':
-        return Colors.orange;
-      case 'on_delivery':
-        return Colors.indigo;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _getOrderStatusLabel(String status) {
-    switch (status.toLowerCase()) {
-      case 'confirmed':
-        return 'Dikonfirmasi';
-      case 'preparing':
-        return 'Disiapkan';
-      case 'ready_for_pickup':
-        return 'Siap Diambil';
-      case 'on_delivery':
-        return 'Diantar';
-      default:
-        return 'Pending';
-    }
-  }
-
   // Build empty state
-  Widget _buildEmptyState(String type) {
+  Widget _buildEmptyState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1373,7 +1215,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           ),
           const SizedBox(height: 16),
           Text(
-            type == 'regular' ? 'Tidak ada pesanan regular' : 'Tidak ada permintaan jasa titip',
+            'Tidak ada permintaan baru',
             style: TextStyle(
               color: GlobalStyle.fontColor,
               fontSize: 16,
@@ -1384,14 +1226,126 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           const SizedBox(height: 8),
           Text(
             _driverStatus == 'active'
-                ? 'Anda akan melihat ${type == 'regular' ? 'pesanan' : 'permintaan'} baru di sini'
-                : 'Aktifkan status untuk menerima ${type == 'regular' ? 'pesanan' : 'permintaan'}',
+                ? 'Sistem akan otomatis mengirimkan permintaan terdekat'
+                : 'Aktifkan status untuk menerima permintaan',
             style: TextStyle(
               color: GlobalStyle.fontColor.withOpacity(0.7),
               fontSize: 14,
               fontFamily: GlobalStyle.fontFamily,
             ),
             textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ BARU: Build stats row
+  Widget _buildStatsRow() {
+    final int totalRequests = _requestStats['total_requests'] ?? 0;
+    final int acceptedRequests = _requestStats['accepted_requests'] ?? 0;
+    final double acceptanceRate = _requestStats['acceptance_rate']?.toDouble() ?? 0.0;
+    final double totalEarnings = _requestStats['total_earnings']?.toDouble() ?? 0.0;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  '$totalRequests',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.primaryColor,
+                  ),
+                ),
+                Text(
+                  'Total',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  '$acceptedRequests',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                ),
+                Text(
+                  'Diterima',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  '${acceptanceRate.toStringAsFixed(1)}%',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                  ),
+                ),
+                Text(
+                  'Rate',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  totalEarnings > 0 ? GlobalStyle.formatRupiah(totalEarnings) : 'Rp 0',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.purple,
+                  ),
+                ),
+                Text(
+                  'Earnings',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -1607,125 +1561,63 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
             ),
 
-            // Tab Bar
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(15),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 5,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: TabBar(
-                controller: _tabController,
-                indicatorColor: GlobalStyle.primaryColor,
-                indicatorWeight: 3,
-                indicatorSize: TabBarIndicatorSize.tab,
-                labelColor: GlobalStyle.primaryColor,
-                unselectedLabelColor: Colors.grey[600],
-                labelStyle: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-                unselectedLabelStyle: TextStyle(
-                  fontWeight: FontWeight.normal,
-                  fontSize: 16,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-                tabs: [
-                  Tab(
-                    icon: Icon(Icons.delivery_dining, size: 20),
-                    text: 'Pesanan Regular',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.local_shipping, size: 20),
-                    text: 'Jasa Titip',
-                  ),
-                ],
-              ),
-            ),
+            // ✅ BARU: Stats Row
+            _buildStatsRow(),
 
-            // Tab Content
+            // Request List
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Regular Orders Tab
-                  RefreshIndicator(
-                    onRefresh: _loadRegularOrders,
-                    color: GlobalStyle.primaryColor,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      child: _isLoadingOrders
-                          ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              color: GlobalStyle.primaryColor,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              "Memuat pesanan...",
-                              style: TextStyle(
-                                color: GlobalStyle.primaryColor,
-                                fontFamily: GlobalStyle.fontFamily,
-                              ),
-                            ),
-                          ],
+              child: RefreshIndicator(
+                onRefresh: _loadDriverRequests,
+                color: GlobalStyle.primaryColor,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  child: _isLoadingRequests
+                      ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          color: GlobalStyle.primaryColor,
                         ),
-                      )
-                          : _regularOrders.isEmpty
-                          ? _buildEmptyState('regular')
-                          : ListView.builder(
-                        itemCount: _regularOrders.length,
-                        itemBuilder: (context, index) =>
-                            _buildRegularOrderCard(_regularOrders[index], index),
-                      ),
-                    ),
-                  ),
-
-                  // Jasa Titip Tab
-                  RefreshIndicator(
-                    onRefresh: _loadJasaTitipRequests,
-                    color: Colors.orange,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      child: _isLoadingRequests
-                          ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              color: Colors.orange,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              "Memuat permintaan...",
-                              style: TextStyle(
-                                color: Colors.orange,
-                                fontFamily: GlobalStyle.fontFamily,
-                              ),
-                            ),
-                          ],
+                        const SizedBox(height: 16),
+                        Text(
+                          "Memuat permintaan...",
+                          style: TextStyle(
+                            color: GlobalStyle.primaryColor,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
                         ),
-                      )
-                          : _jasaTitipRequests.isEmpty
-                          ? _buildEmptyState('jasa_titip')
-                          : ListView.builder(
-                        itemCount: _jasaTitipRequests.length,
-                        itemBuilder: (context, index) =>
-                            _buildJasaTitipCard(_jasaTitipRequests[index], index),
-                      ),
+                      ],
                     ),
+                  )
+                      : _driverRequests.isEmpty
+                      ? _buildEmptyState()
+                      : Column(
+                    children: [
+                      // ✅ BARU: Header dengan jumlah requests
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Text(
+                          'Permintaan Baru (${_driverRequests.length})',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: GlobalStyle.fontColor,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _driverRequests.length,
+                          itemBuilder: (context, index) =>
+                              _buildDriverRequestCard(_driverRequests[index], index),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ],

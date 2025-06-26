@@ -11,7 +11,7 @@ import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
 
-// Import services
+// Import updated services
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 
@@ -97,7 +97,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     _rotationController.repeat();
   }
 
-  // ✅ PERBAIKAN: Enhanced validation and initialization
+  // ✅ FIXED: Enhanced validation and initialization dengan service baru
   Future<void> _validateAndInitializeData() async {
     try {
       setState(() {
@@ -107,13 +107,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
       print('🏪 HomeStore: Starting validation and initialization...');
 
-      // ✅ PERBAIKAN: Validate store access
+      // ✅ FIXED: Validate store access menggunakan AuthService yang benar
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
       }
 
-      // ✅ PERBAIKAN: Ensure valid user session
+      // ✅ FIXED: Ensure valid user session
       final hasValidSession = await AuthService.ensureValidUserData();
       if (!hasValidSession) {
         throw Exception('Invalid user session. Please login again.');
@@ -150,12 +150,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ PERBAIKAN: Enhanced store data loading with proper AuthService usage
+  // ✅ FIXED: Enhanced store data loading dengan AuthService yang benar
   Future<void> _loadStoreData() async {
     try {
       print('🔍 HomeStore: Loading store data...');
 
-      // ✅ PERBAIKAN: Get role-specific data using AuthService
+      // ✅ FIXED: Get role-specific data menggunakan AuthService
       final roleData = await AuthService.getRoleSpecificData();
 
       if (roleData != null && roleData['store'] != null) {
@@ -169,7 +169,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         print('   - Store ID: ${_storeData!['id']}');
         print('   - Store Name: ${_storeData!['name']}');
       } else {
-        // ✅ PERBAIKAN: Fallback to fresh profile data
+        // ✅ FIXED: Fallback to fresh profile data
         print('⚠️ HomeStore: No cached store data, fetching fresh data...');
         final profileData = await AuthService.refreshUserData();
 
@@ -203,12 +203,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     print('   - Status: ${storeData['status']}');
   }
 
-  // ✅ PERBAIKAN: Enhanced order loading with auth validation
+  // ✅ FIXED: Enhanced order loading dengan OrderService yang benar
   Future<void> _loadOrders({bool isRefresh = false}) async {
     try {
       print('📋 HomeStore: Loading orders (refresh: $isRefresh)...');
 
-      // ✅ PERBAIKAN: Validate store access before loading orders
+      // ✅ FIXED: Validate store access before loading orders
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
@@ -221,7 +221,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         });
       }
 
-      // ✅ PERBAIKAN: Get orders by store using OrderService with auth validation
+      // ✅ FIXED: Get orders by store menggunakan OrderService.getOrdersByStore
       final response = await OrderService.getOrdersByStore(
         page: _currentPage,
         limit: 10,
@@ -229,12 +229,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         sortOrder: 'desc',
       );
 
+      // ✅ FIXED: Process response sesuai struktur backend baru
       final orders = List<Map<String, dynamic>>.from(response['orders'] ?? []);
       final totalPages = response['totalPages'] ?? 1;
 
       print('📋 HomeStore: Retrieved ${orders.length} orders');
 
-      // ✅ PERBAIKAN: Detect new orders for celebration
+      // ✅ FIXED: Detect new orders for celebration
       if (!isRefresh && _existingOrderIds.isNotEmpty) {
         for (var order in orders) {
           final orderId = order['id']?.toString();
@@ -279,7 +280,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ PERBAIKAN: Enhanced statistics calculation
+  // ✅ FIXED: Enhanced statistics calculation
   Future<void> _calculateStatistics() async {
     try {
       print('📊 HomeStore: Calculating statistics...');
@@ -306,7 +307,9 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         // Count today's orders and revenue
         if (createdAt != null && createdAt.isAfter(todayStart)) {
           today++;
-          revenue += amount;
+          if (status != 'cancelled' && status != 'rejected') {
+            revenue += amount;
+          }
         }
       }
 
@@ -326,7 +329,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ PERBAIKAN: Real-time order monitoring
+  // ✅ FIXED: Real-time order monitoring dengan service yang benar
   void _startOrderMonitoring() {
     print('🔄 HomeStore: Starting real-time order monitoring...');
 
@@ -339,7 +342,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       try {
         print('📡 HomeStore: Checking for new orders...');
 
-        // ✅ PERBAIKAN: Validate session before monitoring
+        // ✅ FIXED: Validate session before monitoring
         final hasValidSession = await AuthService.ensureValidUserData();
         if (!hasValidSession) {
           print('❌ HomeStore: Invalid session, stopping monitoring');
@@ -347,7 +350,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           return;
         }
 
-        // Get latest orders
+        // ✅ FIXED: Get latest orders menggunakan OrderService
         final response = await OrderService.getOrdersByStore(
           page: 1,
           limit: 5, // Just check latest 5 orders
@@ -379,12 +382,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     });
   }
 
-  // ✅ PERBAIKAN: Enhanced order processing with proper validation
+  // ✅ FIXED: Enhanced order processing menggunakan OrderService.processOrderByStore
   Future<void> _processOrder(String orderId, String action) async {
     try {
       print('⚙️ HomeStore: Processing order $orderId with action: $action');
 
-      // ✅ PERBAIKAN: Validate store access before processing
+      // ✅ FIXED: Validate store access before processing
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
@@ -416,12 +419,10 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         ),
       );
 
-      // ✅ PERBAIKAN: Process order using OrderService with proper action mapping
-      final mappedAction = action == 'approve' ? 'accept' : 'reject';
+      // ✅ FIXED: Process order menggunakan OrderService.processOrderByStore
       await OrderService.processOrderByStore(
         orderId: orderId,
-        action: mappedAction,
-        estimatedPreparationTime: action == 'approve' ? '30' : null, // 30 minutes estimate
+        action: action, // 'approve' atau 'reject' sesuai parameter method
         rejectionReason: action == 'reject' ? 'Toko sedang tutup atau item tidak tersedia' : null,
       );
 
@@ -462,12 +463,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ PERBAIKAN: Enhanced order detail viewing with validation
+  // ✅ FIXED: Enhanced order detail viewing menggunakan OrderService.getOrderById
   Future<void> _viewOrderDetail(String orderId) async {
     try {
       print('👁️ HomeStore: Viewing order detail: $orderId');
 
-      // ✅ PERBAIKAN: Validate access before viewing details
+      // ✅ FIXED: Validate access before viewing details
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
@@ -499,7 +500,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         ),
       );
 
-      // ✅ PERBAIKAN: Get order detail with validation
+      // ✅ FIXED: Get order detail menggunakan OrderService.getOrderById
       final orderDetail = await OrderService.getOrderById(orderId);
 
       Navigator.of(context).pop(); // Close loading dialog
@@ -536,7 +537,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ PERBAIKAN: Enhanced refresh with proper error handling
+  // ✅ FIXED: Enhanced refresh dengan proper error handling
   Future<void> _refreshOrders() async {
     try {
       print('🔄 HomeStore: Refreshing orders...');

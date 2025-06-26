@@ -631,7 +631,8 @@ class MyApp extends StatelessWidget {
               return MaterialPageRoute(
                 builder: (context) => InternetConnectivityWrapper(
                   child: ContactUserPage(
-                    orderId: args['orderId'],
+                    serviceOrderId: args['orderId'],
+                    serviceOrderData: args['orderData'],
                   ),
                 ),
                 settings: settings,
