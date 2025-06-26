@@ -386,23 +386,45 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   }
 
   /// ✅ Load driver stats with fallback for missing endpoint
+  // Ganti method _loadDriverStats() di home_driver.dart dengan:
+
+  /// ✅ Load driver stats menggunakan perhitungan frontend
   Future<void> _loadDriverStats() async {
     try {
-      print('📊 HomeDriver: Loading driver statistics...');
+      print(
+          '📊 HomeDriver: Loading driver statistics (frontend calculation)...');
 
-      final stats = await DriverRequestService.getDriverRequestStats();
+      // Gunakan method baru yang menghitung dari multiple endpoints
+      final stats = await DriverService.getComprehensiveDriverStats();
 
       setState(() {
         _requestStats = {
           'total_requests': _parseInt(stats['total_requests']),
           'accepted_requests': _parseInt(stats['accepted_requests']),
+          'cancelled_by_driver': _parseInt(stats['cancelled_by_driver']),
           'pending_requests': _parseInt(stats['pending_requests']),
           'acceptance_rate': _parseDouble(stats['acceptance_rate']),
           'total_earnings': _parseDouble(stats['total_earnings']),
+          'today_earnings': _parseDouble(stats['today_earnings']),
+          'completed_today': _parseInt(stats['completed_today']),
         };
       });
 
-      print('✅ HomeDriver: Driver stats loaded');
+      print('✅ HomeDriver: Driver stats calculated successfully');
+      print('   - Total Requests: ${_requestStats['total_requests']}');
+      print('   - Delivered Orders: ${_requestStats['accepted_requests']}');
+      print('   - Total Earnings: Rp ${_requestStats['total_earnings']}');
+      print('   - Acceptance Rate: ${_requestStats['acceptance_rate']}%');
+
+      // Debug info
+      if (stats['raw_data'] != null) {
+        final rawData = stats['raw_data'];
+        print('📊 Raw data summary:');
+        print('   - Total requests found: ${rawData['total_requests_found']}');
+        print('   - Total orders found: ${rawData['total_orders_found']}');
+        print(
+            '   - Delivered orders found: ${rawData['delivered_orders_found']}');
+      }
     } catch (e) {
       print('❌ HomeDriver: Error loading driver stats: $e');
 
@@ -411,16 +433,53 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         _requestStats = {
           'total_requests': 0,
           'accepted_requests': 0,
+          'cancelled_by_driver': 0,
           'pending_requests': 0,
           'acceptance_rate': 0.0,
           'total_earnings': 0.0,
+          'today_earnings': 0.0,
+          'completed_today': 0,
         };
       });
 
-      // Don't throw error - just use defaults
-      print('ℹ️ Using default stats due to endpoint unavailability');
+      print('ℹ️ Using default stats due to calculation error');
     }
   }
+  // Future<void> _loadDriverStats() async {
+  //   try {
+  //     print('📊 HomeDriver: Loading driver statistics...');
+  //
+  //     final stats = await DriverRequestService.getDriverRequestStats();
+  //
+  //     setState(() {
+  //       _requestStats = {
+  //         'total_requests': _parseInt(stats['total_requests']),
+  //         'accepted_requests': _parseInt(stats['accepted_requests']),
+  //         'pending_requests': _parseInt(stats['pending_requests']),
+  //         'acceptance_rate': _parseDouble(stats['acceptance_rate']),
+  //         'total_earnings': _parseDouble(stats['total_earnings']),
+  //       };
+  //     });
+  //
+  //     print('✅ HomeDriver: Driver stats loaded');
+  //   } catch (e) {
+  //     print('❌ HomeDriver: Error loading driver stats: $e');
+  //
+  //     // ✅ Use default stats instead of failing
+  //     setState(() {
+  //       _requestStats = {
+  //         'total_requests': 0,
+  //         'accepted_requests': 0,
+  //         'pending_requests': 0,
+  //         'acceptance_rate': 0.0,
+  //         'total_earnings': 0.0,
+  //       };
+  //     });
+  //
+  //     // Don't throw error - just use defaults
+  //     print('ℹ️ Using default stats due to endpoint unavailability');
+  //   }
+  // }
 
   // ✅ Safe calculation of potential earnings
   double _calculateSafePotentialEarnings(Map<String, dynamic> request) {

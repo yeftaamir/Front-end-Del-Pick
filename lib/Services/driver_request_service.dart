@@ -7,8 +7,6 @@ import 'auth_service.dart';
 class DriverRequestService {
   static const String _baseEndpoint = '/driver-requests';
 
-  /// ✅ REMOVED: createDriverRequest - karena backend otomatis create driver request saat order dibuat
-
   /// Get driver requests for current driver - FIXED struktur response
   static Future<Map<String, dynamic>> getDriverRequests({
     int page = 1,
