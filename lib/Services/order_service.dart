@@ -17,13 +17,20 @@ class OrderService {
     try {
       print('🚀 OrderService: Starting placeOrder...');
 
-      // ✅ PERBAIKAN: Validate customer access first
-      final hasAccess = await AuthService.validateCustomerAccess();
-      if (!hasAccess) {
+      // ✅ PERBAIKAN: Enhanced authentication validation using new methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login as customer');
+      }
+
+      // Validate customer role
+      final userRole = await AuthService.getUserRole();
+      if (userRole?.toLowerCase() != 'customer') {
         throw Exception('Access denied: Customer authentication required');
       }
 
-      // ✅ PERBAIKAN: Get validated customer data
       final customerData = await AuthService.getCustomerData();
       if (customerData == null) {
         throw Exception('Unable to retrieve customer data');
@@ -59,7 +66,7 @@ class OrderService {
       print('📡 OrderService: API response received');
 
       if (response['data'] != null) {
-        _processOrderImages(response['data']);
+        _processOrderData(response['data']);
         print('✅ OrderService: Order created successfully');
         print('   - Order ID: ${response['data']['id']}');
         print('   - Auto driver search started in background');
@@ -94,7 +101,15 @@ class OrderService {
     try {
       print('🔍 OrderService: Getting orders by user...');
 
-      // ✅ PERBAIKAN: Validate customer access
+      // ✅ PERBAIKAN: Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
+
+      // Validate customer access
       final hasAccess = await AuthService.validateCustomerAccess();
       if (!hasAccess) {
         throw Exception('Access denied: Customer authentication required');
@@ -119,8 +134,7 @@ class OrderService {
       if (response['data'] != null && response['data']['orders'] != null) {
         final orders = response['data']['orders'] as List;
         for (var order in orders) {
-          _processOrderImages(order);
-          _processTrackingUpdates(order); // Process tracking updates
+          _processOrderData(order);
         }
         print('✅ OrderService: Retrieved ${orders.length} orders');
       }
@@ -148,7 +162,15 @@ class OrderService {
     try {
       print('🔍 OrderService: Getting orders by store...');
 
-      // ✅ PERBAIKAN: Validate store access
+      // ✅ PERBAIKAN: Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
+
+      // Validate store access
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
@@ -173,8 +195,7 @@ class OrderService {
       if (response['data'] != null && response['data']['orders'] != null) {
         final orders = response['data']['orders'] as List;
         for (var order in orders) {
-          _processOrderImages(order);
-          _processTrackingUpdates(order); // Process tracking updates
+          _processOrderData(order);
         }
         print('✅ OrderService: Retrieved ${orders.length} store orders');
       }
@@ -191,12 +212,19 @@ class OrderService {
     }
   }
 
-  /// Get order by ID dengan enhanced data processing
+  /// Get order by ID dengan enhanced data processing dan numeric conversion
   static Future<Map<String, dynamic>> getOrderById(String orderId) async {
     try {
       print('🔍 OrderService: Getting order by ID: $orderId');
 
-      // ✅ PERBAIKAN: Validate authentication
+      // ✅ PERBAIKAN: Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
+
       final isAuth = await AuthService.isAuthenticated();
       if (!isAuth) {
         throw Exception('Authentication required');
@@ -209,8 +237,8 @@ class OrderService {
       );
 
       if (response['data'] != null) {
-        _processOrderImages(response['data']);
-        _processTrackingUpdates(response['data']);
+        // ✅ PERBAIKAN: Process all order data including numeric fields
+        _processOrderData(response['data']);
         print('✅ OrderService: Order details retrieved successfully');
         return response['data'];
       }
@@ -230,6 +258,14 @@ class OrderService {
   }) async {
     try {
       print('⚙️ OrderService: Processing order: $orderId, action: $action');
+
+      // ✅ Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
 
       // Validate store access
       final hasStoreAccess = await AuthService.hasRole('store');
@@ -256,8 +292,7 @@ class OrderService {
 
       print('✅ OrderService: Order processed successfully');
       if (response['data'] != null) {
-        _processOrderImages(response['data']);
-        _processTrackingUpdates(response['data']);
+        _processOrderData(response['data']);
       }
       return response['data'] ?? {};
     } catch (e) {
@@ -275,6 +310,14 @@ class OrderService {
   }) async {
     try {
       print('📝 OrderService: Updating order status: $orderId to $orderStatus');
+
+      // ✅ Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
 
       // Validate authentication and role
       final isAuth = await AuthService.isAuthenticated();
@@ -307,8 +350,7 @@ class OrderService {
 
       print('✅ OrderService: Order status updated successfully');
       if (response['data'] != null) {
-        _processOrderImages(response['data']);
-        _processTrackingUpdates(response['data']);
+        _processOrderData(response['data']);
       }
       return response['data'] ?? {};
     } catch (e) {
@@ -326,6 +368,14 @@ class OrderService {
     try {
       print('⭐ OrderService: Creating review for order: $orderId');
 
+      // ✅ Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
+
       // Validate customer access
       final hasAccess = await AuthService.validateCustomerAccess();
       if (!hasAccess) {
@@ -334,7 +384,7 @@ class OrderService {
 
       final body = {
         'order_review': orderReview,
-        'driver_review.dart': driverReview,
+        'driver_review': driverReview,
       };
 
       final response = await BaseService.apiCall(
@@ -361,6 +411,14 @@ class OrderService {
     try {
       print('💰 OrderService: Calculating delivery fee...');
 
+      // ✅ Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
+
       final isAuth = await AuthService.isAuthenticated();
       if (!isAuth) {
         throw Exception('Authentication required');
@@ -380,6 +438,12 @@ class OrderService {
       );
 
       print('✅ OrderService: Delivery fee calculated successfully');
+
+      // ✅ Process numeric fields
+      if (response['data'] != null) {
+        _processNumericFields(response['data']);
+      }
+
       return response['data'] ?? {};
     } catch (e) {
       print('❌ OrderService: Calculate delivery fee error: $e');
@@ -398,6 +462,14 @@ class OrderService {
   }) async {
     try {
       print('📈 OrderService: Getting order statistics...');
+
+      // ✅ Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
 
       // Validate store or admin access
       final userRole = await AuthService.getUserRole();
@@ -418,6 +490,12 @@ class OrderService {
       );
 
       print('✅ OrderService: Order statistics retrieved successfully');
+
+      // ✅ Process numeric fields in statistics
+      if (response['data'] != null) {
+        _processStatisticsData(response['data']);
+      }
+
       return response['data'] ?? {};
     } catch (e) {
       print('❌ OrderService: Get order statistics error: $e');
@@ -426,6 +504,132 @@ class OrderService {
   }
 
   // PRIVATE HELPER METHODS
+
+  /// ✅ BARU: Comprehensive order data processing including numeric conversion
+  static void _processOrderData(Map<String, dynamic> order) {
+    try {
+      print('🔄 OrderService: Processing order data...');
+
+      // Process numeric fields first (this fixes the toDouble() error)
+      _processNumericFields(order);
+
+      // Process tracking updates
+      _processTrackingUpdates(order);
+
+      // Process images
+      _processOrderImages(order);
+
+      // Process nested order items if present
+      if (order['items'] != null) {
+        final items = order['items'] as List;
+        for (var item in items) {
+          _processNumericFields(item);
+        }
+      }
+
+      if (order['order_items'] != null) {
+        final orderItems = order['order_items'] as List;
+        for (var item in orderItems) {
+          _processNumericFields(item);
+          if (item['menu_item'] != null) {
+            _processNumericFields(item['menu_item']);
+          }
+        }
+      }
+
+      // Process store data
+      if (order['store'] != null) {
+        _processNumericFields(order['store']);
+      }
+
+      // Process driver data
+      if (order['driver'] != null) {
+        _processNumericFields(order['driver']);
+        if (order['driver']['user'] != null) {
+          _processNumericFields(order['driver']['user']);
+        }
+      }
+
+      print('✅ OrderService: Order data processed successfully');
+    } catch (e) {
+      print('❌ OrderService: Error processing order data: $e');
+    }
+  }
+
+  /// ✅ BARU: Convert string numeric values to proper numeric types
+  static void _processNumericFields(Map<String, dynamic> data) {
+    try {
+      // List of fields that should be converted from String to double
+      final doubleFields = [
+        'total_price', 'total', 'subtotal', 'delivery_fee', 'service_fee',
+        'price', 'rating', 'latitude', 'longitude', 'distance',
+        'pickup_latitude', 'pickup_longitude', 'destination_latitude', 'destination_longitude',
+        'distance_km', 'distance_meters'
+      ];
+
+      // List of fields that should be converted from String to int
+      final intFields = [
+        'id', 'customer_id', 'driver_id', 'store_id', 'menu_item_id',
+        'quantity', 'reviews_count', 'review_count', 'total_products',
+        'estimated_duration', 'duration_minutes'
+      ];
+
+      // Convert double fields
+      for (final field in doubleFields) {
+        if (data[field] != null) {
+          if (data[field] is String) {
+            data[field] = double.tryParse(data[field]) ?? 0.0;
+          } else if (data[field] is int) {
+            data[field] = data[field].toDouble();
+          }
+        }
+      }
+
+      // Convert int fields
+      for (final field in intFields) {
+        if (data[field] != null) {
+          if (data[field] is String) {
+            data[field] = int.tryParse(data[field]) ?? 0;
+          } else if (data[field] is double) {
+            data[field] = data[field].toInt();
+          }
+        }
+      }
+
+    } catch (e) {
+      print('❌ OrderService: Error processing numeric fields: $e');
+    }
+  }
+
+  /// ✅ BARU: Process statistics data with numeric conversion
+  static void _processStatisticsData(Map<String, dynamic> statistics) {
+    try {
+      // Process main statistics
+      _processNumericFields(statistics);
+
+      // Process nested data if present
+      if (statistics['daily_stats'] != null && statistics['daily_stats'] is List) {
+        final dailyStats = statistics['daily_stats'] as List;
+        for (var stat in dailyStats) {
+          if (stat is Map<String, dynamic>) {
+            _processNumericFields(stat);
+          }
+        }
+      }
+
+      if (statistics['monthly_stats'] != null && statistics['monthly_stats'] is List) {
+        final monthlyStats = statistics['monthly_stats'] as List;
+        for (var stat in monthlyStats) {
+          if (stat is Map<String, dynamic>) {
+            _processNumericFields(stat);
+          }
+        }
+      }
+
+    } catch (e) {
+      print('❌ OrderService: Error processing statistics data: $e');
+    }
+  }
 
   /// ✅ BARU: Process tracking updates yang berupa JSON string
   static void _processTrackingUpdates(Map<String, dynamic> order) {
@@ -439,13 +643,24 @@ class OrderService {
             final parsed = jsonDecode(trackingUpdatesRaw);
             if (parsed is List) {
               order['tracking_updates'] = parsed;
+              // Process numeric fields in tracking updates
+              for (var update in parsed) {
+                if (update is Map<String, dynamic>) {
+                  _processNumericFields(update);
+                }
+              }
             }
           } catch (e) {
             print('⚠️ Failed to parse tracking_updates JSON: $e');
             order['tracking_updates'] = [];
           }
         } else if (trackingUpdatesRaw is List) {
-          // Already a List, keep as is
+          // Already a List, process numeric fields
+          for (var update in trackingUpdatesRaw) {
+            if (update is Map<String, dynamic>) {
+              _processNumericFields(update);
+            }
+          }
           order['tracking_updates'] = trackingUpdatesRaw;
         } else {
           order['tracking_updates'] = [];

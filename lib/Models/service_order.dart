@@ -1,7 +1,7 @@
-// lib/Models/service_order.dart
+// lib/Models/service_order.dart - FIXED VERSION
 import 'customer.dart';
 import 'driver.dart';
-import 'driver_request.dart';
+import 'driver_review.dart';
 import 'master_location.dart';
 
 enum ServiceOrderStatus {
@@ -119,19 +119,43 @@ class ServiceOrderModel {
     this.review,
   });
 
+  // ✅ TAMBAHAN: Safe parsing untuk numeric values yang mungkin berupa string
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  // ✅ TAMBAHAN: Safe parsing untuk nullable double values
+  static double? _parseNullableDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value);
+    }
+    return null;
+  }
+
   factory ServiceOrderModel.fromJson(Map<String, dynamic> json) {
     return ServiceOrderModel(
       id: json['id'] ?? 0,
       customerId: json['customer_id'] ?? 0,
       driverId: json['driver_id'],
       pickupAddress: json['pickup_address'] ?? '',
-      pickupLatitude: (json['pickup_latitude'] ?? 0.0).toDouble(),
-      pickupLongitude: (json['pickup_longitude'] ?? 0.0).toDouble(),
+      // ✅ PERBAIKAN: Safe parsing untuk coordinate fields
+      pickupLatitude: _parseDouble(json['pickup_latitude']),
+      pickupLongitude: _parseDouble(json['pickup_longitude']),
       destinationAddress: json['destination_address'] ?? '',
-      destinationLatitude: (json['destination_latitude'] ?? 0.0).toDouble(),
-      destinationLongitude: (json['destination_longitude'] ?? 0.0).toDouble(),
+      destinationLatitude: _parseDouble(json['destination_latitude']),
+      destinationLongitude: _parseDouble(json['destination_longitude']),
       description: json['description'],
-      serviceFee: (json['service_fee'] ?? 0.0).toDouble(),
+      // ✅ PERBAIKAN: Safe parsing untuk service_fee field
+      serviceFee: _parseDouble(json['service_fee']),
       status: ServiceOrderStatusExtension.fromString(json['status'] ?? 'pending'),
       customerPhone: json['customer_phone'] ?? '',
       driverPhone: json['driver_phone'],
@@ -275,101 +299,46 @@ class ServiceOrderModel {
   String get formattedEstimatedDuration {
     if (estimatedDuration == null) return 'Tidak tersedia';
 
-    if (estimatedDuration! >= 60) {
+    if (estimatedDuration! < 60) {
+      return '${estimatedDuration} menit';
+    } else {
       final hours = estimatedDuration! ~/ 60;
       final minutes = estimatedDuration! % 60;
-      if (minutes > 0) {
-        return '${hours}j ${minutes}m';
+      if (minutes == 0) {
+        return '${hours} jam';
       } else {
-        return '${hours}j';
+        return '${hours} jam ${minutes} menit';
       }
-    } else {
-      return '${estimatedDuration}m';
     }
   }
 
-  String get formattedDate {
+  String get formattedPickupLocation {
+    return pickupAddress;
+  }
+
+  String get formattedDestinationLocation {
+    return destinationAddress;
+  }
+
+  String get formattedCreatedAt {
     return '${createdAt.day}/${createdAt.month}/${createdAt.year} ${createdAt.hour}:${createdAt.minute.toString().padLeft(2, '0')}';
   }
 
-  String? get formattedActualDuration {
-    if (actualStartTime == null || actualCompletionTime == null) return null;
-
-    final duration = actualCompletionTime!.difference(actualStartTime!);
-    final minutes = duration.inMinutes;
-
-    if (minutes >= 60) {
-      final hours = minutes ~/ 60;
-      final remainingMinutes = minutes % 60;
-      if (remainingMinutes > 0) {
-        return '${hours}j ${remainingMinutes}m';
-      } else {
-        return '${hours}j';
-      }
-    } else {
-      return '${minutes}m';
-    }
-  }
+  bool get canTrack =>
+      status == ServiceOrderStatus.driverFound ||
+          status == ServiceOrderStatus.inProgress;
 
   bool get hasDriver => driverId != null && driver != null;
-  bool get hasPickupLocation => pickupLocationId != null && pickupLocation != null;
-  bool get hasDestinationLocation => destinationLocationId != null && destinationLocation != null;
-  bool get hasReview => review != null;
 
-  String get urgencyLevel {
-    final now = DateTime.now();
-    final difference = now.difference(createdAt).inMinutes;
-
-    if (difference > 60) return 'urgent';
-    if (difference > 30) return 'high';
-    return 'normal';
+  Duration? get estimatedDurationTime {
+    if (estimatedDuration == null) return null;
+    return Duration(minutes: estimatedDuration!);
   }
 
-  // WhatsApp integration
-  String generateCustomerWhatsAppUrl() {
-    final cleanPhone = customerPhone.replaceAll(RegExp(r'\D'), '');
-    String formattedPhone = cleanPhone;
-
-    if (cleanPhone.startsWith('0')) {
-      formattedPhone = '62${cleanPhone.substring(1)}';
-    } else if (!cleanPhone.startsWith('62')) {
-      formattedPhone = '62$cleanPhone';
+  Duration? get actualDuration {
+    if (actualStartTime != null && actualCompletionTime != null) {
+      return actualCompletionTime!.difference(actualStartTime!);
     }
-
-    final message = '''Halo, saya driver dari DelPick.
-
-Saya telah menerima pesanan jasa titip Anda:
-📍 Pickup: $pickupAddress
-📍 Tujuan: $destinationAddress
-💰 Biaya Pengiriman: $formattedServiceFee
-
-Saya akan segera menuju lokasi pickup. Terima kasih!''';
-
-    return 'https://wa.me/$formattedPhone?text=${Uri.encodeComponent(message)}';
-  }
-
-  String generateDriverWhatsAppUrl() {
-    if (driverPhone == null) return '';
-
-    final cleanPhone = driverPhone!.replaceAll(RegExp(r'\D'), '');
-    String formattedPhone = cleanPhone;
-
-    if (cleanPhone.startsWith('0')) {
-      formattedPhone = '62${cleanPhone.substring(1)}';
-    } else if (!cleanPhone.startsWith('62')) {
-      formattedPhone = '62$cleanPhone';
-    }
-
-    final message = '''Halo ${driver?.name ?? 'Driver'}, saya dari aplikasi DelPick.
-
-Saya membutuhkan jasa titip dengan detail:
-📍 Lokasi Pickup: $pickupAddress
-📍 Lokasi Tujuan: $destinationAddress
-💰 Biaya Pengiriman: $formattedServiceFee
-${description != null && description!.isNotEmpty ? '📝 Notes: $description' : ''}
-
-Apakah Anda bisa menangani jasa titip ini? Terima kasih!''';
-
-    return 'https://wa.me/$formattedPhone?text=${Uri.encodeComponent(message)}';
+    return null;
   }
 }

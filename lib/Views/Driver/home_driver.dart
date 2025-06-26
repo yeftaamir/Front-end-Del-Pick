@@ -32,7 +32,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   @override
   bool get wantKeepAlive => true;
 
-  // Tab Controller - ✅ PERBAIKAN: Simplified menjadi hanya satu tab untuk semua driver requests
+  // Tab Controller
   late TabController _tabController;
 
   // Navigation
@@ -47,9 +47,15 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   Map<String, dynamic>? _userData;
   String? _driverId;
 
-  // ✅ PERBAIKAN: Unified driver requests (sekarang semua melalui driver request system)
+  // Driver requests and stats
   List<Map<String, dynamic>> _driverRequests = [];
-  Map<String, dynamic> _requestStats = {};
+  Map<String, dynamic> _requestStats = {
+    'total_requests': 0,
+    'accepted_requests': 0,
+    'pending_requests': 0,
+    'acceptance_rate': 0.0,
+    'total_earnings': 0.0,
+  };
 
   // Loading States
   bool _isLoadingRequests = false;
@@ -72,11 +78,48 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   // Polling Timers
   Timer? _requestPollingTimer;
 
+  // ✅ Safe parsing methods untuk mengatasi conversion errors
+
+  /// Parse double from various formats safely
+  static double _parseDouble(dynamic value) {
+    try {
+      if (value == null) return 0.0;
+      if (value is double) return value;
+      if (value is int) return value.toDouble();
+      if (value is String) {
+        String cleanValue = value
+            .replaceAll('Rp', '')
+            .replaceAll(' ', '')
+            .replaceAll(',', '')
+            .trim();
+        if (cleanValue.isEmpty) return 0.0;
+        return double.tryParse(cleanValue) ?? 0.0;
+      }
+      return 0.0;
+    } catch (e) {
+      print('Error parsing double value "$value": $e');
+      return 0.0;
+    }
+  }
+
+  /// Parse int safely
+  static int _parseInt(dynamic value) {
+    try {
+      if (value == null) return 0;
+      if (value is int) return value;
+      if (value is double) return value.toInt();
+      if (value is String) return int.tryParse(value) ?? 0;
+      return 0;
+    } catch (e) {
+      print('Error parsing int value "$value": $e');
+      return 0;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
 
-    // ✅ PERBAIKAN: Single tab controller untuk unified requests
     _tabController = TabController(length: 1, vsync: this);
 
     // Initialize Animations
@@ -161,7 +204,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     await Permission.location.request();
   }
 
-  // ✅ PERBAIKAN: Enhanced authentication dengan driver validation
+  // ✅ Enhanced authentication with better error handling
   Future<void> _initializeAuthentication() async {
     setState(() {
       _isInitialLoading = true;
@@ -171,38 +214,40 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     try {
       print('🔍 HomeDriver: Initializing authentication...');
 
-      // ✅ PERBAIKAN: Use new driver validation method
+      // Check if user has driver role
       final hasDriverAccess = await AuthService.hasRole('driver');
       if (!hasDriverAccess) {
-        throw Exception('User is not authenticated as driver');
+        throw Exception('Access denied: You are not authenticated as a driver');
       }
 
       // Get user and driver data
       final userData = await AuthService.getUserData();
       final roleSpecificData = await AuthService.getRoleSpecificData();
 
-      if (userData == null || roleSpecificData == null) {
-        throw Exception('Unable to retrieve user or driver data');
+      if (userData == null) {
+        throw Exception('Unable to retrieve user data. Please login again.');
       }
 
       _userData = userData;
       _driverData = roleSpecificData;
 
-      // Extract driver information
-      if (roleSpecificData['driver'] != null) {
+      // Extract driver information with fallbacks
+      if (roleSpecificData != null && roleSpecificData['driver'] != null) {
         _driverId = roleSpecificData['driver']['id']?.toString();
         _driverStatus = roleSpecificData['driver']['status'] ?? 'inactive';
-      } else if (roleSpecificData['user'] != null) {
+      } else if (roleSpecificData != null && roleSpecificData['user'] != null) {
         _driverId = roleSpecificData['user']['id']?.toString();
       } else if (userData['id'] != null) {
         _driverId = userData['id']?.toString();
       }
 
       if (_driverId == null || _driverId!.isEmpty) {
-        throw Exception('Driver ID not found');
+        throw Exception('Driver ID not found. Please contact support.');
       }
 
-      print('✅ HomeDriver: Authentication successful, Driver ID: $_driverId, Status: $_driverStatus');
+      print('✅ HomeDriver: Authentication successful');
+      print('   - Driver ID: $_driverId');
+      print('   - Status: $_driverStatus');
 
       // Load initial data
       await _loadInitialData();
@@ -211,17 +256,24 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       print('❌ HomeDriver: Authentication error: $e');
       setState(() {
         _isInitialLoading = false;
-        _errorMessage = 'Authentication failed: $e';
+        _errorMessage = e.toString();
       });
     }
   }
 
-  // ✅ PERBAIKAN: Load all driver requests in one method
+  // ✅ Load initial data with better error handling
   Future<void> _loadInitialData() async {
     try {
-      await Future.wait([
-        _loadDriverRequests(),
-        _loadDriverStats(),
+      // Load data in parallel with individual error handling
+      final results = await Future.wait([
+        _loadDriverRequests().catchError((e) {
+          print('⚠️ Failed to load driver requests: $e');
+          return null;
+        }),
+        _loadDriverStats().catchError((e) {
+          print('⚠️ Failed to load driver stats: $e');
+          return null;
+        }),
       ]);
 
       setState(() {
@@ -232,12 +284,12 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       print('❌ HomeDriver: Error loading initial data: $e');
       setState(() {
         _isInitialLoading = false;
-        _errorMessage = 'Failed to load data: $e';
+        _errorMessage = 'Failed to load some data. You can still use the app.';
       });
     }
   }
 
-  // ✅ PERBAIKAN: Unified method untuk load semua driver requests
+  // ✅ Load driver requests with improved error handling
   Future<void> _loadDriverRequests() async {
     if (!mounted || _driverId == null) return;
 
@@ -248,41 +300,33 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     try {
       print('🔄 HomeDriver: Loading driver requests...');
 
-      // ✅ PERBAIKAN: Use DriverRequestService.getDriverRequests() untuk semua requests
       final response = await DriverRequestService.getDriverRequests(
         page: 1,
         limit: 50,
-        status: 'pending', // Only pending requests
+        status: 'pending',
         sortBy: 'created_at',
         sortOrder: 'desc',
       );
 
       print('📦 HomeDriver: Driver requests response received');
-      print('   - Response structure: ${response.keys}');
 
-      // ✅ PERBAIKAN: Process response sesuai struktur backend yang baru
       final requestsData = response['requests'] ?? [];
       List<Map<String, dynamic>> processedRequests = [];
 
       for (var requestData in requestsData) {
         try {
-          // Extract order information from nested structure
           final orderData = requestData['order'] ?? {};
-
-          // Determine request type berdasarkan order data
           String requestType = _determineRequestType(orderData);
 
-          // Add metadata untuk UI
           Map<String, dynamic> processedRequest = Map<String, dynamic>.from(requestData);
           processedRequest['request_type'] = requestType;
           processedRequest['urgency'] = DriverRequestService.getRequestUrgency(requestData);
-          processedRequest['potential_earnings'] = DriverRequestService.calculatePotentialEarnings(requestData);
+          processedRequest['potential_earnings'] = _calculateSafePotentialEarnings(requestData);
 
           processedRequests.add(processedRequest);
-
-          print('   - Processed request ${requestData['id']}: $requestType');
         } catch (e) {
           print('⚠️ HomeDriver: Error processing request ${requestData['id']}: $e');
+          // Skip this request but continue with others
         }
       }
 
@@ -299,10 +343,13 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         _driverRequests = [];
         _isLoadingRequests = false;
       });
+
+      // Don't show error dialog for this - just log it
+      // User can still use the app
     }
   }
 
-  // ✅ BARU: Load driver statistics
+  // ✅ Load driver stats with fallback for missing endpoint
   Future<void> _loadDriverStats() async {
     try {
       print('📊 HomeDriver: Loading driver statistics...');
@@ -310,26 +357,62 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       final stats = await DriverRequestService.getDriverRequestStats();
 
       setState(() {
-        _requestStats = stats;
+        _requestStats = {
+          'total_requests': _parseInt(stats['total_requests']),
+          'accepted_requests': _parseInt(stats['accepted_requests']),
+          'pending_requests': _parseInt(stats['pending_requests']),
+          'acceptance_rate': _parseDouble(stats['acceptance_rate']),
+          'total_earnings': _parseDouble(stats['total_earnings']),
+        };
       });
 
-      print('✅ HomeDriver: Driver stats loaded: ${stats.keys}');
+      print('✅ HomeDriver: Driver stats loaded');
     } catch (e) {
       print('❌ HomeDriver: Error loading driver stats: $e');
+
+      // ✅ Use default stats instead of failing
       setState(() {
-        _requestStats = {};
+        _requestStats = {
+          'total_requests': 0,
+          'accepted_requests': 0,
+          'pending_requests': 0,
+          'acceptance_rate': 0.0,
+          'total_earnings': 0.0,
+        };
       });
+
+      // Don't throw error - just use defaults
+      print('ℹ️ Using default stats due to endpoint unavailability');
     }
   }
 
-  // ✅ BARU: Determine request type dari order data
+  // ✅ Safe calculation of potential earnings
+  double _calculateSafePotentialEarnings(Map<String, dynamic> request) {
+    try {
+      final order = request['order'];
+      if (order == null) return 0.0;
+
+      final deliveryFee = _parseDouble(order['delivery_fee']);
+      final totalAmount = _parseDouble(order['total_amount'] ?? order['totalAmount'] ?? order['total']);
+
+      // Driver gets delivery fee + small percentage of order total
+      final baseEarning = deliveryFee;
+      final commissionRate = 0.05; // 5% dari total order
+      final commission = totalAmount * commissionRate;
+
+      return baseEarning + commission;
+    } catch (e) {
+      print('Error calculating potential earnings: $e');
+      return 0.0;
+    }
+  }
+
+  // Determine request type from order data
   String _determineRequestType(Map<String, dynamic> orderData) {
-    // Check if it's a jasa titip request based on order characteristics
     final items = orderData['items'] ?? orderData['order_items'] ?? [];
     final notes = orderData['notes'] ?? '';
     final description = orderData['description'] ?? '';
 
-    // Simple heuristic: if no items or contains certain keywords, it's jasa titip
     if (items.isEmpty ||
         notes.toLowerCase().contains('titip') ||
         notes.toLowerCase().contains('belikan') ||
@@ -341,10 +424,9 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     return 'regular';
   }
 
-  // ✅ PERBAIKAN: Unified periodic updates
+  // Start periodic updates
   void _startPeriodicUpdates() {
-    // Poll for new requests every 15 seconds when active
-    _requestPollingTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+    _requestPollingTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (_driverStatus == 'active' && mounted && _driverId != null) {
         _loadDriverRequests();
       }
@@ -362,10 +444,10 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // ✅ PERBAIKAN: Use DriverService.updateDriverStatus()
+  // ✅ Set driver status with better error handling
   Future<void> _setDriverStatus(String newStatus) async {
     if (_driverId == null) {
-      _showErrorDialog('Driver ID tidak ditemukan. Silakan login ulang.');
+      _showErrorDialog('Driver ID not found. Please login again.');
       return;
     }
 
@@ -376,7 +458,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     try {
       print('🔄 HomeDriver: Updating driver status to: $newStatus');
 
-      // ✅ PERBAIKAN: Use DriverService.updateDriverStatus()
       await DriverService.updateDriverStatus(
         driverId: _driverId!,
         status: newStatus,
@@ -405,11 +486,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       setState(() {
         _isUpdatingStatus = false;
       });
-      _showErrorDialog('Gagal mengubah status driver: $e');
+      _showErrorDialog('Failed to update driver status. Please try again.');
     }
   }
 
-  // ✅ PERBAIKAN: Accept request using DriverRequestService.acceptDriverRequest()
+  // ✅ Accept request with improved error handling
   Future<void> _acceptDriverRequest(Map<String, dynamic> requestData) async {
     try {
       final String requestId = requestData['id'].toString();
@@ -417,19 +498,19 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
       print('🔄 HomeDriver: Accepting driver request: $requestId (type: $requestType)');
 
-      // ✅ PERBAIKAN: Use convenience method acceptDriverRequest
-      await DriverRequestService.acceptDriverRequest(
+      // ✅ Try direct API call with better error handling
+      await DriverRequestService.respondToDriverRequest(
         requestId: requestId,
-        notes: 'Driver telah menerima permintaan dan akan segera memproses',
+        action: 'accept',
+        notes: 'Driver has accepted the request and will process it shortly.',
       );
 
       // Play success sound
       _playSound('audio/kring.mp3');
 
-      // Show success dialog and navigate based on request type
+      // Show success dialog and navigate
       if (requestType == 'jasa_titip') {
         _showRequestAcceptedDialog(requestData, () {
-          // Navigate to contact user for jasa titip
           final orderId = requestData['order']?['id']?.toString();
           if (orderId != null) {
             Navigator.pushNamed(
@@ -440,13 +521,10 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 'orderDetail': requestData,
               },
             );
-          } else {
-            _showErrorDialog('Order ID tidak ditemukan dalam request data');
           }
         });
       } else {
         _showOrderAcceptedDialog(requestData, () {
-          // Navigate to order detail for regular orders
           final orderId = requestData['order']?['id']?.toString();
           if (orderId != null) {
             Navigator.pushNamed(
@@ -454,8 +532,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               HistoryDriverDetailPage.route,
               arguments: orderId,
             );
-          } else {
-            _showErrorDialog('Order ID tidak ditemukan dalam request data');
           }
         });
       }
@@ -467,21 +543,32 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
     } catch (e) {
       print('❌ HomeDriver: Error accepting driver request: $e');
-      _showErrorDialog('Gagal menerima permintaan: $e');
+
+      // ✅ More specific error messages
+      String errorMessage = 'Failed to accept request.';
+      if (e.toString().contains('Bad request')) {
+        errorMessage = 'Invalid request data. Please try again.';
+      } else if (e.toString().contains('Not found')) {
+        errorMessage = 'This request is no longer available.';
+      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
+        errorMessage = 'Network error. Please check your connection.';
+      }
+
+      _showErrorDialog(errorMessage);
     }
   }
 
-  // ✅ PERBAIKAN: Reject request using DriverRequestService.rejectDriverRequest()
+  // ✅ Reject request with improved error handling
   Future<void> _rejectDriverRequest(Map<String, dynamic> requestData) async {
     try {
       final String requestId = requestData['id'].toString();
 
       print('🔄 HomeDriver: Rejecting driver request: $requestId');
 
-      // ✅ PERBAIKAN: Use convenience method rejectDriverRequest
-      await DriverRequestService.rejectDriverRequest(
+      await DriverRequestService.respondToDriverRequest(
         requestId: requestId,
-        reason: 'Driver tidak tersedia saat ini',
+        action: 'reject',
+        notes: 'Driver is currently unavailable.',
       );
 
       // Play rejection sound
@@ -494,22 +581,27 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
     } catch (e) {
       print('❌ HomeDriver: Error rejecting driver request: $e');
-      _showErrorDialog('Gagal menolak permintaan: $e');
+
+      // ✅ More specific error messages
+      String errorMessage = 'Failed to reject request.';
+      if (e.toString().contains('Bad request')) {
+        errorMessage = 'Invalid request data. Please try again.';
+      } else if (e.toString().contains('Not found')) {
+        errorMessage = 'This request is no longer available.';
+      }
+
+      _showErrorDialog(errorMessage);
     }
   }
 
   // Navigate to Profile
   void _navigateToProfile() async {
     try {
-      print('🔄 HomeDriver: Navigating to ProfileDriverPage...');
       await Navigator.pushNamed(context, ProfileDriverPage.route);
-
-      // Refresh data when returning from profile
       _loadDriverRequests();
       _loadDriverStats();
     } catch (e) {
       print('❌ HomeDriver: Error navigating to profile: $e');
-      _showErrorDialog('Gagal membuka halaman profil: $e');
     }
   }
 
@@ -561,7 +653,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Anda Sekarang Aktif!',
+                  'You are now Active!',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -570,7 +662,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Sistem akan otomatis mengirimkan permintaan pesanan terdekat kepada Anda.',
+                  'System will automatically send you nearby order requests.',
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: GlobalStyle.fontFamily,
@@ -589,7 +681,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                     minimumSize: const Size(double.infinity, 45),
                   ),
                   child: Text(
-                    'Mengerti',
+                    'Got it',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 14,
@@ -613,14 +705,14 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       builder: (BuildContext context) {
         return AlertDialog(
           title: Text(
-            'Konfirmasi',
+            'Confirmation',
             style: TextStyle(
               fontFamily: GlobalStyle.fontFamily,
               fontWeight: FontWeight.bold,
             ),
           ),
           content: Text(
-            'Anda yakin ingin menonaktifkan status? Anda tidak akan menerima permintaan pesanan baru.',
+            'Are you sure you want to deactivate your status? You will not receive new order requests.',
             style: TextStyle(
               fontFamily: GlobalStyle.fontFamily,
             ),
@@ -629,7 +721,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: Text(
-                'Batal',
+                'Cancel',
                 style: TextStyle(
                   color: GlobalStyle.primaryColor,
                   fontFamily: GlobalStyle.fontFamily,
@@ -645,7 +737,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 backgroundColor: GlobalStyle.primaryColor,
               ),
               child: Text(
-                'Ya, Nonaktifkan',
+                'Yes, Deactivate',
                 style: TextStyle(
                   color: Colors.white,
                   fontFamily: GlobalStyle.fontFamily,
@@ -678,7 +770,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 16),
               Text(
-                'Pesanan Diterima!',
+                'Order Accepted!',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -709,7 +801,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   minimumSize: const Size(double.infinity, 45),
                 ),
                 child: Text(
-                  'Lihat Detail Pesanan',
+                  'View Order Details',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -742,7 +834,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 16),
               Text(
-                'Jasa Titip Diterima!',
+                'Service Request Accepted!',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -752,7 +844,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 8),
               Text(
-                'Silakan hubungi customer untuk koordinasi lebih lanjut.',
+                'Please contact the customer for further coordination.',
                 style: TextStyle(
                   fontSize: 14,
                   fontFamily: GlobalStyle.fontFamily,
@@ -775,7 +867,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   minimumSize: const Size(double.infinity, 45),
                 ),
                 child: Text(
-                  'Hubungi Customer',
+                  'Contact Customer',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -856,31 +948,31 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   String _getStatusLabel(String status) {
     switch (status) {
       case 'active':
-        return 'Aktif';
+        return 'Active';
       case 'busy':
-        return 'Sibuk';
+        return 'Busy';
       case 'inactive':
       default:
-        return 'Tidak Aktif';
+        return 'Inactive';
     }
   }
 
-  // ✅ PERBAIKAN: Unified driver request card
+  // ✅ Driver request card with safe parsing
   Widget _buildDriverRequestCard(Map<String, dynamic> requestData, int index) {
     final Map<String, dynamic> orderData = requestData['order'] ?? {};
     final String requestType = requestData['request_type'] ?? 'regular';
     final String urgency = requestData['urgency'] ?? 'normal';
-    final double potentialEarnings = requestData['potential_earnings']?.toDouble() ?? 0.0;
+    final double potentialEarnings = _parseDouble(requestData['potential_earnings']);
 
     final String customerName = orderData['customer']?['name'] ?? orderData['user']?['name'] ?? 'Customer';
     final String storeName = orderData['store']?['name'] ?? 'Store';
-    final double totalAmount = ((orderData['total_amount'] ?? orderData['totalAmount'] ?? orderData['total']) ?? 0).toDouble();
-    final double deliveryFee = ((orderData['delivery_fee'] ?? orderData['deliveryFee']) ?? 0).toDouble();
+    final double totalAmount = _parseDouble(orderData['total_amount'] ?? orderData['totalAmount'] ?? orderData['total']);
+    final double deliveryFee = _parseDouble(orderData['delivery_fee'] ?? orderData['deliveryFee']);
+
     final String requestId = requestData['id'].toString();
     final String orderId = orderData['id']?.toString() ?? '';
     final createdAt = requestData['created_at'] ?? requestData['createdAt'] ?? DateTime.now().toIso8601String();
 
-    // Request type specific data
     final String notes = requestData['notes'] ?? orderData['notes'] ?? orderData['description'] ?? '';
     final String location = requestData['location'] ?? orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? '';
 
@@ -898,7 +990,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               offset: const Offset(0, 4),
             ),
           ],
-          // ✅ BARU: Border indicator untuk urgency
           border: urgency == 'urgent'
               ? Border.all(color: Colors.red, width: 2)
               : urgency == 'high'
@@ -933,7 +1024,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          requestType == 'jasa_titip' ? 'Jasa Titip' : 'Pesanan Regular',
+                          requestType == 'jasa_titip' ? 'Service Request' : 'Regular Order',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
@@ -951,7 +1042,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                       ],
                     ),
                   ),
-                  // ✅ BARU: Urgency indicator
                   if (urgency != 'normal') ...[
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -977,7 +1067,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      DriverRequestService.getRequestStatusText('pending'),
+                      'Pending',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 11,
@@ -1025,7 +1115,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                               Icon(Icons.store, size: 16, color: Colors.grey[600]),
                               const SizedBox(width: 4),
                               Text(
-                                'Toko:',
+                                'Store:',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey[600],
@@ -1047,7 +1137,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                               Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
                               const SizedBox(width: 4),
                               Text(
-                                'Lokasi:',
+                                'Location:',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey[600],
@@ -1056,7 +1146,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                             ],
                           ),
                           Text(
-                            location.isNotEmpty ? location : 'Lokasi tidak tersedia',
+                            location.isNotEmpty ? location : 'Location not available',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[700],
@@ -1100,7 +1190,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           color: Colors.grey[600],
                         ),
                       ),
-                      // ✅ BARU: Potential earnings display
                       if (potentialEarnings > 0) ...[
                         const SizedBox(height: 4),
                         Container(
@@ -1124,7 +1213,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 ],
               ),
 
-              // Notes for jasa titip
+              // Notes for service requests
               if (requestType == 'jasa_titip' && notes.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Container(
@@ -1139,7 +1228,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Catatan Permintaan:',
+                        'Request Notes:',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
@@ -1175,7 +1264,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      child: const Text('Tolak'),
+                      child: const Text('Reject'),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1189,7 +1278,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      child: const Text('Terima'),
+                      child: const Text('Accept'),
                     ),
                   ),
                 ],
@@ -1215,7 +1304,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           ),
           const SizedBox(height: 16),
           Text(
-            'Tidak ada permintaan baru',
+            'No new requests',
             style: TextStyle(
               color: GlobalStyle.fontColor,
               fontSize: 16,
@@ -1226,8 +1315,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           const SizedBox(height: 8),
           Text(
             _driverStatus == 'active'
-                ? 'Sistem akan otomatis mengirimkan permintaan terdekat'
-                : 'Aktifkan status untuk menerima permintaan',
+                ? 'System will automatically send you nearby requests'
+                : 'Activate your status to receive requests',
             style: TextStyle(
               color: GlobalStyle.fontColor.withOpacity(0.7),
               fontSize: 14,
@@ -1240,12 +1329,12 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
-  // ✅ BARU: Build stats row
+  // ✅ Build stats row with safe parsing
   Widget _buildStatsRow() {
-    final int totalRequests = _requestStats['total_requests'] ?? 0;
-    final int acceptedRequests = _requestStats['accepted_requests'] ?? 0;
-    final double acceptanceRate = _requestStats['acceptance_rate']?.toDouble() ?? 0.0;
-    final double totalEarnings = _requestStats['total_earnings']?.toDouble() ?? 0.0;
+    final int totalRequests = _parseInt(_requestStats['total_requests']);
+    final int acceptedRequests = _parseInt(_requestStats['accepted_requests']);
+    final double acceptanceRate = _parseDouble(_requestStats['acceptance_rate']);
+    final double totalEarnings = _parseDouble(_requestStats['total_earnings']);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1296,7 +1385,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   ),
                 ),
                 Text(
-                  'Diterima',
+                  'Accepted',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],
@@ -1332,7 +1421,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 Text(
                   totalEarnings > 0 ? GlobalStyle.formatRupiah(totalEarnings) : 'Rp 0',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: Colors.purple,
                   ),
@@ -1370,7 +1459,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               const SizedBox(height: 16),
               Text(
-                "Memuat Data Driver...",
+                "Loading Driver Data...",
                 style: TextStyle(
                   color: GlobalStyle.primaryColor,
                   fontWeight: FontWeight.w500,
@@ -1384,7 +1473,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       );
     }
 
-    if (_errorMessage != null) {
+    if (_errorMessage != null && _driverId == null) {
       return Scaffold(
         backgroundColor: const Color(0xffD6E6F2),
         body: Center(
@@ -1416,7 +1505,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   backgroundColor: GlobalStyle.primaryColor,
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Coba Lagi'),
+                child: const Text('Try Again'),
               ),
             ],
           ),
@@ -1472,7 +1561,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           if (_driverId != null) ...[
                             const SizedBox(height: 4),
                             Text(
-                              'ID Driver: $_driverId',
+                              'Driver ID: $_driverId',
                               style: TextStyle(
                                 color: GlobalStyle.fontColor.withOpacity(0.7),
                                 fontSize: 12,
@@ -1535,7 +1624,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                             ),
                             label: Text(
                               _isUpdatingStatus
-                                  ? 'Mengubah Status...'
+                                  ? 'Updating Status...'
                                   : 'Status: ${_getStatusLabel(_driverStatus)}',
                               style: const TextStyle(
                                 color: Colors.white,
@@ -1561,7 +1650,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
             ),
 
-            // ✅ BARU: Stats Row
+            // Stats Row
             _buildStatsRow(),
 
             // Request List
@@ -1581,7 +1670,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          "Memuat permintaan...",
+                          "Loading requests...",
                           style: TextStyle(
                             color: GlobalStyle.primaryColor,
                             fontFamily: GlobalStyle.fontFamily,
@@ -1594,12 +1683,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                       ? _buildEmptyState()
                       : Column(
                     children: [
-                      // ✅ BARU: Header dengan jumlah requests
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         child: Text(
-                          'Permintaan Baru (${_driverRequests.length})',
+                          'New Requests (${_driverRequests.length})',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,

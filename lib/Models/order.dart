@@ -1,5 +1,5 @@
 // ========================================
-// 8. lib/models/order_model.dart
+// 8. lib/models/order_model.dart - FIXED VERSION
 // ========================================
 
 import 'package:del_pick/Models/store.dart';
@@ -66,6 +66,28 @@ class OrderModel {
     this.items = const [],
   });
 
+  // ✅ TAMBAHAN: Safe parsing untuk numeric values yang mungkin berupa string
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  // ✅ TAMBAHAN: Safe parsing untuk nullable double values
+  static double? _parseNullableDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value);
+    }
+    return null;
+  }
+
   factory OrderModel.fromJson(Map<String, dynamic> json) {
     return OrderModel(
       id: json['id'] ?? 0,
@@ -74,11 +96,13 @@ class OrderModel {
       driverId: json['driver_id'],
       orderStatus: OrderStatusExtension.fromString(json['order_status'] ?? 'pending'),
       deliveryStatus: DeliveryStatusExtension.fromString(json['delivery_status'] ?? 'pending'),
-      totalAmount: (json['total_amount'] ?? 0).toDouble(),
-      deliveryFee: (json['delivery_fee'] ?? 0).toDouble(),
+      // ✅ PERBAIKAN: Safe parsing untuk numeric fields
+      totalAmount: _parseDouble(json['total_amount']),
+      deliveryFee: _parseDouble(json['delivery_fee']),
       deliveryAddress: json['delivery_address'],
-      customerLatitude: json['customer_latitude']?.toDouble(),
-      customerLongitude: json['customer_longitude']?.toDouble(),
+      // ✅ PERBAIKAN: Safe parsing untuk nullable coordinates
+      customerLatitude: _parseNullableDouble(json['customer_latitude']),
+      customerLongitude: _parseNullableDouble(json['customer_longitude']),
       estimatedPickupTime: json['estimated_pickup_time'] != null
           ? DateTime.parse(json['estimated_pickup_time'])
           : null,
@@ -103,7 +127,15 @@ class OrderModel {
       store: json['store'] != null ? StoreModel.fromJson(json['store']) : null,
       driver: json['driver'] != null ? DriverModel.fromJson(json['driver']) : null,
       items: json['items'] != null
-          ? (json['items'] as List).map((item) => OrderItemModel.fromJson(item)).toList()
+          ? (json['items'] as List).map((item) {
+        // ✅ PERBAIKAN: Safe parsing untuk order items juga
+        if (item is Map<String, dynamic>) {
+          final safeItem = Map<String, dynamic>.from(item);
+          safeItem['price'] = _parseDouble(item['price']);
+          return OrderItemModel.fromJson(safeItem);
+        }
+        return OrderItemModel.fromJson(item);
+      }).toList()
           : [],
     );
   }

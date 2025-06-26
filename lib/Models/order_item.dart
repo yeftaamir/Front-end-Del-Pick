@@ -1,5 +1,5 @@
 // ========================================
-// 7. lib/models/order_item_model.dart
+// 7. lib/models/order_item_model.dart - FIXED VERSION
 // ========================================
 
 import 'package:del_pick/services/image_service.dart';
@@ -37,6 +37,17 @@ class OrderItemModel {
     this.updatedAt,
   });
 
+  // ✅ TAMBAHAN: Safe parsing untuk numeric values yang mungkin berupa string
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
   factory OrderItemModel.fromJson(Map<String, dynamic> json) {
     String? processedImageUrl;
     if (json['image_url'] != null && json['image_url'].toString().isNotEmpty) {
@@ -57,7 +68,8 @@ class OrderItemModel {
       imageUrl: processedImageUrl,
       category: json['category'] ?? '',
       quantity: json['quantity'] ?? 1,
-      price: (json['price'] ?? 0).toDouble(),
+      // ✅ PERBAIKAN: Safe parsing untuk price field
+      price: _parseDouble(json['price']),
       notes: json['notes'],
       menuItem: menuItem,
       createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,

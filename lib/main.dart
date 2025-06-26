@@ -168,6 +168,29 @@ Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
   }
 }
 
+// ✅ NEW: Helper function to safely get order data from different argument types
+Future<Map<String, dynamic>> _getOrderDataSafely(dynamic arguments) async {
+  print('🔍 _getOrderDataSafely: Arguments type: ${arguments.runtimeType}');
+  print('🔍 _getOrderDataSafely: Arguments value: $arguments');
+
+  if (arguments is String) {
+    // Case 1: String argument (order ID) - fetch from API
+    print('📡 Fetching order data from API for ID: $arguments');
+    return await _getOrderData(arguments);
+  } else if (arguments is OrderModel) {
+    // Case 2: OrderModel object - convert to JSON
+    print('🔄 Converting OrderModel to JSON');
+    return arguments.toJson();
+  } else if (arguments is Map<String, dynamic>) {
+    // Case 3: Already a Map - return as is
+    print('✅ Using existing Map data');
+    return arguments;
+  } else {
+    // Case 4: Invalid or null arguments
+    throw Exception('Invalid arguments for HistoryDetailPage: ${arguments.runtimeType}');
+  }
+}
+
 // Helper function to determine the initial route based on authentication status
 Future<String> _determineInitialRoute() async {
   try {
@@ -278,127 +301,197 @@ class MyApp extends StatelessWidget {
           ),
         );
       },
-      // Customer History Detail Page route with Order fetching
-      HistoryDetailPage.route: (context) => InternetConnectivityWrapper(
-        child: FutureBuilder<Map<String, dynamic>>(
-          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              );
-            } else if (snapshot.hasError) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Text('Error: ${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Go Back'),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            } else if (!snapshot.hasData) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.info_outline, size: 60, color: Colors.orange),
-                      const SizedBox(height: 16),
-                      const Text('No order data available.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.orange),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Go Back'),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
 
-            final order = OrderModel.fromJson(snapshot.data!);
-            return HistoryDetailPage(order: order);
-          },
-        ),
-      ),
+      // ✅ FIXED: Customer History Detail Page route with flexible argument handling
+      HistoryDetailPage.route: (context) {
+        final arguments = ModalRoute.of(context)?.settings.arguments;
 
-      // Customer Rating Page route with Order data
-      RatingCustomerPage.route: (context) => InternetConnectivityWrapper(
-        child: FutureBuilder<Map<String, dynamic>>(
-          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              );
-            } else if (snapshot.hasError) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Text('Error: ${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red),
+        // Handle both OrderModel and String arguments
+        if (arguments is OrderModel) {
+          // Direct OrderModel passed (from MaterialPageRoute in history_cust.dart)
+          print('✅ Direct OrderModel navigation');
+          return InternetConnectivityWrapper(
+            child: HistoryDetailPage(order: arguments),
+          );
+        } else if (arguments is String) {
+          // String ID passed (from named route elsewhere)
+          print('📡 String ID navigation, will fetch data');
+          return InternetConnectivityWrapper(
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: _getOrderData(arguments),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                } else if (snapshot.hasError) {
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                          const SizedBox(height: 16),
+                          Text('Error: ${snapshot.error}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Go Back'),
+                    ),
+                  );
+                } else if (!snapshot.hasData) {
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.info_outline, size: 60, color: Colors.orange),
+                          const SizedBox(height: 16),
+                          const Text('No order data available.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-              );
-            } else if (!snapshot.hasData) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.info_outline, size: 60, color: Colors.orange),
-                      const SizedBox(height: 16),
-                      const Text('No order data available for rating.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.orange),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Go Back'),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
+                    ),
+                  );
+                }
 
-            final order = OrderModel.fromJson(snapshot.data!);
-            return RatingCustomerPage(order: order);
-          },
-        ),
-      ),
+                final order = OrderModel.fromJson(snapshot.data!);
+                return HistoryDetailPage(order: order);
+              },
+            ),
+          );
+        } else {
+          // Fallback for invalid arguments
+          print('⚠️ Invalid arguments for HistoryDetailPage: ${arguments.runtimeType}');
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                  const SizedBox(height: 16),
+                  const Text('Invalid navigation arguments',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Go Back'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+      },
+
+      // ✅ FIXED: Customer Rating Page route with flexible argument handling
+      RatingCustomerPage.route: (context) {
+        final arguments = ModalRoute.of(context)?.settings.arguments;
+
+        // Handle both OrderModel and String arguments
+        if (arguments is OrderModel) {
+          // Direct OrderModel passed
+          return InternetConnectivityWrapper(
+            child: RatingCustomerPage(order: arguments),
+          );
+        } else if (arguments is String) {
+          // String ID passed, fetch data
+          return InternetConnectivityWrapper(
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: _getOrderData(arguments),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                } else if (snapshot.hasError) {
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                          const SizedBox(height: 16),
+                          Text('Error: ${snapshot.error}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                } else if (!snapshot.hasData) {
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.info_outline, size: 60, color: Colors.orange),
+                          const SizedBox(height: 16),
+                          const Text('No order data available for rating.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                final order = OrderModel.fromJson(snapshot.data!);
+                return RatingCustomerPage(order: order);
+              },
+            ),
+          );
+        } else {
+          // Fallback for invalid arguments
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                  const SizedBox(height: 16),
+                  const Text('Invalid navigation arguments for rating',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Go Back'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+      },
 
       // Admin routes
       '/Admin/HomePage': (context) => const InternetConnectivityWrapper(
@@ -579,10 +672,76 @@ class MyApp extends StatelessWidget {
       theme: _buildTheme(),
       initialRoute: '/', // Start with splash screen which will handle authentication
       routes: _buildRoutes(),
-      // ========== TAMBAHKAN onGenerateRoute INI ==========
-      // Route generator untuk handling parameter
+      // ✅ ENHANCED: Route generator untuk handling parameter dengan type safety
       onGenerateRoute: (RouteSettings settings) {
+        print('🛣️ onGenerateRoute called for: ${settings.name}');
+        print('🛣️ Arguments: ${settings.arguments} (${settings.arguments.runtimeType})');
+
         switch (settings.name) {
+        // ✅ Enhanced HistoryDetailPage handling
+          case HistoryDetailPage.route:
+            final args = settings.arguments;
+
+            if (args is OrderModel) {
+              // Case 1: Direct OrderModel object (from MaterialPageRoute)
+              print('✅ Direct OrderModel navigation via onGenerateRoute');
+              return MaterialPageRoute(
+                builder: (context) => InternetConnectivityWrapper(
+                  child: HistoryDetailPage(order: args),
+                ),
+                settings: settings,
+              );
+            } else if (args is String) {
+              // Case 2: String ID (from named route)
+              print('📡 String ID navigation via onGenerateRoute, will fetch data');
+              return MaterialPageRoute(
+                builder: (context) => InternetConnectivityWrapper(
+                  child: FutureBuilder<Map<String, dynamic>>(
+                    future: _getOrderData(args),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Scaffold(
+                          body: Center(child: CircularProgressIndicator()),
+                        );
+                      } else if (snapshot.hasError) {
+                        return Scaffold(
+                          body: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                                const SizedBox(height: 16),
+                                Text('Error: ${snapshot.error}'),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('Go Back'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      } else if (!snapshot.hasData) {
+                        return const Scaffold(
+                          body: Center(
+                            child: Text('No order data available.'),
+                          ),
+                        );
+                      }
+
+                      final order = OrderModel.fromJson(snapshot.data!);
+                      return HistoryDetailPage(order: order);
+                    },
+                  ),
+                ),
+                settings: settings,
+              );
+            } else {
+              // Case 3: Invalid arguments - let route configuration handle it
+              print('⚠️ Invalid arguments for HistoryDetailPage via onGenerateRoute, using route configuration');
+              break;
+            }
+
         // ========== CUSTOMER ROUTES ==========
           case ContactDriverPage.route:
             final args = settings.arguments as Map<String, dynamic>?;
@@ -668,6 +827,9 @@ class MyApp extends StatelessWidget {
           default:
             return null;
         }
+
+        // Return null to let the default route handling take over
+        return null;
       },
 
       // Wrap root level with InternetConnectivityWrapper (optional since we wrapped each route)

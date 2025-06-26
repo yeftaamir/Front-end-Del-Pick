@@ -1,15 +1,15 @@
-// driver_order_status.dart
+// driver_order_status.dart - FIXED VERSION
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
-import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/order_service.dart';
-import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
+
+import '../../Services/auth_service.dart';
 
 class DriverOrderStatusCard extends StatefulWidget {
   final String? orderId;
@@ -103,6 +103,38 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     _startStatusPolling();
   }
 
+  /// ✅ ENHANCED: Comprehensive safe type conversion for deeply nested maps
+  static Map<String, dynamic> _safeMapConversion(dynamic data) {
+    if (data == null) return {};
+
+    if (data is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(data);
+    } else if (data is Map) {
+      // Convert Map<dynamic, dynamic> to Map<String, dynamic> recursively
+      return Map<String, dynamic>.from(data.map((key, value) {
+        // Recursively convert nested maps
+        if (value is Map && value is! Map<String, dynamic>) {
+          value = _safeMapConversion(value);
+        } else if (value is List) {
+          value = _safeListConversion(value);
+        }
+        return MapEntry(key.toString(), value);
+      }));
+    }
+
+    return {};
+  }
+
+  /// ✅ ENHANCED: Safe type conversion for lists containing maps
+  static List<dynamic> _safeListConversion(List<dynamic> list) {
+    return list.map((item) {
+      if (item is Map && item is! Map<String, dynamic>) {
+        return _safeMapConversion(item);
+      }
+      return item;
+    }).toList();
+  }
+
   void _initializeAnimations() {
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
@@ -115,7 +147,10 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
 
   Future<void> _loadOrderData() async {
     if (widget.initialOrderData != null) {
-      _processOrderData(widget.initialOrderData!);
+      // ✅ FIXED: Safe conversion for initial data
+      final safeInitialData = _safeMapConversion(widget.initialOrderData!);
+      print('🔄 DriverOrderStatusCard: Using initial data, converting safely...');
+      _processOrderData(safeInitialData);
       return;
     }
 
@@ -132,44 +167,50 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     });
 
     try {
-      // Check authentication and role
+      print('🔍 DriverOrderStatusCard: Starting data loading for order: ${widget.orderId}');
+
+      // ✅ UPDATED: Enhanced authentication using new methods
       final userData = await AuthService.getUserData();
-      if (userData == null) {
-        throw Exception('User not authenticated');
-      }
-
       final roleSpecificData = await AuthService.getRoleSpecificData();
-      if (roleSpecificData == null) {
-        throw Exception('Driver data not found');
+
+      if (userData == null || roleSpecificData == null) {
+        throw Exception('Authentication required: Please login as driver');
       }
 
-      // Get order data using DriverService
-      final response = await DriverService.getDriverOrders(
-        page: 1,
-        limit: 50,
-        status: null,
-        sortBy: 'created_at',
-        sortOrder: 'desc',
-      );
+      print('✅ DriverOrderStatusCard: User data obtained');
+      print('   - User ID: ${userData['id']}');
+      print('   - Role: ${roleSpecificData['role']}');
 
-      final orders = response['orders'] as List? ?? [];
-      final targetOrder = orders.firstWhere(
-            (order) => order['id'].toString() == widget.orderId,
-        orElse: () => null,
-      );
-
-      if (targetOrder != null) {
-        _processOrderData(targetOrder);
-      } else {
-        // Fallback ke getOrderById
-        final orderData = await OrderService.getOrderById(widget.orderId!);
-        _processOrderData(orderData);
+      // ✅ Additional validation for driver role
+      final hasDriverRole = await AuthService.hasRole('driver');
+      if (!hasDriverRole) {
+        throw Exception('Access denied: Driver authentication required');
       }
+
+      print('✅ DriverOrderStatusCard: Driver access validated');
+
+      // ✅ CHANGED: Use getOrderById instead of getDriverOrders for more accurate data
+      print('📡 DriverOrderStatusCard: Fetching order directly by ID...');
+      final rawOrderData = await OrderService.getOrderById(widget.orderId!);
+
+      if (rawOrderData == null) {
+        throw Exception('Order not found');
+      }
+
+      // ✅ CRITICAL: Safe conversion before processing
+      final safeOrderData = _safeMapConversion(rawOrderData);
+      print('✅ DriverOrderStatusCard: Order data retrieved and converted safely');
+      print('   - Order ID: ${safeOrderData['id']}');
+      print('   - Status: ${safeOrderData['order_status']}');
+      print('   - Driver ID: ${safeOrderData['driver_id']}');
+
+      _processOrderData(safeOrderData);
+
     } catch (e) {
+      print('❌ DriverOrderStatusCard: Error loading data: $e');
       setState(() {
         _errorMessage = 'Gagal memuat data pesanan: $e';
       });
-      print('Error loading driver order data: $e');
     } finally {
       setState(() {
         _isLoading = false;
@@ -179,12 +220,30 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
 
   void _processOrderData(Map<String, dynamic> orderData) {
     try {
-      final newOrder = OrderModel.fromJson(orderData);
+      print('🔄 DriverOrderStatusCard: Processing order data...');
+      print('   - Input data type: ${orderData.runtimeType}');
+      print('   - Input data keys: ${orderData.keys.toList()}');
+
+      // ✅ CRITICAL: Ensure data is safely converted before creating OrderModel
+      final safeOrderData = _safeMapConversion(orderData);
+
+      // Additional safety check for required fields
+      if (safeOrderData['id'] == null) {
+        throw Exception('Invalid order data: missing ID');
+      }
+
+      final newOrder = OrderModel.fromJson(safeOrderData);
       final previousStatus = _currentOrder?.orderStatus;
 
       setState(() {
         _currentOrder = newOrder;
       });
+
+      print('✅ DriverOrderStatusCard: Order processed successfully');
+      print('   - Order ID: ${newOrder.id}');
+      print('   - Status: ${newOrder.orderStatus.name}');
+      print('   - Customer: ${newOrder.customer?.name ?? "N/A"}');
+      print('   - Driver: ${newOrder.driver?.name ?? "N/A"}');
 
       if (previousStatus != null && previousStatus != newOrder.orderStatus) {
         _handleStatusChange(newOrder.orderStatus);
@@ -194,10 +253,12 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
 
       _previousStatus = newOrder.orderStatus;
     } catch (e) {
+      print('❌ DriverOrderStatusCard: Error processing order data: $e');
+      print('   - Data type: ${orderData.runtimeType}');
+      print('   - Stack trace: ${StackTrace.current}');
       setState(() {
         _errorMessage = 'Error memproses data pesanan: $e';
       });
-      print('Error processing order data: $e');
     }
   }
 
@@ -226,6 +287,7 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   void _startStatusPolling() {
     _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (mounted && widget.orderId != null) {
+        print('🔄 DriverOrderStatusCard: Polling status update...');
         _loadOrderData();
       }
     });
@@ -768,5 +830,3 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     );
   }
 }
-
-// ============================================================================

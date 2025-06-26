@@ -1,4 +1,4 @@
-// cust_order_status.dart
+// cust_order_status.dart - COMPLETE FIXED VERSION
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:del_pick/Common/global_style.dart';
@@ -11,8 +11,6 @@ import 'dart:async';
 
 import '../../Services/auth_service.dart';
 
-
-// cust_order_status.dart
 class CustomerOrderStatusCard extends StatefulWidget {
   final String? orderId;
   final Map<String, dynamic>? initialOrderData;
@@ -105,6 +103,105 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     _startStatusPolling();
   }
 
+  /// ✅ ULTIMATE FIX: Deep recursive type conversion dengan nested object handling
+  static Map<String, dynamic> _ultraSafeMapConversion(dynamic data, {String context = ''}) {
+    if (data == null) {
+      print('⚠️ _ultraSafeMapConversion: null data in context: $context');
+      return {};
+    }
+
+    try {
+      // Case 1: Already Map<String, dynamic> - still need to check nested
+      if (data is Map<String, dynamic>) {
+        final result = <String, dynamic>{};
+        for (final entry in data.entries) {
+          result[entry.key] = _convertValue(entry.value, '${context}.${entry.key}');
+        }
+        return result;
+      }
+
+      // Case 2: Map<dynamic, dynamic> - convert keys and values
+      if (data is Map) {
+        final result = <String, dynamic>{};
+        for (final entry in data.entries) {
+          final key = entry.key.toString();
+          result[key] = _convertValue(entry.value, '${context}.$key');
+        }
+        return result;
+      }
+
+      // Case 3: Not a map
+      print('❌ _ultraSafeMapConversion: Unexpected data type: ${data.runtimeType} in context: $context');
+      return {};
+
+    } catch (e) {
+      print('❌ _ultraSafeMapConversion error in context $context: $e');
+      return {};
+    }
+  }
+
+  /// ✅ Helper: Convert individual values recursively
+  static dynamic _convertValue(dynamic value, String context) {
+    if (value == null) return null;
+
+    if (value is Map && value is! Map<String, dynamic>) {
+      // Recursively convert nested maps
+      return _ultraSafeMapConversion(value, context: context);
+    } else if (value is Map<String, dynamic>) {
+      // Still process to ensure nested maps are converted
+      return _ultraSafeMapConversion(value, context: context);
+    } else if (value is List) {
+      // Process lists that might contain maps
+      return _convertList(value, context);
+    }
+
+    return value;
+  }
+
+  /// ✅ Helper: Convert lists containing maps
+  static List<dynamic> _convertList(List<dynamic> list, String context) {
+    return list.asMap().entries.map((entry) {
+      final index = entry.key;
+      final item = entry.value;
+      return _convertValue(item, '$context[$index]');
+    }).toList();
+  }
+
+  /// ✅ Helper: Validate and fix known nested objects
+  static Map<String, dynamic> _fixKnownNestedObjects(Map<String, dynamic> data) {
+    // Known problematic nested objects in OrderModel
+    final nestedObjects = ['store', 'customer', 'driver', 'user'];
+    final nestedLists = ['items', 'order_items', 'tracking_updates'];
+
+    // Fix nested objects
+    for (final key in nestedObjects) {
+      if (data[key] != null && data[key] is Map && data[key] is! Map<String, dynamic>) {
+        print('🔧 Fixing nested object: $key');
+        data[key] = _ultraSafeMapConversion(data[key], context: key);
+      }
+    }
+
+    // Fix nested lists
+    for (final key in nestedLists) {
+      if (data[key] != null && data[key] is List) {
+        print('🔧 Fixing nested list: $key');
+        data[key] = _convertList(data[key] as List, key);
+      }
+    }
+
+    // Special handling for driver.user nested structure
+    if (data['driver'] != null &&
+        data['driver'] is Map<String, dynamic> &&
+        data['driver']['user'] != null &&
+        data['driver']['user'] is Map &&
+        data['driver']['user'] is! Map<String, dynamic>) {
+      print('🔧 Fixing driver.user nested object');
+      data['driver']['user'] = _ultraSafeMapConversion(data['driver']['user'], context: 'driver.user');
+    }
+
+    return data;
+  }
+
   void _initializeAnimations() {
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
@@ -117,8 +214,33 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
 
   Future<void> _loadOrderData() async {
     if (widget.initialOrderData != null) {
-      _processOrderData(widget.initialOrderData!);
-      return;
+      print('🔄 CustomerOrderStatusCard: Processing initial data...');
+      print('   - Initial data type: ${widget.initialOrderData.runtimeType}');
+      print('   - Initial data keys: ${widget.initialOrderData!.keys.toList()}');
+
+      // ✅ ULTIMATE FIX: Triple-layer safety conversion
+      try {
+        // Layer 1: Basic conversion
+        final step1 = _ultraSafeMapConversion(widget.initialOrderData!, context: 'initial_step1');
+        print('✅ Step 1 completed: ${step1.runtimeType}');
+
+        // Layer 2: Fix known nested objects
+        final step2 = _fixKnownNestedObjects(step1);
+        print('✅ Step 2 completed: ${step2.runtimeType}');
+
+        // Layer 3: Final validation and conversion
+        final finalData = _ultraSafeMapConversion(step2, context: 'initial_final');
+        print('✅ Final conversion completed: ${finalData.runtimeType}');
+
+        _processOrderData(finalData);
+        return;
+      } catch (e) {
+        print('❌ Error in initial data conversion: $e');
+        setState(() {
+          _errorMessage = 'Error converting initial data: $e';
+        });
+        return;
+      }
     }
 
     if (widget.orderId == null) {
@@ -134,43 +256,59 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     });
 
     try {
-      // Check authentication and role
+      print('🔍 CustomerOrderStatusCard: Starting data loading for order: ${widget.orderId}');
+
+      // Authentication validation
       final userData = await AuthService.getUserData();
-      if (userData == null) {
-        throw Exception('User not authenticated');
-      }
-
       final roleSpecificData = await AuthService.getRoleSpecificData();
-      if (roleSpecificData == null) {
-        throw Exception('Customer data not found');
+
+      if (userData == null || roleSpecificData == null) {
+        throw Exception('Authentication required: Please login as customer');
       }
 
-      // Get order data using OrderService for customer
-      final response = await OrderService.getOrdersByUser(
-        page: 1,
-        limit: 50,
-        status: null,
-        sortBy: 'created_at',
-        sortOrder: 'desc',
-      );
-
-      final orders = response['orders'] as List? ?? [];
-      final targetOrder = orders.firstWhere(
-            (order) => order['id'].toString() == widget.orderId,
-        orElse: () => null,
-      );
-
-      if (targetOrder != null) {
-        _processOrderData(targetOrder);
-      } else {
-        final orderData = await OrderService.getOrderById(widget.orderId!);
-        _processOrderData(orderData);
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required');
       }
+
+      print('✅ CustomerOrderStatusCard: Customer access validated');
+
+      // API call
+      print('📡 CustomerOrderStatusCard: Fetching order directly by ID...');
+      final rawOrderData = await OrderService.getOrderById(widget.orderId!);
+
+      if (rawOrderData == null) {
+        throw Exception('Order not found');
+      }
+
+      print('📡 CustomerOrderStatusCard: Raw API response received');
+      print('   - Raw data type: ${rawOrderData.runtimeType}');
+
+      // ✅ ULTIMATE FIX: Triple-layer safety conversion for API data
+      try {
+        // Layer 1: Basic conversion
+        final step1 = _ultraSafeMapConversion(rawOrderData, context: 'api_step1');
+        print('✅ API Step 1 completed: ${step1.runtimeType}');
+
+        // Layer 2: Fix known nested objects
+        final step2 = _fixKnownNestedObjects(step1);
+        print('✅ API Step 2 completed: ${step2.runtimeType}');
+
+        // Layer 3: Final validation and conversion
+        final finalData = _ultraSafeMapConversion(step2, context: 'api_final');
+        print('✅ API Final conversion completed: ${finalData.runtimeType}');
+
+        _processOrderData(finalData);
+      } catch (e) {
+        print('❌ Error in API data conversion: $e');
+        throw Exception('Error converting API data: $e');
+      }
+
     } catch (e) {
+      print('❌ CustomerOrderStatusCard: Error loading data: $e');
       setState(() {
         _errorMessage = 'Gagal memuat data pesanan: $e';
       });
-      print('Error loading customer order data: $e');
     } finally {
       setState(() {
         _isLoading = false;
@@ -180,12 +318,37 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
 
   void _processOrderData(Map<String, dynamic> orderData) {
     try {
-      final newOrder = OrderModel.fromJson(orderData);
+      print('🔄 CustomerOrderStatusCard: Processing order data...');
+      print('   - Input data type: ${orderData.runtimeType}');
+      print('   - Input data keys: ${orderData.keys.toList()}');
+
+      // ✅ FINAL SAFETY CHECK: One more ultra-safe conversion
+      final ultraSafeData = _ultraSafeMapConversion(orderData, context: 'final_process');
+      final finalSafeData = _fixKnownNestedObjects(ultraSafeData);
+
+      // Debug nested objects before OrderModel creation
+      _debugNestedObjects(finalSafeData);
+
+      // Validate required fields
+      if (finalSafeData['id'] == null) {
+        throw Exception('Invalid order data: missing ID');
+      }
+
+      print('🚀 CustomerOrderStatusCard: Creating OrderModel...');
+
+      // Create OrderModel with ultra-safe data
+      final newOrder = OrderModel.fromJson(finalSafeData);
       final previousStatus = _currentOrder?.orderStatus;
 
       setState(() {
         _currentOrder = newOrder;
       });
+
+      print('✅ CustomerOrderStatusCard: Order processed successfully');
+      print('   - Order ID: ${newOrder.id}');
+      print('   - Status: ${newOrder.orderStatus.name}');
+      print('   - Customer: ${newOrder.customer?.name ?? "N/A"}');
+      print('   - Store: ${newOrder.store?.name ?? "N/A"}');
 
       if (previousStatus != null && previousStatus != newOrder.orderStatus) {
         _handleStatusChange(newOrder.orderStatus);
@@ -194,11 +357,78 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
       }
 
       _previousStatus = newOrder.orderStatus;
-    } catch (e) {
+
+    } catch (e, stackTrace) {
+      print('❌ CustomerOrderStatusCard: Error processing order data: $e');
+      print('   - Input data type: ${orderData.runtimeType}');
+      print('   - Full stack trace: $stackTrace');
+
+      // Enhanced error debugging
+      _debugDataStructure(orderData);
+
       setState(() {
         _errorMessage = 'Error memproses data pesanan: $e';
       });
-      print('Error processing order data: $e');
+    }
+  }
+
+  /// ✅ Debug helper untuk nested objects
+  void _debugNestedObjects(Map<String, dynamic> data) {
+    final nestedObjects = ['store', 'customer', 'driver', 'items'];
+
+    for (final key in nestedObjects) {
+      if (data[key] != null) {
+        print('🔍 Debug $key:');
+        print('   - Type: ${data[key].runtimeType}');
+        print('   - Is Map<String, dynamic>: ${data[key] is Map<String, dynamic>}');
+
+        if (data[key] is Map) {
+          final map = data[key] as Map;
+          print('   - Keys: ${map.keys.toList()}');
+
+          // Check nested user object in driver
+          if (key == 'driver' && map['user'] != null) {
+            print('   - Driver.user type: ${map['user'].runtimeType}');
+            print('   - Driver.user is Map<String, dynamic>: ${map['user'] is Map<String, dynamic>}');
+          }
+        } else if (data[key] is List) {
+          final list = data[key] as List;
+          print('   - Length: ${list.length}');
+          if (list.isNotEmpty) {
+            print('   - First item type: ${list.first.runtimeType}');
+            print('   - First item is Map<String, dynamic>: ${list.first is Map<String, dynamic>}');
+          }
+        }
+      }
+    }
+  }
+
+  /// ✅ Debug helper untuk full data structure
+  void _debugDataStructure(Map<String, dynamic> data) {
+    print('🔍 Full data structure debug:');
+
+    for (final entry in data.entries) {
+      final key = entry.key;
+      final value = entry.value;
+
+      print('   - $key: ${value.runtimeType}');
+
+      if (value is Map && value is! Map<String, dynamic>) {
+        print('     ❌ PROBLEM: Map is not Map<String, dynamic>');
+        print('     - Actual type: ${value.runtimeType}');
+        if (value is Map) {
+          print('     - Keys: ${value.keys.toList()}');
+        }
+      } else if (value is List) {
+        print('     - List length: ${value.length}');
+        if (value.isNotEmpty) {
+          final firstItem = value.first;
+          print('     - First item type: ${firstItem.runtimeType}');
+          if (firstItem is Map && firstItem is! Map<String, dynamic>) {
+            print('     ❌ PROBLEM: List contains Map that is not Map<String, dynamic>');
+          }
+        }
+      }
     }
   }
 
@@ -227,6 +457,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
   void _startStatusPolling() {
     _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (mounted && widget.orderId != null) {
+        print('🔄 CustomerOrderStatusCard: Polling status update...');
         _loadOrderData();
       }
     });
@@ -400,13 +631,13 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
               ),
             ),
 
-            // Content (similar structure to other components)
+            // Content
             Container(
               color: Colors.white,
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  // Animation with same logic
+                  // Animation
                   if (currentStatus == OrderStatus.pending)
                     AnimatedBuilder(
                       animation: _pulseAnimation,
@@ -434,7 +665,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
 
                   const SizedBox(height: 20),
 
-                  // Status Timeline (same as other components)
+                  // Status Timeline
                   if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -512,7 +743,7 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
 
                   const SizedBox(height: 20),
 
-                  // Status Message (same structure)
+                  // Status Message
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
@@ -638,7 +869,6 @@ class _CustomerOrderStatusCardState extends State<CustomerOrderStatusCard>
     return content;
   }
 
-  // Same loading, error, and no data methods as other components
   Widget _buildLoadingCard() {
     return Container(
       margin: const EdgeInsets.only(bottom: 20),

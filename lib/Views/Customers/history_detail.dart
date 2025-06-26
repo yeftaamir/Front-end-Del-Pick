@@ -3,6 +3,7 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:lottie/lottie.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
 
 // Import Models
@@ -19,7 +20,6 @@ import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 
 // Import Components
-import '../Component/cust_order_status.dart';
 import 'rating_cust.dart';
 import 'home_cust.dart';
 
@@ -46,6 +46,11 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
   late Animation<Offset> _driverCardAnimation;
   late Animation<Offset> _reviewCardAnimation;
 
+  // Order Status Card Animation Controllers
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   // State variables
   bool _isLoading = false;
   bool _isLoadingOrderDetail = false;
@@ -65,6 +70,62 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
   // Status tracking
   Timer? _statusUpdateTimer;
   OrderStatus? _previousStatus;
+
+  // Customer-specific color theme for status card
+  final Color _primaryColor = const Color(0xFF4A90E2);
+  final Color _secondaryColor = const Color(0xFF7BB3F0);
+
+  // Standardized status timeline
+  final List<Map<String, dynamic>> _statusTimeline = [
+    {
+      'status': OrderStatus.pending,
+      'label': 'Menunggu',
+      'description': 'Menunggu konfirmasi toko',
+      'icon': Icons.hourglass_empty,
+      'color': Colors.orange,
+      'animation': 'assets/animations/diambil.json'
+    },
+    {
+      'status': OrderStatus.confirmed,
+      'label': 'Dikonfirmasi',
+      'description': 'Pesanan dikonfirmasi toko',
+      'icon': Icons.check_circle_outline,
+      'color': Colors.blue,
+      'animation': 'assets/animations/diambil.json'
+    },
+    {
+      'status': OrderStatus.preparing,
+      'label': 'Disiapkan',
+      'description': 'Pesanan sedang disiapkan',
+      'icon': Icons.restaurant,
+      'color': Colors.purple,
+      'animation': 'assets/animations/diproses.json'
+    },
+    {
+      'status': OrderStatus.readyForPickup,
+      'label': 'Siap Diambil',
+      'description': 'Pesanan siap diambil driver',
+      'icon': Icons.shopping_bag,
+      'color': Colors.indigo,
+      'animation': 'assets/animations/diproses.json'
+    },
+    {
+      'status': OrderStatus.onDelivery,
+      'label': 'Diantar',
+      'description': 'Pesanan dalam perjalanan',
+      'icon': Icons.delivery_dining,
+      'color': Colors.teal,
+      'animation': 'assets/animations/diantar.json'
+    },
+    {
+      'status': OrderStatus.delivered,
+      'label': 'Selesai',
+      'description': 'Pesanan telah diterima',
+      'icon': Icons.celebration,
+      'color': Colors.green,
+      'animation': 'assets/animations/pesanan_selesai.json'
+    },
+  ];
 
   @override
   void initState() {
@@ -121,6 +182,15 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       curve: Curves.easeOutCubic,
     ));
 
+    // Initialize pulse animation for status card
+    _pulseController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
     // Start animations sequentially
     Future.delayed(const Duration(milliseconds: 100), () {
       for (var controller in _cardControllers) {
@@ -136,8 +206,42 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
     _driverCardController.dispose();
     _reviewCardController.dispose();
+    _pulseController.dispose();
+    _audioPlayer.dispose();
     _statusUpdateTimer?.cancel();
     super.dispose();
+  }
+
+  /// ✅ NEW: Safe type conversion for nested maps
+  static Map<String, dynamic> _safeMapConversion(dynamic data) {
+    if (data == null) return {};
+
+    if (data is Map<String, dynamic>) {
+      return data;
+    } else if (data is Map) {
+      // Convert Map<dynamic, dynamic> to Map<String, dynamic>
+      return Map<String, dynamic>.from(data.map((key, value) {
+        // Recursively convert nested maps
+        if (value is Map && value is! Map<String, dynamic>) {
+          value = _safeMapConversion(value);
+        } else if (value is List) {
+          value = _safeListConversion(value);
+        }
+        return MapEntry(key.toString(), value);
+      }));
+    }
+
+    return {};
+  }
+
+  /// ✅ NEW: Safe type conversion for lists containing maps
+  static List<dynamic> _safeListConversion(List<dynamic> list) {
+    return list.map((item) {
+      if (item is Map && item is! Map<String, dynamic>) {
+        return _safeMapConversion(item);
+      }
+      return item;
+    }).toList();
   }
 
   // ✅ UPDATED: Enhanced authentication and data validation
@@ -187,6 +291,11 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       if (_orderReviews != null || _driverReviews != null) {
         _reviewCardController.forward();
       }
+
+      // Handle initial status for pulse animation
+      if (_orderDetail != null) {
+        _handleInitialStatus(_orderDetail!.orderStatus);
+      }
     } catch (e) {
       print('❌ HistoryDetailPage: Validation/Load error: $e');
       setState(() {
@@ -196,7 +305,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
   }
 
-  // ✅ UPDATED: Load order detail using updated OrderService
+  // ✅ UPDATED: Load order detail with proper type conversion
   Future<void> _loadOrderDetail() async {
     setState(() {
       _isLoadingOrderDetail = true;
@@ -206,10 +315,18 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       print('🔍 HistoryDetailPage: Loading order detail: ${widget.order.id}');
 
       // ✅ Use updated OrderService.getOrderById()
-      final orderData = await OrderService.getOrderById(widget.order.id.toString());
+      final rawOrderData = await OrderService.getOrderById(widget.order.id.toString());
 
-      // ✅ Process the order data with enhanced structure
-      _orderDetail = OrderModel.fromJson(orderData);
+      // ✅ IMPORTANT: Convert all nested maps safely before creating OrderModel
+      final safeOrderData = _safeMapConversion(rawOrderData);
+
+      print('✅ HistoryDetailPage: Order data converted safely');
+      print('   - Raw data type: ${rawOrderData.runtimeType}');
+      print('   - Safe data type: ${safeOrderData.runtimeType}');
+      print('   - Safe data keys: ${safeOrderData.keys.toList()}');
+
+      // ✅ Process the order data with enhanced structure and safe conversion
+      _orderDetail = OrderModel.fromJson(safeOrderData);
 
       print('✅ HistoryDetailPage: Order detail loaded successfully');
       print('   - Order Status: ${_orderDetail!.orderStatus.name}');
@@ -217,8 +334,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       print('   - Store ID: ${_orderDetail?.storeId}');
       print('   - Items count: ${_orderDetail!.items.length}');
 
-      // ✅ Load reviews data from the order response
-      await _loadOrderReviews(orderData);
+      // ✅ Load reviews data from the order response with safe conversion
+      await _loadOrderReviews(safeOrderData);
 
       // ✅ Start status tracking if order is not completed
       if (!_orderDetail!.orderStatus.isCompleted) {
@@ -238,7 +355,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
   }
 
-  // ✅ UPDATED: Enhanced review loading with better structure handling
+  // ✅ UPDATED: Enhanced review loading with better structure handling and safe conversion
   Future<void> _loadOrderReviews(Map<String, dynamic> orderData) async {
     try {
       print('🔍 HistoryDetailPage: Loading order reviews...');
@@ -248,14 +365,14 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       _driverReviews = null;
       _hasGivenRating = false;
 
-      // ✅ Check for reviews in order data - multiple possible structures
+      // ✅ Check for reviews in order data - multiple possible structures with safe conversion
       if (orderData['orderReviews'] != null) {
         final reviews = orderData['orderReviews'];
         if (reviews is List && reviews.isNotEmpty) {
-          _orderReviews = Map<String, dynamic>.from(reviews.first as Map);
+          _orderReviews = _safeMapConversion(reviews.first);
           print('✅ HistoryDetailPage: Order review found (List structure)');
         } else if (reviews is Map) {
-          _orderReviews = Map<String, dynamic>.from(reviews as Map);
+          _orderReviews = _safeMapConversion(reviews);
           print('✅ HistoryDetailPage: Order review found (Map structure)');
         }
       }
@@ -263,24 +380,36 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       if (orderData['driverReviews'] != null) {
         final reviews = orderData['driverReviews'];
         if (reviews is List && reviews.isNotEmpty) {
-          _driverReviews = Map<String, dynamic>.from(reviews.first as Map);
+          _driverReviews = _safeMapConversion(reviews.first);
           print('✅ HistoryDetailPage: Driver review found (List structure)');
         } else if (reviews is Map) {
-          _driverReviews = Map<String, dynamic>.from(reviews as Map);
+          _driverReviews = _safeMapConversion(reviews);
           print('✅ HistoryDetailPage: Driver review found (Map structure)');
         }
       }
 
-      // ✅ Alternative review structure check
+      // ✅ Alternative review structure check with safe conversion
       if (orderData['reviews'] != null) {
-        final reviews = orderData['reviews'] as List;
-        for (var review in reviews) {
+        final reviews = _safeListConversion(orderData['reviews'] as List);
+        for (var reviewData in reviews) {
+          final review = _safeMapConversion(reviewData);
           if (review['type'] == 'store' || review['target_type'] == 'store') {
             _orderReviews = review;
           } else if (review['type'] == 'driver' || review['target_type'] == 'driver') {
             _driverReviews = review;
           }
         }
+      }
+
+      // ✅ Check nested review structures - common in API responses
+      if (orderData['order_reviews'] != null) {
+        _orderReviews = _safeMapConversion(orderData['order_reviews']);
+        print('✅ HistoryDetailPage: Order review found (order_reviews key)');
+      }
+
+      if (orderData['driver_reviews'] != null) {
+        _driverReviews = _safeMapConversion(orderData['driver_reviews']);
+        print('✅ HistoryDetailPage: Driver review found (driver_reviews key)');
       }
 
       // ✅ Update rating status
@@ -323,9 +452,10 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           return;
         }
 
-        // ✅ Get updated order data
-        final updatedOrderData = await OrderService.getOrderById(widget.order.id.toString());
-        final updatedOrder = OrderModel.fromJson(updatedOrderData);
+        // ✅ Get updated order data with safe conversion
+        final rawUpdatedOrderData = await OrderService.getOrderById(widget.order.id.toString());
+        final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
+        final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
 
         if (mounted) {
           final statusChanged = _previousStatus != updatedOrder.orderStatus;
@@ -350,8 +480,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
             print('✅ HistoryDetailPage: Order completed, stopping tracking');
             timer.cancel();
 
-            // ✅ Reload reviews for completed orders
-            await _loadOrderReviews(updatedOrderData);
+            // ✅ Reload reviews for completed orders with safe conversion
+            await _loadOrderReviews(safeUpdatedOrderData);
             if (_orderReviews != null || _driverReviews != null) {
               _reviewCardController.forward();
             }
@@ -364,7 +494,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     });
   }
 
-  // ✅ NEW: Handle status change notifications
+  // ✅ NEW: Handle status change notifications and animations
   void _handleStatusChange(OrderStatus? previousStatus, OrderStatus newStatus) {
     String? notification;
 
@@ -391,6 +521,19 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         break;
     }
 
+    // Handle pulse animation
+    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(newStatus)) {
+      _playCancelSound();
+      _pulseController.stop();
+    } else {
+      _playStatusChangeSound();
+      if (newStatus == OrderStatus.pending) {
+        _pulseController.repeat(reverse: true);
+      } else {
+        _pulseController.stop();
+      }
+    }
+
     if (notification != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -403,6 +546,30 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           duration: const Duration(seconds: 4),
         ),
       );
+    }
+  }
+
+  void _handleInitialStatus(OrderStatus status) {
+    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(status)) {
+      _playCancelSound();
+    } else if (status == OrderStatus.pending) {
+      _pulseController.repeat(reverse: true);
+    }
+  }
+
+  void _playStatusChangeSound() async {
+    try {
+      await _audioPlayer.play(AssetSource('audio/kring.mp3'));
+    } catch (e) {
+      print('Error playing status change sound: $e');
+    }
+  }
+
+  void _playCancelSound() async {
+    try {
+      await _audioPlayer.play(AssetSource('audio/wrong.mp3'));
+    } catch (e) {
+      print('Error playing cancel sound: $e');
     }
   }
 
@@ -606,6 +773,404 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
   }
 
+  // ✅ INTEGRATED ORDER STATUS CARD: Built directly into the page
+  Widget _buildOrderStatusCard() {
+    if (_orderDetail == null) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 20),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Column(
+            children: [
+              Lottie.asset(
+                'assets/animations/diambil.json',
+                height: 100,
+                width: 100,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Memuat status pesanan...',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final currentStatusInfo = _getCurrentStatusInfo();
+    final currentStatus = _orderDetail!.orderStatus;
+    final currentIndex = _getCurrentStatusIndex();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: _primaryColor.withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+            spreadRadius: 0,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [_primaryColor, _secondaryColor],
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.track_changes,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Status Pesanan',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                        Text(
+                          'Order #${_orderDetail!.id}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white.withOpacity(0.9),
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _orderDetail!.formatTotalAmount(),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Content
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  // Animation
+                  if (currentStatus == OrderStatus.pending)
+                    AnimatedBuilder(
+                      animation: _pulseAnimation,
+                      builder: (context, child) {
+                        return Transform.scale(
+                          scale: _pulseAnimation.value,
+                          child: Container(
+                            height: 180,
+                            child: Lottie.asset(
+                              currentStatusInfo['animation'],
+                              repeat: true,
+                            ),
+                          ),
+                        );
+                      },
+                    )
+                  else
+                    Container(
+                      height: 180,
+                      child: Lottie.asset(
+                        currentStatusInfo['animation'],
+                        repeat: ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus),
+                      ),
+                    ),
+
+                  const SizedBox(height: 20),
+
+                  // Status Timeline
+                  if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        children: List.generate(_statusTimeline.length, (index) {
+                          final isActive = index <= currentIndex;
+                          final isCurrent = index == currentIndex;
+                          final isLast = index == _statusTimeline.length - 1;
+                          final statusItem = _statusTimeline[index];
+
+                          return Expanded(
+                            child: Row(
+                              children: [
+                                Column(
+                                  children: [
+                                    AnimatedContainer(
+                                      duration: const Duration(milliseconds: 300),
+                                      width: isCurrent ? 32 : 24,
+                                      height: isCurrent ? 32 : 24,
+                                      decoration: BoxDecoration(
+                                        color: isActive
+                                            ? statusItem['color']
+                                            : Colors.grey[300],
+                                        shape: BoxShape.circle,
+                                        boxShadow: isCurrent ? [
+                                          BoxShadow(
+                                            color: statusItem['color'].withOpacity(0.4),
+                                            blurRadius: 8,
+                                            spreadRadius: 2,
+                                          ),
+                                        ] : [],
+                                      ),
+                                      child: Icon(
+                                        statusItem['icon'],
+                                        color: Colors.white,
+                                        size: isCurrent ? 16 : 12,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      statusItem['label'],
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isActive
+                                            ? statusItem['color']
+                                            : Colors.grey,
+                                        fontWeight: isCurrent
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
+                                        fontFamily: GlobalStyle.fontFamily,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
+                                if (!isLast)
+                                  Expanded(
+                                    child: Container(
+                                      height: 2,
+                                      margin: const EdgeInsets.only(bottom: 20),
+                                      decoration: BoxDecoration(
+                                        color: index < currentIndex
+                                            ? _statusTimeline[index]['color']
+                                            : Colors.grey[300],
+                                        borderRadius: BorderRadius.circular(1),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+
+                  const SizedBox(height: 20),
+
+                  // Status Message
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          currentStatusInfo['color'].withOpacity(0.1),
+                          currentStatusInfo['color'].withOpacity(0.05),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: currentStatusInfo['color'].withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          currentStatusInfo['label'],
+                          style: TextStyle(
+                            color: currentStatusInfo['color'],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          currentStatusInfo['description'],
+                          style: TextStyle(
+                            color: currentStatusInfo['color'].withOpacity(0.8),
+                            fontSize: 14,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Store info
+                  if (_orderDetail!.store != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.grey.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: ImageService.displayImage(
+                                imageSource: _orderDetail!.store!.imageUrl ?? '',
+                                width: 40,
+                                height: 40,
+                                fit: BoxFit.cover,
+                                placeholder: Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: Colors.grey[300],
+                                  child: Icon(Icons.store, color: Colors.grey[600], size: 20),
+                                ),
+                                errorWidget: Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: Colors.grey[300],
+                                  child: Icon(Icons.store, color: Colors.grey[600], size: 20),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _orderDetail!.store!.name,
+                                    style: TextStyle(
+                                      color: Colors.grey[800],
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      fontFamily: GlobalStyle.fontFamily,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${_orderDetail!.totalItems} item',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
+                                      fontFamily: GlobalStyle.fontFamily,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _getCurrentStatusInfo() {
+    if (_orderDetail == null) {
+      return _statusTimeline[0];
+    }
+
+    final currentStatus = _orderDetail!.orderStatus;
+
+    if (currentStatus == OrderStatus.cancelled) {
+      return {
+        'status': OrderStatus.cancelled,
+        'label': 'Dibatalkan',
+        'description': 'Pesanan dibatalkan',
+        'icon': Icons.cancel_outlined,
+        'color': Colors.red,
+        'animation': 'assets/animations/cancel.json'
+      };
+    }
+
+    if (currentStatus == OrderStatus.rejected) {
+      return {
+        'status': OrderStatus.rejected,
+        'label': 'Ditolak',
+        'description': 'Pesanan ditolak toko',
+        'icon': Icons.block,
+        'color': Colors.red,
+        'animation': 'assets/animations/cancel.json'
+      };
+    }
+
+    return _statusTimeline.firstWhere(
+          (item) => item['status'] == currentStatus,
+      orElse: () => _statusTimeline[0],
+    );
+  }
+
+  int _getCurrentStatusIndex() {
+    if (_orderDetail == null) return 0;
+    final currentStatus = _orderDetail!.orderStatus;
+    return _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -775,57 +1340,11 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ✅ UPDATED: CustomerOrderStatusCard integration with real-time data
-          if (_orderDetail != null)
-            SlideTransition(
-              position: _cardAnimations[0],
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                child: CustomerOrderStatusCard(
-                  orderId: _orderDetail!.id.toString(),
-                  initialOrderData: {
-                    'id': _orderDetail!.id,
-                    'order_status': _orderDetail!.orderStatus.value,
-                    'total_amount': _orderDetail!.totalAmount,
-                    'delivery_fee': _orderDetail!.deliveryFee,
-                    'estimated_delivery_time': _orderDetail!.estimatedDeliveryTime?.toIso8601String(),
-                    'created_at': _orderDetail!.createdAt.toIso8601String(),
-                    'updated_at': _orderDetail!.updatedAt.toIso8601String(),
-                    'store': _orderDetail!.store != null ? {
-                      'id': _orderDetail!.store!.storeId,
-                      'name': _orderDetail!.store!.name,
-                      'address': _orderDetail!.store!.address,
-                      'phone': _orderDetail!.store!.phone,
-                      'image_url': _orderDetail!.store!.imageUrl,
-                    } : null,
-                    'driver': _orderDetail!.driver != null ? {
-                      'id': _orderDetail!.driver!.driverId,
-                      'name': _orderDetail!.driver!.name,
-                      'phone': _orderDetail!.driver!.phone,
-                      'vehicle_plate': _orderDetail!.driver!.vehiclePlate,
-                      'rating': _orderDetail!.driver!.rating,
-                      'user': {
-                        'name': _orderDetail!.driver!.name,
-                        'avatar': _orderDetail!.driver!.avatar,
-                      },
-                    } : null,
-                    'customer': _customerData != null ? {
-                      'id': _customerData!['id'],
-                      'name': _customerData!['name'],
-                      'phone': _customerData!['phone'] ?? '',
-                      'avatar': _customerData!['avatar'],
-                    } : null,
-                    'items': _orderDetail!.items.map((item) => {
-                      'id': item.id,
-                      'name': item.name,
-                      'quantity': item.quantity,
-                      'price': item.price,
-                      'image_url': item.imageUrl,
-                    }).toList(),
-                  },
-                ),
-              ),
-            ),
+          // ✅ INTEGRATED: Order Status Card directly built in
+          SlideTransition(
+            position: _cardAnimations[0],
+            child: _buildOrderStatusCard(),
+          ),
 
           // Order Date and Status Section
           _buildCard(

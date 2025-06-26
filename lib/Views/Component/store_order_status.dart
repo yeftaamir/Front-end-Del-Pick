@@ -1,4 +1,8 @@
-// store_order_status.dart
+// ========================================
+// STORE ORDER STATUS CARD - COMPLETE FIXED VERSION
+// ========================================
+
+// store_order_status.dart - COMPLETE FIXED VERSION
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:del_pick/Common/global_style.dart';
@@ -11,8 +15,6 @@ import 'dart:async';
 
 import '../../Services/auth_service.dart';
 
-
-// store_order_status.dart
 class StoreOrderStatusCard extends StatefulWidget {
   final String? orderId;
   final Map<String, dynamic>? initialOrderData;
@@ -45,7 +47,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
   final Color _primaryColor = const Color(0xFF7B1FA2);
   final Color _secondaryColor = const Color(0xFF9C27B0);
 
-  // Standardized status timeline
+  // Status timeline (same as customer)
   final List<Map<String, dynamic>> _statusTimeline = [
     {
       'status': OrderStatus.pending,
@@ -105,6 +107,92 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
     _startStatusPolling();
   }
 
+  /// ✅ COPY EXACT SAME CONVERSION METHODS FROM CustomerOrderStatusCard
+  static Map<String, dynamic> _ultraSafeMapConversion(dynamic data, {String context = ''}) {
+    if (data == null) {
+      print('⚠️ Store _ultraSafeMapConversion: null data in context: $context');
+      return {};
+    }
+
+    try {
+      if (data is Map<String, dynamic>) {
+        final result = <String, dynamic>{};
+        for (final entry in data.entries) {
+          result[entry.key] = _convertValue(entry.value, '${context}.${entry.key}');
+        }
+        return result;
+      }
+
+      if (data is Map) {
+        final result = <String, dynamic>{};
+        for (final entry in data.entries) {
+          final key = entry.key.toString();
+          result[key] = _convertValue(entry.value, '${context}.$key');
+        }
+        return result;
+      }
+
+      print('❌ Store _ultraSafeMapConversion: Unexpected data type: ${data.runtimeType} in context: $context');
+      return {};
+
+    } catch (e) {
+      print('❌ Store _ultraSafeMapConversion error in context $context: $e');
+      return {};
+    }
+  }
+
+  static dynamic _convertValue(dynamic value, String context) {
+    if (value == null) return null;
+
+    if (value is Map && value is! Map<String, dynamic>) {
+      return _ultraSafeMapConversion(value, context: context);
+    } else if (value is Map<String, dynamic>) {
+      return _ultraSafeMapConversion(value, context: context);
+    } else if (value is List) {
+      return _convertList(value, context);
+    }
+
+    return value;
+  }
+
+  static List<dynamic> _convertList(List<dynamic> list, String context) {
+    return list.asMap().entries.map((entry) {
+      final index = entry.key;
+      final item = entry.value;
+      return _convertValue(item, '$context[$index]');
+    }).toList();
+  }
+
+  static Map<String, dynamic> _fixKnownNestedObjects(Map<String, dynamic> data) {
+    final nestedObjects = ['store', 'customer', 'driver', 'user'];
+    final nestedLists = ['items', 'order_items', 'tracking_updates'];
+
+    for (final key in nestedObjects) {
+      if (data[key] != null && data[key] is Map && data[key] is! Map<String, dynamic>) {
+        print('🔧 Store: Fixing nested object: $key');
+        data[key] = _ultraSafeMapConversion(data[key], context: key);
+      }
+    }
+
+    for (final key in nestedLists) {
+      if (data[key] != null && data[key] is List) {
+        print('🔧 Store: Fixing nested list: $key');
+        data[key] = _convertList(data[key] as List, key);
+      }
+    }
+
+    if (data['driver'] != null &&
+        data['driver'] is Map<String, dynamic> &&
+        data['driver']['user'] != null &&
+        data['driver']['user'] is Map &&
+        data['driver']['user'] is! Map<String, dynamic>) {
+      print('🔧 Store: Fixing driver.user nested object');
+      data['driver']['user'] = _ultraSafeMapConversion(data['driver']['user'], context: 'driver.user');
+    }
+
+    return data;
+  }
+
   void _initializeAnimations() {
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
@@ -117,8 +205,22 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
 
   Future<void> _loadOrderData() async {
     if (widget.initialOrderData != null) {
-      _processOrderData(widget.initialOrderData!);
-      return;
+      print('🔄 StoreOrderStatusCard: Processing initial data...');
+
+      try {
+        final step1 = _ultraSafeMapConversion(widget.initialOrderData!, context: 'store_initial_step1');
+        final step2 = _fixKnownNestedObjects(step1);
+        final finalData = _ultraSafeMapConversion(step2, context: 'store_initial_final');
+
+        _processOrderData(finalData);
+        return;
+      } catch (e) {
+        print('❌ Store: Error in initial data conversion: $e');
+        setState(() {
+          _errorMessage = 'Error converting initial data: $e';
+        });
+        return;
+      }
     }
 
     if (widget.orderId == null) {
@@ -134,43 +236,44 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
     });
 
     try {
-      // Check authentication and role
+      print('🔍 StoreOrderStatusCard: Starting data loading for order: ${widget.orderId}');
+
       final userData = await AuthService.getUserData();
-      if (userData == null) {
-        throw Exception('User not authenticated');
-      }
-
       final roleSpecificData = await AuthService.getRoleSpecificData();
-      if (roleSpecificData == null) {
-        throw Exception('Store data not found');
+
+      if (userData == null || roleSpecificData == null) {
+        throw Exception('Authentication required: Please login as store');
       }
 
-      // Get order data using OrderService for store
-      final response = await OrderService.getOrdersByStore(
-        page: 1,
-        limit: 50,
-        status: null,
-        sortBy: 'created_at',
-        sortOrder: 'desc',
-      );
-
-      final orders = response['orders'] as List? ?? [];
-      final targetOrder = orders.firstWhere(
-            (order) => order['id'].toString() == widget.orderId,
-        orElse: () => null,
-      );
-
-      if (targetOrder != null) {
-        _processOrderData(targetOrder);
-      } else {
-        final orderData = await OrderService.getOrderById(widget.orderId!);
-        _processOrderData(orderData);
+      final hasStoreRole = await AuthService.hasRole('store');
+      if (!hasStoreRole) {
+        throw Exception('Access denied: Store authentication required');
       }
+
+      print('✅ StoreOrderStatusCard: Store access validated');
+
+      final rawOrderData = await OrderService.getOrderById(widget.orderId!);
+
+      if (rawOrderData == null) {
+        throw Exception('Order not found');
+      }
+
+      try {
+        final step1 = _ultraSafeMapConversion(rawOrderData, context: 'store_api_step1');
+        final step2 = _fixKnownNestedObjects(step1);
+        final finalData = _ultraSafeMapConversion(step2, context: 'store_api_final');
+
+        _processOrderData(finalData);
+      } catch (e) {
+        print('❌ Store: Error in API data conversion: $e');
+        throw Exception('Error converting API data: $e');
+      }
+
     } catch (e) {
+      print('❌ StoreOrderStatusCard: Error loading data: $e');
       setState(() {
         _errorMessage = 'Gagal memuat data pesanan: $e';
       });
-      print('Error loading store order data: $e');
     } finally {
       setState(() {
         _isLoading = false;
@@ -180,12 +283,25 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
 
   void _processOrderData(Map<String, dynamic> orderData) {
     try {
-      final newOrder = OrderModel.fromJson(orderData);
+      print('🔄 StoreOrderStatusCard: Processing order data...');
+
+      final ultraSafeData = _ultraSafeMapConversion(orderData, context: 'store_final_process');
+      final finalSafeData = _fixKnownNestedObjects(ultraSafeData);
+
+      if (finalSafeData['id'] == null) {
+        throw Exception('Invalid order data: missing ID');
+      }
+
+      final newOrder = OrderModel.fromJson(finalSafeData);
       final previousStatus = _currentOrder?.orderStatus;
 
       setState(() {
         _currentOrder = newOrder;
       });
+
+      print('✅ StoreOrderStatusCard: Order processed successfully');
+      print('   - Order ID: ${newOrder.id}');
+      print('   - Status: ${newOrder.orderStatus.name}');
 
       if (previousStatus != null && previousStatus != newOrder.orderStatus) {
         _handleStatusChange(newOrder.orderStatus);
@@ -194,13 +310,18 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
       }
 
       _previousStatus = newOrder.orderStatus;
-    } catch (e) {
+
+    } catch (e, stackTrace) {
+      print('❌ StoreOrderStatusCard: Error processing order data: $e');
+      print('   - Stack trace: $stackTrace');
+
       setState(() {
         _errorMessage = 'Error memproses data pesanan: $e';
       });
-      print('Error processing order data: $e');
     }
   }
+
+  // ... rest of the methods same as customer (handleInitialStatus, etc.)
 
   void _handleInitialStatus(OrderStatus status) {
     if ([OrderStatus.cancelled, OrderStatus.rejected].contains(status)) {
@@ -227,6 +348,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
   void _startStatusPolling() {
     _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (mounted && widget.orderId != null) {
+        print('🔄 StoreOrderStatusCard: Polling status update...');
         _loadOrderData();
       }
     });
@@ -400,13 +522,13 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
               ),
             ),
 
-            // Content with similar structure as driver component
+            // Content (same structure as customer but with store-specific info)
             Container(
               color: Colors.white,
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  // Animation
+                  // Animation (same as customer)
                   if (currentStatus == OrderStatus.pending)
                     AnimatedBuilder(
                       animation: _pulseAnimation,
@@ -434,7 +556,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
 
                   const SizedBox(height: 20),
 
-                  // Status Timeline
+                  // Status Timeline (same as customer)
                   if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -513,7 +635,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
 
                   const SizedBox(height: 20),
 
-                  // Status Message
+                  // Status Message (same structure as customer)
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
@@ -556,7 +678,7 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
                     ),
                   ),
 
-                  // Customer info
+                  // Customer info (different from customer card - shows customer instead of store)
                   if (_currentOrder!.customer != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
@@ -628,7 +750,6 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
     return content;
   }
 
-  // Loading, Error, and No Data cards remain the same as driver component
   Widget _buildLoadingCard() {
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
@@ -740,5 +861,3 @@ class _StoreOrderStatusCardState extends State<StoreOrderStatusCard>
     );
   }
 }
-
-// ============================================================================

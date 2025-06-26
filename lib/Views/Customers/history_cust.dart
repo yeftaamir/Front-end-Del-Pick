@@ -7,17 +7,186 @@ import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/menu_item.dart';
+import 'package:del_pick/Models/service_order.dart';
 
 // Import Services
 import 'package:del_pick/Services/order_service.dart';
+import 'package:del_pick/Services/service_order_service.dart';
 import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/image_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
 
 // Import Components and Screens
 import '../Component/cust_bottom_navigation.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'home_cust.dart';
 import 'history_detail.dart';
+
+// ✅ TAMBAHAN: Base class untuk unified history items
+abstract class HistoryItem {
+  int get id;
+  DateTime get createdAt;
+  String get displayName;
+  String get statusText;
+  Color get statusColor;
+  String get formattedAmount;
+  String get itemsText;
+  String? get imageUrl;
+  bool get isCompleted;
+  String get orderType; // 'food_order' atau 'service_order'
+}
+
+// ✅ TAMBAHAN: Wrapper untuk regular orders
+class FoodOrderHistoryItem extends HistoryItem {
+  final OrderModel order;
+
+  FoodOrderHistoryItem(this.order);
+
+  @override
+  int get id => order.id;
+
+  @override
+  DateTime get createdAt => order.createdAt;
+
+  @override
+  String get displayName => order.store?.name ?? 'Unknown Store';
+
+  @override
+  String get statusText => _getStatusText(order.orderStatus);
+
+  @override
+  Color get statusColor => _getStatusColor(order.orderStatus);
+
+  @override
+  String get formattedAmount => order.formatTotalAmount();
+
+  @override
+  String get itemsText => _getOrderItemsText(order);
+
+  @override
+  String? get imageUrl => _getFirstItemImageUrl(order);
+
+  @override
+  bool get isCompleted => order.orderStatus.isCompleted;
+
+  @override
+  String get orderType => 'food_order';
+
+  String _getStatusText(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return 'Menunggu';
+      case OrderStatus.confirmed:
+        return 'Dikonfirmasi';
+      case OrderStatus.preparing:
+        return 'Diproses';
+      case OrderStatus.readyForPickup:
+        return 'Siap Diambil';
+      case OrderStatus.onDelivery:
+        return 'Diantar';
+      case OrderStatus.delivered:
+        return 'Selesai';
+      case OrderStatus.cancelled:
+        return 'Dibatalkan';
+      case OrderStatus.rejected:
+        return 'Ditolak';
+      default:
+        return 'Diproses';
+    }
+  }
+
+  Color _getStatusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.delivered:
+        return Colors.green;
+      case OrderStatus.cancelled:
+      case OrderStatus.rejected:
+        return Colors.red;
+      case OrderStatus.onDelivery:
+        return Colors.blue;
+      case OrderStatus.preparing:
+        return Colors.orange;
+      case OrderStatus.confirmed:
+        return Colors.indigo;
+      default:
+        return GlobalStyle.primaryColor;
+    }
+  }
+
+  String _getOrderItemsText(OrderModel order) {
+    if (order.items.isEmpty) {
+      return "Tidak ada item";
+    }
+    if (order.items.length == 1) {
+      return order.items[0].name;
+    } else {
+      final firstItem = order.items[0].name;
+      final otherItemsCount = order.items.length - 1;
+      return '$firstItem, +$otherItemsCount item lainnya';
+    }
+  }
+
+  String? _getFirstItemImageUrl(OrderModel order) {
+    if (order.items.isNotEmpty && order.items[0].imageUrl != null) {
+      return order.items[0].imageUrl;
+    }
+    return null;
+  }
+}
+
+// ✅ TAMBAHAN: Wrapper untuk service orders
+class ServiceOrderHistoryItem extends HistoryItem {
+  final ServiceOrderModel serviceOrder;
+
+  ServiceOrderHistoryItem(this.serviceOrder);
+
+  @override
+  int get id => serviceOrder.id;
+
+  @override
+  DateTime get createdAt => serviceOrder.createdAt;
+
+  @override
+  String get displayName => 'Jasa Titip ke IT Del';
+
+  @override
+  String get statusText => ServiceOrderService.getStatusDisplayText(serviceOrder.status.value);
+
+  @override
+  Color get statusColor => _getServiceOrderStatusColor(serviceOrder.status);
+
+  @override
+  String get formattedAmount => serviceOrder.formattedServiceFee;
+
+  @override
+  String get itemsText => serviceOrder.description ?? 'Jasa Titip';
+
+  @override
+  String? get imageUrl => null; // Service orders don't have images
+
+  @override
+  bool get isCompleted => serviceOrder.status.isCompleted;
+
+  @override
+  String get orderType => 'service_order';
+
+  Color _getServiceOrderStatusColor(ServiceOrderStatus status) {
+    switch (status) {
+      case ServiceOrderStatus.completed:
+        return Colors.green;
+      case ServiceOrderStatus.cancelled:
+        return Colors.red;
+      case ServiceOrderStatus.inProgress:
+        return Colors.blue;
+      case ServiceOrderStatus.driverFound:
+        return Colors.orange;
+      case ServiceOrderStatus.pending:
+        return GlobalStyle.primaryColor;
+      default:
+        return GlobalStyle.primaryColor;
+    }
+  }
+}
 
 class HistoryCustomer extends StatefulWidget {
   static const String route = "/Customers/HistoryCustomer";
@@ -38,6 +207,8 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
 
   // Data state variables
   List<OrderModel> orders = [];
+  List<ServiceOrderModel> serviceOrders = [];
+  List<HistoryItem> allHistoryItems = []; // ✅ TAMBAHAN: Combined history items
   Map<int, List<MenuItemModel>> storeMenuItems = {}; // Cache menu items by store ID
   bool _isLoading = true;
   bool _isLoadingMore = false;
@@ -53,6 +224,11 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
   // Scroll controller for pagination
   late ScrollController _scrollController;
 
+  // ✅ TAMBAHAN: Authentication state
+  Map<String, dynamic>? _customerData;
+  Map<String, dynamic>? _roleSpecificData;
+  bool _isAuthenticated = false;
+
   @override
   void initState() {
     super.initState();
@@ -67,8 +243,8 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     // Setup scroll listener for pagination
     _scrollController.addListener(_onScroll);
 
-    // Fetch initial orders
-    _fetchOrders(isRefresh: true);
+    // ✅ PERBAIKAN: Validate authentication first before fetching orders
+    _validateAuthenticationAndFetchHistory();
   }
 
   @override
@@ -81,15 +257,80 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     super.dispose();
   }
 
-  // Scroll listener for pagination
-  void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent * 0.8) {
-      _loadMoreOrders();
+  // ✅ TAMBAHAN: Safe parsing untuk numeric values yang mungkin berupa string
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  // ✅ BARU: Validate customer authentication first
+  Future<void> _validateAuthenticationAndFetchHistory() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      print('🔍 HistoryCustomer: Starting authentication validation...');
+
+      // Step 1: Validate customer access
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required');
+      }
+
+      // Step 2: Get customer data
+      _customerData = await AuthService.getCustomerData();
+      if (_customerData == null) {
+        throw Exception('Unable to retrieve customer data');
+      }
+
+      // Step 3: Get role-specific data for additional validation
+      _roleSpecificData = await AuthService.getRoleSpecificData();
+      if (_roleSpecificData == null) {
+        throw Exception('Unable to retrieve role-specific data');
+      }
+
+      _isAuthenticated = true;
+
+      print('✅ HistoryCustomer: Authentication validated successfully');
+      print('   - Customer ID: ${_customerData!['id']}');
+      print('   - Customer Name: ${_customerData!['name']}');
+      print('   - Role: ${_roleSpecificData!['role'] ?? 'customer'}');
+
+      // Step 4: Now fetch both orders and service orders
+      await _fetchAllHistory(isRefresh: true);
+
+    } catch (e) {
+      print('❌ HistoryCustomer: Authentication error: $e');
+      setState(() {
+        _isLoading = false;
+        _isAuthenticated = false;
+        _errorMessage = 'Authentication failed: $e';
+      });
     }
   }
 
-  // Fetch orders from API using OrderService.getOrdersByUser()
-  Future<void> _fetchOrders({bool isRefresh = false}) async {
+  // Scroll listener for pagination
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent * 0.8) {
+      _loadMoreHistory();
+    }
+  }
+
+  // ✅ BARU: Fetch both food orders and service orders
+  Future<void> _fetchAllHistory({bool isRefresh = false}) async {
+    // Check authentication before proceeding
+    if (!_isAuthenticated) {
+      print('⚠️ HistoryCustomer: Not authenticated, skipping fetch history');
+      return;
+    }
+
     if (isRefresh) {
       setState(() {
         _currentPage = 1;
@@ -100,10 +341,61 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     }
 
     try {
+      print('🔍 HistoryCustomer: Fetching all history (page $_currentPage)...');
+
       // Get current tab filter
       String? statusFilter = _getStatusFilter(_tabController.index);
 
-      // Call OrderService.getOrdersByUser() with proper parameters
+      // ✅ TAMBAHAN: Fetch both food orders and service orders in parallel
+      final List<Future> futures = [
+        _fetchFoodOrders(statusFilter),
+        _fetchServiceOrders(statusFilter),
+      ];
+
+      await Future.wait(futures);
+
+      // ✅ TAMBAHAN: Combine and sort all items by date
+      _combineAndSortHistoryItems();
+
+      // Load menu items for stores if needed
+      await _loadMenuItemsForOrders(orders);
+
+      setState(() {
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+
+      // Setup animations after data is fetched
+      if (isRefresh) {
+        _setupAnimations(allHistoryItems.length);
+        _startAnimations();
+      }
+
+      print('✅ HistoryCustomer: All history fetched and displayed successfully');
+      print('   - Food orders: ${orders.length}');
+      print('   - Service orders: ${serviceOrders.length}');
+      print('   - Total items: ${allHistoryItems.length}');
+
+    } catch (e) {
+      print('❌ HistoryCustomer: Error fetching history: $e');
+      setState(() {
+        _isLoading = false;
+        _isLoadingMore = false;
+        _errorMessage = 'Failed to load history: $e';
+      });
+
+      // ✅ TAMBAHAN: Handle authentication errors specifically
+      if (e.toString().contains('authentication') || e.toString().contains('Access denied')) {
+        _handleAuthenticationError();
+      }
+    }
+  }
+
+  // ✅ BARU: Fetch food orders
+  Future<void> _fetchFoodOrders(String? statusFilter) async {
+    try {
+      print('🍽️ HistoryCustomer: Fetching food orders...');
+
       final orderData = await OrderService.getOrdersByUser(
         page: _currentPage,
         limit: _pageSize,
@@ -112,66 +404,171 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         sortOrder: 'desc',
       );
 
-      // Parse the response according to the service structure
+      print('📋 HistoryCustomer: Food order data received');
+      print('   - Status filter: $statusFilter');
+      print('   - Total items: ${orderData['totalItems'] ?? 0}');
+
+      // Parse the response with safe numeric parsing
       List<OrderModel> fetchedOrders = [];
       if (orderData['orders'] != null && orderData['orders'] is List) {
         for (var orderJson in orderData['orders']) {
           try {
-            final order = OrderModel.fromJson(orderJson);
+            // ✅ PERBAIKAN: Safe parsing untuk numeric fields
+            final safeOrderJson = _safeParseOrderJson(orderJson);
+            final order = OrderModel.fromJson(safeOrderJson);
             fetchedOrders.add(order);
           } catch (e) {
-            print('Error parsing order: $e');
+            print('❌ HistoryCustomer: Error parsing food order: $e');
+            print('   Order data: $orderJson');
             // Continue with next order if one fails to parse
           }
         }
       }
-
-      // Load menu items for stores if needed
-      await _loadMenuItemsForOrders(fetchedOrders);
 
       // Update pagination info
       _totalItems = orderData['totalItems'] ?? 0;
       _totalPages = orderData['totalPages'] ?? 1;
       _hasMoreData = _currentPage < _totalPages;
 
-      setState(() {
-        if (isRefresh) {
-          orders = fetchedOrders;
-        } else {
-          orders.addAll(fetchedOrders);
-        }
-        _isLoading = false;
-        _isLoadingMore = false;
-      });
+      orders = fetchedOrders;
+      print('✅ HistoryCustomer: Parsed ${fetchedOrders.length} food orders successfully');
 
-      // Setup animations after data is fetched
-      if (isRefresh) {
-        _setupAnimations(orders.length);
-        _startAnimations();
-      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _isLoadingMore = false;
-        _errorMessage = 'Failed to load orders: $e';
-      });
-      print('Error fetching orders: $e');
+      print('❌ HistoryCustomer: Error fetching food orders: $e');
+      // Don't throw, let service orders still be fetched
     }
   }
 
+  // ✅ BARU: Fetch service orders (jastip)
+  Future<void> _fetchServiceOrders(String? statusFilter) async {
+    try {
+      print('🚚 HistoryCustomer: Fetching service orders...');
+
+      // Convert status filter for service orders
+      String? serviceOrderStatus = _convertToServiceOrderStatus(statusFilter);
+
+      final serviceOrderData = await ServiceOrderService.getServiceOrdersByCustomer(
+        page: _currentPage,
+        limit: _pageSize,
+        status: serviceOrderStatus,
+      );
+
+      print('📋 HistoryCustomer: Service order data received');
+      print('   - Status filter: $serviceOrderStatus');
+      print('   - Total items: ${serviceOrderData['totalItems'] ?? 0}');
+
+      // Parse the response
+      List<ServiceOrderModel> fetchedServiceOrders = [];
+      if (serviceOrderData['serviceOrders'] != null && serviceOrderData['serviceOrders'] is List) {
+        for (var serviceOrderJson in serviceOrderData['serviceOrders']) {
+          try {
+            final serviceOrder = ServiceOrderModel.fromJson(serviceOrderJson);
+            fetchedServiceOrders.add(serviceOrder);
+          } catch (e) {
+            print('❌ HistoryCustomer: Error parsing service order: $e');
+            print('   Service Order data: $serviceOrderJson');
+            // Continue with next order if one fails to parse
+          }
+        }
+      }
+
+      serviceOrders = fetchedServiceOrders;
+      print('✅ HistoryCustomer: Parsed ${fetchedServiceOrders.length} service orders successfully');
+
+    } catch (e) {
+      print('❌ HistoryCustomer: Error fetching service orders: $e');
+      // Don't throw, let the function continue
+    }
+  }
+
+  // ✅ BARU: Safe parsing untuk order JSON dengan numeric fields
+  Map<String, dynamic> _safeParseOrderJson(Map<String, dynamic> json) {
+    final safeJson = Map<String, dynamic>.from(json);
+
+    // Safe parse numeric fields yang mungkin berupa string
+    safeJson['total_amount'] = _parseDouble(json['total_amount']);
+    safeJson['delivery_fee'] = _parseDouble(json['delivery_fee']);
+    safeJson['customer_latitude'] = _parseDouble(json['customer_latitude']);
+    safeJson['customer_longitude'] = _parseDouble(json['customer_longitude']);
+
+    // Safe parse items if present
+    if (safeJson['items'] != null && safeJson['items'] is List) {
+      final List<dynamic> items = safeJson['items'];
+      for (int i = 0; i < items.length; i++) {
+        if (items[i] is Map<String, dynamic>) {
+          final Map<String, dynamic> item = Map<String, dynamic>.from(items[i]);
+          item['price'] = _parseDouble(item['price']);
+          items[i] = item;
+        }
+      }
+    }
+
+    return safeJson;
+  }
+
+  // ✅ BARU: Convert food order status filter to service order status
+  String? _convertToServiceOrderStatus(String? foodOrderStatus) {
+    if (foodOrderStatus == null) return null;
+
+    // Map food order statuses to service order statuses
+    if (foodOrderStatus.contains('pending') ||
+        foodOrderStatus.contains('confirmed') ||
+        foodOrderStatus.contains('preparing') ||
+        foodOrderStatus.contains('ready_for_pickup') ||
+        foodOrderStatus.contains('on_delivery')) {
+      return 'pending,driver_found,in_progress';
+    } else if (foodOrderStatus.contains('delivered')) {
+      return 'completed';
+    } else if (foodOrderStatus.contains('cancelled')) {
+      return 'cancelled';
+    }
+
+    return null;
+  }
+
+  // ✅ BARU: Combine and sort all history items
+  void _combineAndSortHistoryItems() {
+    allHistoryItems.clear();
+
+    // Add food orders
+    for (final order in orders) {
+      allHistoryItems.add(FoodOrderHistoryItem(order));
+    }
+
+    // Add service orders
+    for (final serviceOrder in serviceOrders) {
+      allHistoryItems.add(ServiceOrderHistoryItem(serviceOrder));
+    }
+
+    // Sort by creation date (newest first)
+    allHistoryItems.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    print('✅ HistoryCustomer: Combined and sorted ${allHistoryItems.length} history items');
+  }
+
   // Load more orders for pagination
-  Future<void> _loadMoreOrders() async {
-    if (_isLoadingMore || !_hasMoreData) return;
+  Future<void> _loadMoreHistory() async {
+    if (_isLoadingMore || !_hasMoreData || !_isAuthenticated) return;
 
     setState(() {
       _isLoadingMore = true;
     });
 
     _currentPage++;
-    await _fetchOrders(isRefresh: false);
+    await _fetchAllHistory(isRefresh: false);
   }
 
-  // Load menu items for stores using MenuItemService.getMenuItemsByStore()
+  // ✅ BARU: Handle authentication errors
+  void _handleAuthenticationError() {
+    setState(() {
+      _isAuthenticated = false;
+      _customerData = null;
+      _roleSpecificData = null;
+      _errorMessage = 'Session expired. Please login again.';
+    });
+  }
+
+  // ✅ PERBAIKAN: Enhanced menu items loading with better error handling
   Future<void> _loadMenuItemsForOrders(List<OrderModel> ordersList) async {
     // Get unique store IDs that we don't have menu items for yet
     Set<int> storeIds = {};
@@ -180,6 +577,8 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         storeIds.add(order.storeId);
       }
     }
+
+    print('🍽️ HistoryCustomer: Loading menu items for ${storeIds.length} stores...');
 
     // Load menu items for each store
     for (int storeId in storeIds) {
@@ -198,13 +597,14 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               final menuItem = MenuItemModel.fromJson(menuJson);
               menuItems.add(menuItem);
             } catch (e) {
-              print('Error parsing menu item: $e');
+              print('❌ HistoryCustomer: Error parsing menu item: $e');
             }
           }
           storeMenuItems[storeId] = menuItems;
+          print('✅ HistoryCustomer: Loaded ${menuItems.length} menu items for store $storeId');
         }
       } catch (e) {
-        print('Error loading menu items for store $storeId: $e');
+        print('❌ HistoryCustomer: Error loading menu items for store $storeId: $e');
         // Continue with other stores if one fails
       }
     }
@@ -263,66 +663,22 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     });
   }
 
-  // Get filtered orders based on tab index (client-side filtering for better UX)
-  List<OrderModel> getFilteredOrders(int tabIndex) {
+  // ✅ PERBAIKAN: Get filtered history items based on tab index
+  List<HistoryItem> getFilteredHistoryItems(int tabIndex) {
     switch (tabIndex) {
       case 0: // All orders
-        return orders;
+        return allHistoryItems;
       case 1: // In progress
-        return orders.where((order) => !order.orderStatus.isCompleted).toList();
+        return allHistoryItems.where((item) => !item.isCompleted).toList();
       case 2: // Completed
-        return orders.where((order) =>
-        order.orderStatus == OrderStatus.delivered
-        ).toList();
+        return allHistoryItems.where((item) => item.isCompleted).toList();
       case 3: // Cancelled
-        return orders.where((order) =>
-        order.orderStatus == OrderStatus.cancelled
+        return allHistoryItems.where((item) =>
+        item.statusText.toLowerCase().contains('batal') ||
+            item.statusText.toLowerCase().contains('ditolak')
         ).toList();
       default:
-        return orders;
-    }
-  }
-
-  // Get status color based on order status
-  Color getStatusColor(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.delivered:
-        return Colors.green;
-      case OrderStatus.cancelled:
-      case OrderStatus.rejected:
-        return Colors.red;
-      case OrderStatus.onDelivery:
-        return Colors.blue;
-      case OrderStatus.preparing:
-        return Colors.orange;
-      case OrderStatus.confirmed:
-        return Colors.indigo;
-      default:
-        return GlobalStyle.primaryColor;
-    }
-  }
-
-  // Get human-readable status text
-  String getStatusText(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.pending:
-        return 'Menunggu';
-      case OrderStatus.confirmed:
-        return 'Dikonfirmasi';
-      case OrderStatus.preparing:
-        return 'Diproses';
-      case OrderStatus.readyForPickup:
-        return 'Siap Diambil';
-      case OrderStatus.onDelivery:
-        return 'Diantar';
-      case OrderStatus.delivered:
-        return 'Selesai';
-      case OrderStatus.cancelled:
-        return 'Dibatalkan';
-      case OrderStatus.rejected:
-        return 'Ditolak';
-      default:
-        return 'Diproses';
+        return allHistoryItems;
     }
   }
 
@@ -333,28 +689,6 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         Navigator.pushReplacementNamed(context, HomePage.route);
       }
     });
-  }
-
-  // Create a summary of items for display
-  String getOrderItemsText(OrderModel order) {
-    if (order.items.isEmpty) {
-      return "Tidak ada item";
-    }
-    if (order.items.length == 1) {
-      return order.items[0].name;
-    } else {
-      final firstItem = order.items[0].name;
-      final otherItemsCount = order.items.length - 1;
-      return '$firstItem, +$otherItemsCount item lainnya';
-    }
-  }
-
-  // Get first item image URL
-  String? getFirstItemImageUrl(OrderModel order) {
-    if (order.items.isNotEmpty && order.items[0].imageUrl != null) {
-      return order.items[0].imageUrl;
-    }
-    return null;
   }
 
   Widget _buildStatusChip(String text, Color color) {
@@ -375,12 +709,9 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     );
   }
 
-  Widget _buildOrderCard(OrderModel order, int index) {
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt);
-    final statusColor = getStatusColor(order.orderStatus);
-    final statusText = getStatusText(order.orderStatus);
-    final itemsText = getOrderItemsText(order);
-    final firstImageUrl = getFirstItemImageUrl(order);
+  // ✅ PERBAIKAN: Unified history card yang bisa handle food orders dan service orders
+  Widget _buildHistoryCard(HistoryItem item, int index) {
+    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(item.createdAt);
 
     return SlideTransition(
       position: index < _cardAnimations.length ? _cardAnimations[index] : const AlwaysStoppedAnimation(Offset.zero),
@@ -400,14 +731,25 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => HistoryDetailPage(
-                  order: order,
+            if (item is FoodOrderHistoryItem) {
+              // Navigate to existing HistoryDetailPage for food orders
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => HistoryDetailPage(
+                    order: item.order,
+                  ),
                 ),
-              ),
-            ).then((_) => _fetchOrders(isRefresh: true)); // Refresh when returning
+              ).then((_) => _fetchAllHistory(isRefresh: true));
+            } else if (item is ServiceOrderHistoryItem) {
+              // TODO: Navigate to service order detail page
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Detail jasa titip order #${item.id}'),
+                  backgroundColor: GlobalStyle.primaryColor,
+                ),
+              );
+            }
           },
           child: Container(
             padding: const EdgeInsets.all(16),
@@ -417,12 +759,12 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Order item image
+                    // Order item image or icon
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: firstImageUrl != null
+                      child: item.imageUrl != null
                           ? ImageService.displayImage(
-                        imageSource: firstImageUrl,
+                        imageSource: item.imageUrl!,
                         width: 60,
                         height: 60,
                         fit: BoxFit.cover,
@@ -430,7 +772,12 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                           width: 60,
                           height: 60,
                           color: Colors.grey[200],
-                          child: const Icon(Icons.restaurant_menu, color: Colors.grey),
+                          child: Icon(
+                              item.orderType == 'service_order'
+                                  ? Icons.delivery_dining
+                                  : Icons.restaurant_menu,
+                              color: Colors.grey
+                          ),
                         ),
                         errorWidget: Container(
                           width: 60,
@@ -443,10 +790,20 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                         width: 60,
                         height: 60,
                         decoration: BoxDecoration(
-                          color: Colors.grey[200],
+                          color: item.orderType == 'service_order'
+                              ? Colors.blue[50]
+                              : Colors.grey[200],
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(Icons.restaurant_menu, color: Colors.grey),
+                        child: Icon(
+                          item.orderType == 'service_order'
+                              ? Icons.delivery_dining
+                              : Icons.restaurant_menu,
+                          color: item.orderType == 'service_order'
+                              ? Colors.blue
+                              : Colors.grey,
+                          size: 30,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -458,25 +815,51 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Expanded(
-                                child: Text(
-                                  order.store?.name ?? 'Unknown Store',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: GlobalStyle.fontColor,
-                                    fontFamily: GlobalStyle.fontFamily,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.displayName,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: GlobalStyle.fontColor,
+                                        fontFamily: GlobalStyle.fontFamily,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    // ✅ TAMBAHAN: Badge untuk type order
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: item.orderType == 'service_order'
+                                            ? Colors.blue.withOpacity(0.1)
+                                            : Colors.green.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        item.orderType == 'service_order' ? 'Jasa Titip' : 'Pesan Makanan',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500,
+                                          color: item.orderType == 'service_order'
+                                              ? Colors.blue[700]
+                                              : Colors.green[700],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              _buildStatusChip(statusText, statusColor),
+                              _buildStatusChip(item.statusText, item.statusColor),
                             ],
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Order #${order.id}',
+                            '${item.orderType == 'service_order' ? 'Service Order' : 'Order'} #${item.id}',
                             style: TextStyle(
                               fontSize: 13,
                               color: GlobalStyle.primaryColor,
@@ -493,7 +876,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            itemsText,
+                            item.itemsText,
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.grey[800],
@@ -516,7 +899,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Total Pembayaran',
+                          item.orderType == 'service_order' ? 'Biaya Layanan' : 'Total Pembayaran',
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey[700],
@@ -525,7 +908,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          order.formatTotalAmount(),
+                          item.formattedAmount,
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -537,14 +920,24 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                     ),
                     ElevatedButton(
                       onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => HistoryDetailPage(
-                              order: order,
+                        if (item is FoodOrderHistoryItem) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => HistoryDetailPage(
+                                order: item.order,
+                              ),
                             ),
-                          ),
-                        ).then((_) => _fetchOrders(isRefresh: true));
+                          ).then((_) => _fetchAllHistory(isRefresh: true));
+                        } else if (item is ServiceOrderHistoryItem) {
+                          // TODO: Navigate to service order detail page
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Detail jasa titip #${item.id}'),
+                              backgroundColor: GlobalStyle.primaryColor,
+                            ),
+                          );
+                        }
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: GlobalStyle.primaryColor,
@@ -649,6 +1042,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
     );
   }
 
+  // ✅ PERBAIKAN: Enhanced error state with authentication handling
   Widget _buildErrorState() {
     return Center(
       child: Column(
@@ -661,7 +1055,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
           ),
           const SizedBox(height: 16),
           Text(
-            'Gagal Memuat Data',
+            !_isAuthenticated ? 'Session Expired' : 'Gagal Memuat Data',
             style: TextStyle(
               fontSize: 18,
               color: Colors.red[600],
@@ -685,9 +1079,17 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(
-            onPressed: () => _fetchOrders(isRefresh: true),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Coba Lagi'),
+            onPressed: () {
+              if (!_isAuthenticated) {
+                // Redirect to login or home
+                Navigator.pushReplacementNamed(context, HomePage.route);
+              } else {
+                // Retry fetching orders
+                _fetchAllHistory(isRefresh: true);
+              }
+            },
+            icon: Icon(!_isAuthenticated ? Icons.home : Icons.refresh),
+            label: Text(!_isAuthenticated ? 'Kembali ke Home' : 'Coba Lagi'),
             style: ElevatedButton.styleFrom(
               backgroundColor: GlobalStyle.primaryColor,
               foregroundColor: Colors.white,
@@ -782,7 +1184,9 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
             indicatorWeight: 3,
             onTap: (index) {
               // Refresh data when tab changes
-              _fetchOrders(isRefresh: true);
+              if (_isAuthenticated) {
+                _fetchAllHistory(isRefresh: true);
+              }
             },
             tabs: [
               Tab(
@@ -790,7 +1194,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text('Semua'),
-                    if (_totalItems > 0)
+                    if (allHistoryItems.isNotEmpty)
                       Container(
                         margin: const EdgeInsets.only(left: 8),
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -799,7 +1203,7 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          _totalItems.toString(),
+                          allHistoryItems.length.toString(),
                           style: TextStyle(
                             fontSize: 11,
                             color: GlobalStyle.primaryColor,
@@ -821,14 +1225,14 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
             : _errorMessage != null
             ? _buildErrorState()
             : RefreshIndicator(
-          onRefresh: () => _fetchOrders(isRefresh: true),
+          onRefresh: () => _isAuthenticated ? _fetchAllHistory(isRefresh: true) : _validateAuthenticationAndFetchHistory(),
           color: GlobalStyle.primaryColor,
           child: TabBarView(
             controller: _tabController,
             children: List.generate(4, (tabIndex) {
-              final filteredOrders = getFilteredOrders(tabIndex);
+              final filteredItems = getFilteredHistoryItems(tabIndex);
 
-              if (filteredOrders.isEmpty && !_isLoading) {
+              if (filteredItems.isEmpty && !_isLoading) {
                 return _buildEmptyState(
                     'Tidak ada pesanan ${tabIndex == 0 ? '' : tabIndex == 1 ? 'yang sedang diproses' : tabIndex == 2 ? 'yang selesai' : 'yang dibatalkan'}'
                 );
@@ -837,10 +1241,10 @@ class _HistoryCustomerState extends State<HistoryCustomer> with TickerProviderSt
               return ListView.builder(
                 controller: _scrollController,
                 padding: const EdgeInsets.all(16),
-                itemCount: filteredOrders.length + (_isLoadingMore ? 1 : 0),
+                itemCount: filteredItems.length + (_isLoadingMore ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (index < filteredOrders.length) {
-                    return _buildOrderCard(filteredOrders[index], index);
+                  if (index < filteredItems.length) {
+                    return _buildHistoryCard(filteredItems[index], index);
                   } else {
                     return _buildLoadMoreIndicator();
                   }
