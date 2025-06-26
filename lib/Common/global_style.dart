@@ -17,13 +17,20 @@ class GlobalStyle {
   static double fontSize = 12;
 
   // Formatter untuk mata uang Rupiah
+  // static String formatRupiah(double amount) {
+  //   final formatCurrency = NumberFormat.currency(
+  //     locale: 'id_ID',
+  //     symbol: 'Rp ',
+  //     decimalDigits: 0,
+  //   );
+  //   return formatCurrency.format(amount);
+  // }
+
   static String formatRupiah(double amount) {
-    final formatCurrency = NumberFormat.currency(
-      locale: 'id_ID',
-      symbol: 'Rp ',
-      decimalDigits: 0,
-    );
-    return formatCurrency.format(amount);
+    return 'Rp ${amount.toStringAsFixed(0).replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]}.',
+        )}';
   }
 
   // ignore: unused_element
@@ -34,15 +41,15 @@ class GlobalStyle {
 
     Map<int, Color> myColorCodes = {
       50: Color.fromRGBO(red, green, blue, .1),
-      100:Color.fromRGBO(red, green, blue, .2),
-      200:Color.fromRGBO(red, green, blue, .3),
-      300:Color.fromRGBO(red, green, blue, .4),
-      400:Color.fromRGBO(red, green, blue, .5),
-      500:Color.fromRGBO(red, green, blue, .6),
-      600:Color.fromRGBO(red, green, blue, .7),
-      700:Color.fromRGBO(red, green, blue, .8),
-      800:Color.fromRGBO(red, green, blue, .9),
-      900:Color.fromRGBO(red, green, blue, 1),
+      100: Color.fromRGBO(red, green, blue, .2),
+      200: Color.fromRGBO(red, green, blue, .3),
+      300: Color.fromRGBO(red, green, blue, .4),
+      400: Color.fromRGBO(red, green, blue, .5),
+      500: Color.fromRGBO(red, green, blue, .6),
+      600: Color.fromRGBO(red, green, blue, .7),
+      700: Color.fromRGBO(red, green, blue, .8),
+      800: Color.fromRGBO(red, green, blue, .9),
+      900: Color.fromRGBO(red, green, blue, 1),
     };
 
     return MaterialColor(myColor.value, myColorCodes);

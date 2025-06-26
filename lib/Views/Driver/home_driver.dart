@@ -1,3 +1,4 @@
+import 'package:del_pick/Views/Driver/driver_request_detail.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:intl/intl.dart';
@@ -555,64 +556,72 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         _processingRequests[requestId] = true;
         _driverRequests.removeWhere((r) => r['id'].toString() == requestId);
       });
+
       print('🔄 Accepting driver request: $requestId');
+
       await DriverRequestService.respondToDriverRequest(
         requestId: requestId,
         action: 'accept',
         notes: 'Driver has accepted the request and will process it shortly.',
       );
+
       _playSound('audio/kring.mp3');
 
       final String requestType = requestData['request_type'] ?? 'regular';
       print('🎯 Request type determined: $requestType');
 
-      // ✅ PERBAIKI NAVIGATION INI:
+      // ✅ PERBAIKAN NAVIGASI: Semua jenis request ke halaman detail yang sama
       if (requestType == 'jasa_titip') {
-        print('📱 Navigating to ContactUserPage for service request');
+        print('📱 Navigating to DriverRequestDetailPage for service request');
         _showRequestAcceptedDialog(requestData, () {
-          final orderId = requestData['order']?['id']?.toString();
-          if (orderId != null) {
-            print('🔄 Navigation to ContactUserPage with orderId: $orderId');
+          final requestIdForNav = requestData['id']?.toString();
+          if (requestIdForNav != null) {
+            print(
+                '🔄 Navigation to DriverRequestDetailPage with requestId: $requestIdForNav');
             Navigator.pushNamed(
               context,
-              ContactUserPage.route,
+              DriverRequestDetailPage
+                  .route, // ✅ UBAH: Gunakan halaman detail request
               arguments: {
-                'orderId': orderId,
-                'orderDetail': requestData,
+                'requestId': requestIdForNav,
+                'requestData': requestData,
               },
             ).then((_) {
-              // Refresh when returning from contact page
-              print('🔄 Returned from ContactUserPage, refreshing...');
+              // Refresh when returning from detail page
+              print('🔄 Returned from DriverRequestDetailPage, refreshing...');
               _loadDriverRequests();
             });
           } else {
-            print('❌ No orderId found for service request');
+            print('❌ No requestId found for service request');
           }
         });
       } else {
-        print('📱 Navigating to HistoryDriverDetailPage for regular order');
+        print('📱 Navigating to DriverRequestDetailPage for regular order');
         _showOrderAcceptedDialog(requestData, () {
-          final orderId = requestData['order']?['id']?.toString();
-          if (orderId != null) {
+          final requestIdForNav = requestData['id']?.toString();
+          if (requestIdForNav != null) {
             print(
-                '🔄 Navigation to HistoryDriverDetailPage with orderId: $orderId');
+                '🔄 Navigation to DriverRequestDetailPage with requestId: $requestIdForNav');
             Navigator.pushNamed(
               context,
-              HistoryDriverDetailPage.route,
-              arguments: orderId,
+              DriverRequestDetailPage
+                  .route, // ✅ UBAH: Gunakan halaman detail request
+              arguments: {
+                'requestId': requestIdForNav,
+                'requestData': requestData,
+              },
             ).then((_) {
               // Refresh when returning from detail page
-              print('🔄 Returned from HistoryDriverDetailPage, refreshing...');
+              print('🔄 Returned from DriverRequestDetailPage, refreshing...');
               _loadDriverRequests();
             });
           } else {
-            print('❌ No orderId found for regular order');
+            print('❌ No requestId found for regular order');
           }
         });
       }
 
-      // ✅ TAMBAHKAN MULTIPLE REFRESH UNTUK MEMASTIKAN:
-      // Immediate refresh
+      // ✅ Multiple refresh untuk memastikan
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted) {
           print('🔄 First refresh after accept...');
@@ -620,7 +629,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         }
       });
 
-      // ✅ TAMBAHKAN FINAL CONFIRMATION REFRESH:
       Future.delayed(const Duration(seconds: 2), () async {
         if (mounted) {
           print('🔄 Final confirmation refresh after accept...');
@@ -657,12 +665,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           e.toString().contains('already taken') ||
           e.toString().contains('not available')) {
         errorMessage = 'This request is no longer available.';
-        shouldRefresh = true; // Refresh to get updated list
+        shouldRefresh = true;
       } else if (e.toString().contains('network') ||
           e.toString().contains('connection')) {
         errorMessage = 'Network error. Please check your connection.';
         _isOnline = false;
-        // Auto-retry network check
         Future.delayed(const Duration(seconds: 5), () {
           _isOnline = true;
           if (mounted) _loadDriverRequests();
@@ -688,14 +695,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       if (mounted) {
         setState(() {
           _processingRequests.remove(requestId);
-          // if (_driverRequests.any((r) => r['id'].toString() == requestId)) {
-          //   // ✅ Find and update the specific request if it still exists
-          //   final index = _driverRequests
-          //       .indexWhere((r) => r['id'].toString() == requestId);
-          //   if (index != -1) {
-          //     _driverRequests[index]['_isProcessing'] = false;
-          //   }
-          // }
         });
       }
     }

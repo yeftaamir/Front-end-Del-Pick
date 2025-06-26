@@ -53,6 +53,8 @@ import 'package:del_pick/Services/tracking_service.dart';
 import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/customer_service.dart';
 
+import 'Views/Driver/driver_request_detail.dart';
+
 Future<void> main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
@@ -139,17 +141,21 @@ Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
 
     // Process images if they exist in the order data
     if (orderData['store'] != null && orderData['store']['image_url'] != null) {
-      orderData['store']['image_url'] = ImageService.getImageUrl(orderData['store']['image_url']);
+      orderData['store']['image_url'] =
+          ImageService.getImageUrl(orderData['store']['image_url']);
     }
 
     // Process customer avatar if present
-    if (orderData['customer'] != null && orderData['customer']['avatar'] != null) {
-      orderData['customer']['avatar'] = ImageService.getImageUrl(orderData['customer']['avatar']);
+    if (orderData['customer'] != null &&
+        orderData['customer']['avatar'] != null) {
+      orderData['customer']['avatar'] =
+          ImageService.getImageUrl(orderData['customer']['avatar']);
     }
 
     // Process driver avatar if present
     if (orderData['driver'] != null && orderData['driver']['avatar'] != null) {
-      orderData['driver']['avatar'] = ImageService.getImageUrl(orderData['driver']['avatar']);
+      orderData['driver']['avatar'] =
+          ImageService.getImageUrl(orderData['driver']['avatar']);
     }
 
     // Process order item images if present
@@ -187,7 +193,8 @@ Future<Map<String, dynamic>> _getOrderDataSafely(dynamic arguments) async {
     return arguments;
   } else {
     // Case 4: Invalid or null arguments
-    throw Exception('Invalid arguments for HistoryDetailPage: ${arguments.runtimeType}');
+    throw Exception(
+        'Invalid arguments for HistoryDetailPage: ${arguments.runtimeType}');
   }
 }
 
@@ -260,25 +267,24 @@ class MyApp extends StatelessWidget {
 
   Map<String, Widget Function(BuildContext)> _buildRoutes() {
     return {
-
       // Add splash screen route
       '/': (context) =>
-      const InternetConnectivityWrapper(child: SplashScreen()),
+          const InternetConnectivityWrapper(child: SplashScreen()),
 
       // Control routes
       LoginPage.route: (context) =>
-      const InternetConnectivityWrapper(child: LoginPage()),
+          const InternetConnectivityWrapper(child: LoginPage()),
 
       // Customer routes
       HomePage.route: (context) =>
-      const InternetConnectivityWrapper(child: HomePage()),
+          const InternetConnectivityWrapper(child: HomePage()),
       StoreDetail.route: (context) =>
-      const InternetConnectivityWrapper(child: StoreDetail()),
+          const InternetConnectivityWrapper(child: StoreDetail()),
       LocationAccessScreen.route: (context) => const LocationAccessScreen(),
       ProfilePage.route: (context) =>
-      const InternetConnectivityWrapper(child: ProfilePage()),
+          const InternetConnectivityWrapper(child: ProfilePage()),
       HistoryCustomer.route: (context) =>
-      const InternetConnectivityWrapper(child: HistoryCustomer()),
+          const InternetConnectivityWrapper(child: HistoryCustomer()),
       CartScreen.route: (context) {
         final arguments = ModalRoute.of(context)?.settings.arguments;
         List<MenuItemModel> cartItems = [];
@@ -297,7 +303,9 @@ class MyApp extends StatelessWidget {
           child: CartScreen(
             cartItems: cartItems,
             storeId: storeId,
-            itemQuantities: arguments is Map ? arguments['itemQuantities'] as Map<int, int>? : null,
+            itemQuantities: arguments is Map
+                ? arguments['itemQuantities'] as Map<int, int>?
+                : null,
           ),
         );
       },
@@ -330,9 +338,11 @@ class MyApp extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                          const Icon(Icons.error_outline,
+                              size: 60, color: Colors.red),
                           const SizedBox(height: 16),
-                          Text('Error: ${snapshot.error}',
+                          Text(
+                            'Error: ${snapshot.error}',
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.red),
                           ),
@@ -351,9 +361,11 @@ class MyApp extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.info_outline, size: 60, color: Colors.orange),
+                          const Icon(Icons.info_outline,
+                              size: 60, color: Colors.orange),
                           const SizedBox(height: 16),
-                          const Text('No order data available.',
+                          const Text(
+                            'No order data available.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.orange),
                           ),
@@ -375,7 +387,8 @@ class MyApp extends StatelessWidget {
           );
         } else {
           // Fallback for invalid arguments
-          print('⚠️ Invalid arguments for HistoryDetailPage: ${arguments.runtimeType}');
+          print(
+              '⚠️ Invalid arguments for HistoryDetailPage: ${arguments.runtimeType}');
           return Scaffold(
             body: Center(
               child: Column(
@@ -383,7 +396,8 @@ class MyApp extends StatelessWidget {
                 children: [
                   const Icon(Icons.error_outline, size: 60, color: Colors.red),
                   const SizedBox(height: 16),
-                  const Text('Invalid navigation arguments',
+                  const Text(
+                    'Invalid navigation arguments',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.red),
                   ),
@@ -425,9 +439,11 @@ class MyApp extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                          const Icon(Icons.error_outline,
+                              size: 60, color: Colors.red),
                           const SizedBox(height: 16),
-                          Text('Error: ${snapshot.error}',
+                          Text(
+                            'Error: ${snapshot.error}',
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.red),
                           ),
@@ -446,9 +462,11 @@ class MyApp extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.info_outline, size: 60, color: Colors.orange),
+                          const Icon(Icons.info_outline,
+                              size: 60, color: Colors.orange),
                           const SizedBox(height: 16),
-                          const Text('No order data available for rating.',
+                          const Text(
+                            'No order data available for rating.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.orange),
                           ),
@@ -477,7 +495,8 @@ class MyApp extends StatelessWidget {
                 children: [
                   const Icon(Icons.error_outline, size: 60, color: Colors.red),
                   const SizedBox(height: 16),
-                  const Text('Invalid navigation arguments for rating',
+                  const Text(
+                    'Invalid navigation arguments for rating',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.red),
                   ),
@@ -495,172 +514,188 @@ class MyApp extends StatelessWidget {
 
       // Admin routes
       '/Admin/HomePage': (context) => const InternetConnectivityWrapper(
-        child: Scaffold(
-          body: Center(child: Text('Admin Home Page - To be implemented')),
-        ),
-      ),
+            child: Scaffold(
+              body: Center(child: Text('Admin Home Page - To be implemented')),
+            ),
+          ),
 
       // Driver routes
       HomeDriverPage.route: (context) =>
-      const InternetConnectivityWrapper(child: HomeDriverPage()),
+          const InternetConnectivityWrapper(child: HomeDriverPage()),
       HistoryDriverPage.route: (context) =>
-      const InternetConnectivityWrapper(child: HistoryDriverPage()),
+          const InternetConnectivityWrapper(child: HistoryDriverPage()),
+      DriverRequestDetailPage.route: (context) =>
+          const DriverRequestDetailPage(),
 
       // Driver History Detail Page with OrderService
       HistoryDriverDetailPage.route: (context) => InternetConnectivityWrapper(
-        child: FutureBuilder<Map<String, dynamic>>(
-          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              );
-            } else if (snapshot.hasError) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Text('Error: ${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red),
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: _getOrderData(
+                  ModalRoute.of(context)?.settings.arguments as String?),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                } else if (snapshot.hasError) {
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline,
+                              size: 60, color: Colors.red),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Error: ${snapshot.error}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Go Back'),
+                    ),
+                  );
+                } else if (!snapshot.hasData) {
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.info_outline,
+                              size: 60, color: Colors.orange),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'No order data available.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-              );
-            } else if (!snapshot.hasData) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.info_outline, size: 60, color: Colors.orange),
-                      const SizedBox(height: 16),
-                      const Text('No order data available.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.orange),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Go Back'),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
+                    ),
+                  );
+                }
 
-            // Process the order data to match the expected format for HistoryDriverDetailPage
-            final orderData = snapshot.data!;
-            final Map<String, dynamic> orderDetail = {
-              'customerName': orderData['customer']?['name'] ?? 'Customer',
-              'customerPhone': orderData['customer']?['phone'] ?? '-',
-              'customerAddress': orderData['delivery_address'] ?? '-',
-              'storeName': orderData['store']?['name'] ?? 'Store',
-              'storePhone': orderData['store']?['phone'] ?? '-',
-              'storeAddress': orderData['store']?['address'] ?? '-',
-              'storeImage': orderData['store']?['image_url'] ?? '',
-              'status': orderData['order_status'] ?? 'pending',
-              'amount': orderData['total_amount'] ?? 0,
-              'deliveryFee': orderData['delivery_fee'] ?? 0,
-              'items': (orderData['items'] as List<dynamic>?)?.map((item) => {
-                'name': item['name'] ?? 'Product',
-                'price': item['price'] ?? 0,
-                'quantity': item['quantity'] ?? 0,
-                'image': item['image_url'] ?? '',
-              }).toList() ?? [],
-            };
+                // Process the order data to match the expected format for HistoryDriverDetailPage
+                final orderData = snapshot.data!;
+                final Map<String, dynamic> orderDetail = {
+                  'customerName': orderData['customer']?['name'] ?? 'Customer',
+                  'customerPhone': orderData['customer']?['phone'] ?? '-',
+                  'customerAddress': orderData['delivery_address'] ?? '-',
+                  'storeName': orderData['store']?['name'] ?? 'Store',
+                  'storePhone': orderData['store']?['phone'] ?? '-',
+                  'storeAddress': orderData['store']?['address'] ?? '-',
+                  'storeImage': orderData['store']?['image_url'] ?? '',
+                  'status': orderData['order_status'] ?? 'pending',
+                  'amount': orderData['total_amount'] ?? 0,
+                  'deliveryFee': orderData['delivery_fee'] ?? 0,
+                  'items': (orderData['items'] as List<dynamic>?)
+                          ?.map((item) => {
+                                'name': item['name'] ?? 'Product',
+                                'price': item['price'] ?? 0,
+                                'quantity': item['quantity'] ?? 0,
+                                'image': item['image_url'] ?? '',
+                              })
+                          .toList() ??
+                      [],
+                };
 
-            return HistoryDriverDetailPage(orderId: orderDetail['id']);
-          },
-        ),
-      ),
+                return HistoryDriverDetailPage(orderId: orderDetail['id']);
+              },
+            ),
+          ),
       ProfileDriverPage.route: (context) =>
-      const InternetConnectivityWrapper(child: ProfileDriverPage()),
+          const InternetConnectivityWrapper(child: ProfileDriverPage()),
 
       // Store routes
       HomeStore.route: (context) =>
-      const InternetConnectivityWrapper(child: HomeStore()),
+          const InternetConnectivityWrapper(child: HomeStore()),
       AddItemPage.route: (context) =>
-      const InternetConnectivityWrapper(child: AddItemPage()),
+          const InternetConnectivityWrapper(child: AddItemPage()),
       AddEditItemForm.route: (context) =>
-      const InternetConnectivityWrapper(child: AddEditItemForm()),
+          const InternetConnectivityWrapper(child: AddEditItemForm()),
 
       // Store History Detail Page with OrderService
       HistoryStoreDetailPage.route: (context) => InternetConnectivityWrapper(
-        child: FutureBuilder<Map<String, dynamic>>(
-          future: _getOrderData(ModalRoute.of(context)?.settings.arguments as String?),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              );
-            } else if (snapshot.hasError) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Text('Error: ${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red),
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: _getOrderData(
+                  ModalRoute.of(context)?.settings.arguments as String?),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                } else if (snapshot.hasError) {
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline,
+                              size: 60, color: Colors.red),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Error: ${snapshot.error}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Go Back'),
+                    ),
+                  );
+                } else if (!snapshot.hasData) {
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.info_outline,
+                              size: 60, color: Colors.orange),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'No order data available.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-              );
-            } else if (!snapshot.hasData) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.info_outline, size: 60, color: Colors.orange),
-                      const SizedBox(height: 16),
-                      const Text('No order data available.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.orange),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Go Back'),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
+                    ),
+                  );
+                }
 
-            final String orderId = ModalRoute.of(context)?.settings.arguments as String? ?? '';
-            return HistoryStoreDetailPage(orderId: orderId);
-          },
-        ),
-      ),
+                final String orderId =
+                    ModalRoute.of(context)?.settings.arguments as String? ?? '';
+                return HistoryStoreDetailPage(orderId: orderId);
+              },
+            ),
+          ),
       HistoryStorePage.route: (context) =>
-      const InternetConnectivityWrapper(child: HistoryStorePage()),
+          const InternetConnectivityWrapper(child: HistoryStorePage()),
       ProfileStorePage.route: (context) =>
-      const InternetConnectivityWrapper(child: ProfileStorePage()),
+          const InternetConnectivityWrapper(child: ProfileStorePage()),
     };
   }
 
@@ -670,15 +705,17 @@ class MyApp extends StatelessWidget {
       title: 'Del Pick',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
-      initialRoute: '/', // Start with splash screen which will handle authentication
+      initialRoute:
+          '/', // Start with splash screen which will handle authentication
       routes: _buildRoutes(),
       // ✅ ENHANCED: Route generator untuk handling parameter dengan type safety
       onGenerateRoute: (RouteSettings settings) {
         print('🛣️ onGenerateRoute called for: ${settings.name}');
-        print('🛣️ Arguments: ${settings.arguments} (${settings.arguments.runtimeType})');
+        print(
+            '🛣️ Arguments: ${settings.arguments} (${settings.arguments.runtimeType})');
 
         switch (settings.name) {
-        // ✅ Enhanced HistoryDetailPage handling
+          // ✅ Enhanced HistoryDetailPage handling
           case HistoryDetailPage.route:
             final args = settings.arguments;
 
@@ -693,7 +730,8 @@ class MyApp extends StatelessWidget {
               );
             } else if (args is String) {
               // Case 2: String ID (from named route)
-              print('📡 String ID navigation via onGenerateRoute, will fetch data');
+              print(
+                  '📡 String ID navigation via onGenerateRoute, will fetch data');
               return MaterialPageRoute(
                 builder: (context) => InternetConnectivityWrapper(
                   child: FutureBuilder<Map<String, dynamic>>(
@@ -709,7 +747,8 @@ class MyApp extends StatelessWidget {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                                const Icon(Icons.error_outline,
+                                    size: 60, color: Colors.red),
                                 const SizedBox(height: 16),
                                 Text('Error: ${snapshot.error}'),
                                 const SizedBox(height: 16),
@@ -738,11 +777,12 @@ class MyApp extends StatelessWidget {
               );
             } else {
               // Case 3: Invalid arguments - let route configuration handle it
-              print('⚠️ Invalid arguments for HistoryDetailPage via onGenerateRoute, using route configuration');
+              print(
+                  '⚠️ Invalid arguments for HistoryDetailPage via onGenerateRoute, using route configuration');
               break;
             }
 
-        // ========== CUSTOMER ROUTES ==========
+          // ========== CUSTOMER ROUTES ==========
           case ContactDriverPage.route:
             final args = settings.arguments as Map<String, dynamic>?;
             if (args != null && args['driver'] != null) {
@@ -783,7 +823,7 @@ class MyApp extends StatelessWidget {
               settings: settings,
             );
 
-        // ========== DRIVER ROUTES ==========
+          // ========== DRIVER ROUTES ==========
           case ContactUserPage.route:
             final args = settings.arguments as Map<String, dynamic>?;
             if (args != null && args['orderId'] != null) {
