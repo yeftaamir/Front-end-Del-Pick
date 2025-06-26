@@ -28,7 +28,6 @@ class HomeDriverPage extends StatefulWidget {
 
 class _HomeDriverPageState extends State<HomeDriverPage>
     with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
-
   @override
   bool get wantKeepAlive => true;
 
@@ -72,11 +71,19 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
   // Notifications & Audio
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
-  FlutterLocalNotificationsPlugin();
+      FlutterLocalNotificationsPlugin();
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Polling Timers
   Timer? _requestPollingTimer;
+
+  Timer? _fastPollingTimer; // For active status
+
+  // ✅ TAMBAHAN: Debouncing untuk prevent multiple clicks
+  final Map<String, bool> _processingRequests = {};
+
+  // ✅ TAMBAHAN: Network state tracking
+  bool _isOnline = true;
 
   // ✅ Safe parsing methods untuk mengatasi conversion errors
 
@@ -136,6 +143,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
     // Start Periodic Updates
     _startPeriodicUpdates();
+
+    _startFastPolling();
   }
 
   void _initializeAnimations() {
@@ -150,7 +159,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
     _cardControllers = List.generate(
       6,
-          (index) => AnimationController(
+      (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
       ),
@@ -177,16 +186,17 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
   Future<void> _initializeNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-    AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('@mipmap/ic_launcher');
 
     const DarwinInitializationSettings initializationSettingsIOS =
-    DarwinInitializationSettings(
+        DarwinInitializationSettings(
       requestSoundPermission: true,
       requestBadgePermission: true,
       requestAlertPermission: true,
     );
 
-    const InitializationSettings initializationSettings = InitializationSettings(
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsIOS,
     );
@@ -251,7 +261,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
       // Load initial data
       await _loadInitialData();
-
     } catch (e) {
       print('❌ HomeDriver: Authentication error: $e');
       setState(() {
@@ -279,7 +288,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       setState(() {
         _isInitialLoading = false;
       });
-
     } catch (e) {
       print('❌ HomeDriver: Error loading initial data: $e');
       setState(() {
@@ -289,67 +297,95 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
+// ✅ Tambahkan method untuk validasi status request
+  bool _isRequestStillValid(Map<String, dynamic> requestData) {
+    final String status = requestData['status'] ?? 'pending';
+    final String requestId = requestData['id'].toString();
+
+    // Cek apakah status masih pending dan tidak sedang diproses
+    return status == 'pending' && _processingRequests[requestId] != true;
+  }
+
   // ✅ Load driver requests with improved error handling
+  // ✅ UBAH: Load requests dengan better state management
   Future<void> _loadDriverRequests() async {
-    if (!mounted || _driverId == null) return;
+    if (!mounted || _driverId == null || _isLoadingRequests) {
+      return; // ✅ Prevent multiple simultaneous loads
+    }
 
     setState(() {
       _isLoadingRequests = true;
     });
 
     try {
-      print('🔄 HomeDriver: Loading driver requests...');
+      print('🔄 Loading driver requests...');
 
       final response = await DriverRequestService.getDriverRequests(
         page: 1,
         limit: 50,
-        status: 'pending',
+        status: 'pending', // Hanya ambil yang pending
+        // driverId: _driverId, // Filter berdasarkan driver
         sortBy: 'created_at',
         sortOrder: 'desc',
       );
 
-      print('📦 HomeDriver: Driver requests response received');
+      // ✅ TAMBAHKAN LOGGING INI SETELAH RESPONSE:
+      print('📊 Backend response: ${response['requests']?.length} requests');
+      for (var req in response['requests'] ?? []) {
+        print('   - ID: ${req['id']}, Status: ${req['status']}');
+      }
 
       final requestsData = response['requests'] ?? [];
       List<Map<String, dynamic>> processedRequests = [];
 
+      /// ✅ Process and deduplicate requests
       for (var requestData in requestsData) {
         try {
-          final orderData = requestData['order'] ?? {};
-          String requestType = _determineRequestType(orderData);
+          final String id = requestData['id'].toString();
+          final String currentStatus = requestData['status'] ?? 'pending';
 
-          Map<String, dynamic> processedRequest = Map<String, dynamic>.from(requestData);
+          // Skip jika status bukan pending atau sedang diproses
+          if (currentStatus != 'pending' || _processingRequests[id] == true) {
+            continue;
+          }
+
+          // ✅ Process request data
+          final String requestType = _determineRequestType(requestData);
+
+          Map<String, dynamic> processedRequest =
+              Map<String, dynamic>.from(requestData);
           processedRequest['request_type'] = requestType;
-          processedRequest['urgency'] = DriverRequestService.getRequestUrgency(requestData);
-          processedRequest['potential_earnings'] = _calculateSafePotentialEarnings(requestData);
+          processedRequest['urgency'] =
+              DriverRequestService.getRequestUrgency(requestData);
+          processedRequest['potential_earnings'] =
+              _calculateSafePotentialEarnings(requestData);
 
+          // ✅ Add ke list yang benar
           processedRequests.add(processedRequest);
         } catch (e) {
-          print('⚠️ HomeDriver: Error processing request ${requestData['id']}: $e');
-          // Skip this request but continue with others
+          print('⚠️ Error processing request ${requestData['id']}: $e');
         }
       }
 
-      setState(() {
-        _driverRequests = processedRequests;
-        _isLoadingRequests = false;
-      });
-
-      print('✅ HomeDriver: Loaded ${processedRequests.length} driver requests');
-
+// ✅ Update state dengan data yang sudah diproses
+      if (mounted) {
+        setState(() {
+          _driverRequests = processedRequests; // ← Gunakan variable yang benar
+          _isLoadingRequests = false;
+        });
+        print('✅ Loaded ${processedRequests.length} driver requests');
+      }
     } catch (e) {
-      print('❌ HomeDriver: Error loading driver requests: $e');
-      setState(() {
-        _driverRequests = [];
-        _isLoadingRequests = false;
-      });
-
-      // Don't show error dialog for this - just log it
-      // User can still use the app
+      print('❌ Error loading driver requests: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingRequests = false;
+        });
+      }
     }
   }
 
-  // ✅ Load driver stats with fallback for missing endpoint
+  /// ✅ Load driver stats with fallback for missing endpoint
   Future<void> _loadDriverStats() async {
     try {
       print('📊 HomeDriver: Loading driver statistics...');
@@ -393,7 +429,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       if (order == null) return 0.0;
 
       final deliveryFee = _parseDouble(order['delivery_fee']);
-      final totalAmount = _parseDouble(order['total_amount'] ?? order['totalAmount'] ?? order['total']);
+      final totalAmount = _parseDouble(
+          order['total_amount'] ?? order['totalAmount'] ?? order['total']);
 
       // Driver gets delivery fee + small percentage of order total
       final baseEarning = deliveryFee;
@@ -424,10 +461,23 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     return 'regular';
   }
 
-  // Start periodic updates
   void _startPeriodicUpdates() {
-    _requestPollingTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    _requestPollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
       if (_driverStatus == 'active' && mounted && _driverId != null) {
+        // ✅ Refresh lebih sering untuk data real-time
+        _loadDriverRequests();
+      }
+    });
+  }
+
+  void _startFastPolling() {
+    _fastPollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (_driverStatus == 'active' &&
+          mounted &&
+          _driverId != null &&
+          _isOnline &&
+          _processingRequests.isNotEmpty) {
+        print('🔄 Fast polling: Refreshing due to pending actions...');
         _loadDriverRequests();
       }
     });
@@ -480,7 +530,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         _loadDriverRequests();
         _loadDriverStats();
       }
-
     } catch (e) {
       print('❌ HomeDriver: Error updating driver status: $e');
       setState(() {
@@ -491,28 +540,44 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   }
 
   // ✅ Accept request with improved error handling
+  // ✅ Accept request dengan optimistic update + auto refresh
   Future<void> _acceptDriverRequest(Map<String, dynamic> requestData) async {
+    final String requestId = requestData['id'].toString();
+
+    // ✅ Prevent double clicks
+    if (_processingRequests[requestId] == true) {
+      print('⚠️ Request $requestId already being processed');
+      return;
+    }
+
+    // ✅ DECLARE OUTSIDE TRY: Variable scope fix
+    // List<Map<String, dynamic>> originalRequests = [];
+
     try {
-      final String requestId = requestData['id'].toString();
-      final String requestType = requestData['request_type'] ?? 'regular';
-
-      print('🔄 HomeDriver: Accepting driver request: $requestId (type: $requestType)');
-
-      // ✅ Try direct API call with better error handling
+      // ✅ Mark as processing
+      setState(() {
+        _processingRequests[requestId] = true;
+        _driverRequests.removeWhere((r) => r['id'].toString() == requestId);
+        // requestData['_isProcessing'] = true;
+      });
+      print('🔄 Accepting driver request: $requestId');
       await DriverRequestService.respondToDriverRequest(
         requestId: requestId,
         action: 'accept',
         notes: 'Driver has accepted the request and will process it shortly.',
       );
-
-      // Play success sound
       _playSound('audio/kring.mp3');
 
-      // Show success dialog and navigate
+      final String requestType = requestData['request_type'] ?? 'regular';
+      print('🎯 Request type determined: $requestType');
+
+      // ✅ PERBAIKI NAVIGATION INI:
       if (requestType == 'jasa_titip') {
+        print('📱 Navigating to ContactUserPage for service request');
         _showRequestAcceptedDialog(requestData, () {
           final orderId = requestData['order']?['id']?.toString();
           if (orderId != null) {
+            print('🔄 Navigation to ContactUserPage with orderId: $orderId');
             Navigator.pushNamed(
               context,
               ContactUserPage.route,
@@ -520,50 +585,192 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 'orderId': orderId,
                 'orderDetail': requestData,
               },
-            );
+            ).then((_) {
+              // Refresh when returning from contact page
+              print('🔄 Returned from ContactUserPage, refreshing...');
+              _loadDriverRequests();
+            });
+          } else {
+            print('❌ No orderId found for service request');
           }
         });
       } else {
+        print('📱 Navigating to HistoryDriverDetailPage for regular order');
         _showOrderAcceptedDialog(requestData, () {
           final orderId = requestData['order']?['id']?.toString();
           if (orderId != null) {
+            print(
+                '🔄 Navigation to HistoryDriverDetailPage with orderId: $orderId');
             Navigator.pushNamed(
               context,
               HistoryDriverDetailPage.route,
               arguments: orderId,
-            );
+            ).then((_) {
+              // Refresh when returning from detail page
+              print('🔄 Returned from HistoryDriverDetailPage, refreshing...');
+              _loadDriverRequests();
+            });
+          } else {
+            print('❌ No orderId found for regular order');
           }
         });
       }
 
-      // Refresh requests list
-      _loadDriverRequests();
+      // if (requestType == 'jasa_titip') {
+      //   _showRequestAcceptedDialog(requestData, () {
+      //     final orderId = requestData['order']?['id']?.toString();
+      //     if (orderId != null) {
+      //       Navigator.pushNamed(
+      //         context,
+      //         ContactUserPage.route,
+      //         arguments: {
+      //           'orderId': orderId,
+      //           'orderDetail': requestData,
+      //         },
+      //       );
+      //     }
+      //   });
+      // } else {
+      //   _showOrderAcceptedDialog(requestData, () {
+      //     final orderId = requestData['order']?['id']?.toString();
+      //     if (orderId != null) {
+      //       Navigator.pushNamed(
+      //         context,
+      //         HistoryDriverDetailPage.route,
+      //         arguments: orderId,
+      //       );
+      //     }
+      //   });
+      // }
 
-      print('✅ HomeDriver: Driver request accepted successfully');
+      // ✅ IMMEDIATE REFRESH: Refresh list setelah 2 detik untuk confirm
+      // Refresh segera setelah API call berhasil
+      // if (result.isSuccess) {
+      // Update state langsung
+      // setState(() {
+      //   _driverRequests.removeWhere((r) => r['id'].toString() == requestId);
+      // });
 
+      // Refresh data dari server untuk sinkronisasi
+      // ✅ TAMBAHKAN MULTIPLE REFRESH UNTUK MEMASTIKAN:
+      // Immediate refresh
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          print('🔄 First refresh after accept...');
+          _loadDriverRequests();
+        }
+      });
+
+      // ✅ TAMBAHKAN FINAL CONFIRMATION REFRESH:
+      Future.delayed(const Duration(seconds: 2), () async {
+        if (mounted) {
+          print('🔄 Final confirmation refresh after accept...');
+          await _loadDriverRequests();
+
+          // Verify request tidak ada lagi
+          final stillExists =
+              _driverRequests.any((r) => r['id'].toString() == requestId);
+          if (stillExists) {
+            print(
+                '⚠️ WARNING: Request $requestId masih ada di list setelah accept!');
+          } else {
+            print('✅ CONFIRMED: Request $requestId berhasil dihapus dari list');
+          }
+        }
+      });
+
+      print('✅ Driver request accepted successfully');
     } catch (e) {
-      print('❌ HomeDriver: Error accepting driver request: $e');
+      print('❌ Error accepting driver request: $e');
 
-      // ✅ More specific error messages
+      // ✅ REVERT OPTIMISTIC UPDATE: Restore original list on error
+      // if (mounted) {
+      //   setState(() {
+      //     _driverRequests = originalRequests; // ✅ Now accessible
+      //     requestData['_isProcessing'] = false;
+      //   });
+      // }
+      // Jangan restore, langsung refresh untuk data terbaru
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _loadDriverRequests(); // Ambil data fresh dari server
+        }
+      });
+
+      // ✅ Enhanced error handling
       String errorMessage = 'Failed to accept request.';
-      if (e.toString().contains('Bad request')) {
-        errorMessage = 'Invalid request data. Please try again.';
-      } else if (e.toString().contains('Not found')) {
+      bool shouldRefresh = false;
+
+      if (e.toString().contains('sudah tidak tersedia') ||
+          e.toString().contains('sudah diambil') ||
+          e.toString().contains('already taken') ||
+          e.toString().contains('not available')) {
         errorMessage = 'This request is no longer available.';
-      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
+        shouldRefresh = true; // Refresh to get updated list
+      } else if (e.toString().contains('network') ||
+          e.toString().contains('connection')) {
         errorMessage = 'Network error. Please check your connection.';
+        _isOnline = false;
+        // Auto-retry network check
+        Future.delayed(const Duration(seconds: 5), () {
+          _isOnline = true;
+          if (mounted) _loadDriverRequests();
+        });
+      } else if (e.toString().contains('timeout')) {
+        errorMessage = 'Request timeout. Refreshing list...';
+        shouldRefresh = true;
       }
 
       _showErrorDialog(errorMessage);
+
+      // ✅ AUTO REFRESH on certain errors
+      if (shouldRefresh) {
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            print('🔄 Error-triggered refresh...');
+            _loadDriverRequests();
+          }
+        });
+      }
+    } finally {
+      // ✅ Clean up processing state
+      if (mounted) {
+        setState(() {
+          _processingRequests.remove(requestId);
+          // if (_driverRequests.any((r) => r['id'].toString() == requestId)) {
+          //   // ✅ Find and update the specific request if it still exists
+          //   final index = _driverRequests
+          //       .indexWhere((r) => r['id'].toString() == requestId);
+          //   if (index != -1) {
+          //     _driverRequests[index]['_isProcessing'] = false;
+          //   }
+          // }
+        });
+      }
     }
   }
 
-  // ✅ Reject request with improved error handling
+  /// ✅ Reject request with improved error handling
   Future<void> _rejectDriverRequest(Map<String, dynamic> requestData) async {
-    try {
-      final String requestId = requestData['id'].toString();
+    final String requestId = requestData['id'].toString();
 
-      print('🔄 HomeDriver: Rejecting driver request: $requestId');
+    // ✅ Prevent double clicks
+    if (_processingRequests[requestId] == true) {
+      return;
+    }
+
+    try {
+      setState(() {
+        _processingRequests[requestId] = true;
+        requestData['_isProcessing'] = true;
+      });
+
+      print('🔄 Rejecting driver request: $requestId');
+
+      // ✅ OPTIMISTIC UPDATE: Remove from list immediately
+      setState(() {
+        _driverRequests.removeWhere((r) => r['id'].toString() == requestId);
+      });
 
       await DriverRequestService.respondToDriverRequest(
         requestId: requestId,
@@ -571,30 +778,38 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         notes: 'Driver is currently unavailable.',
       );
 
-      // Play rejection sound
       _playSound('audio/wrong.mp3');
 
-      // Refresh requests list
-      _loadDriverRequests();
+      // ✅ IMMEDIATE REFRESH: Refresh after 1 second
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          print('🔄 Post-reject refresh...');
+          _loadDriverRequests();
+        }
+      });
 
-      print('✅ HomeDriver: Driver request rejected successfully');
-
+      print('✅ Driver request rejected successfully');
     } catch (e) {
-      print('❌ HomeDriver: Error rejecting driver request: $e');
+      print('❌ Error rejecting driver request: $e');
 
-      // ✅ More specific error messages
-      String errorMessage = 'Failed to reject request.';
-      if (e.toString().contains('Bad request')) {
-        errorMessage = 'Invalid request data. Please try again.';
-      } else if (e.toString().contains('Not found')) {
-        errorMessage = 'This request is no longer available.';
+      // ✅ Auto refresh on error
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          _loadDriverRequests();
+        }
+      });
+
+      _showErrorDialog('Failed to reject request. List refreshed.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processingRequests.remove(requestId);
+        });
       }
-
-      _showErrorDialog(errorMessage);
     }
   }
 
-  // Navigate to Profile
+  /// Navigate to Profile
   void _navigateToProfile() async {
     try {
       await Navigator.pushNamed(context, ProfileDriverPage.route);
@@ -614,9 +829,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         final id = data[1];
 
         if (type == 'order') {
-          Navigator.pushNamed(context, HistoryDriverDetailPage.route, arguments: id);
+          Navigator.pushNamed(context, HistoryDriverDetailPage.route,
+              arguments: id);
         } else if (type == 'request') {
-          Navigator.pushNamed(context, ContactUserPage.route, arguments: {'orderId': id});
+          Navigator.pushNamed(context, ContactUserPage.route,
+              arguments: {'orderId': id});
         }
       }
     }
@@ -641,7 +858,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         builder: (BuildContext context) {
           return AlertDialog(
             backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -677,7 +895,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   onPressed: () => Navigator.of(context).pop(),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20)),
                     minimumSize: const Size(double.infinity, 45),
                   ),
                   child: Text(
@@ -750,15 +969,18 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
-  void _showOrderAcceptedDialog(Map<String, dynamic> requestData, VoidCallback onViewDetail) {
-    final orderId = requestData['order']?['id']?.toString() ?? requestData['id'].toString();
+  void _showOrderAcceptedDialog(
+      Map<String, dynamic> requestData, VoidCallback onViewDetail) {
+    final orderId =
+        requestData['order']?['id']?.toString() ?? requestData['id'].toString();
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -797,7 +1019,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
                   minimumSize: const Size(double.infinity, 45),
                 ),
                 child: Text(
@@ -816,13 +1039,15 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
-  void _showRequestAcceptedDialog(Map<String, dynamic> requestData, VoidCallback onContactCustomer) {
+  void _showRequestAcceptedDialog(
+      Map<String, dynamic> requestData, VoidCallback onContactCustomer) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -863,7 +1088,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
                   minimumSize: const Size(double.infinity, 45),
                 ),
                 child: Text(
@@ -929,6 +1155,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
     _audioPlayer.dispose();
     _requestPollingTimer?.cancel();
+    _fastPollingTimer?.cancel();
     super.dispose();
   }
 
@@ -957,24 +1184,41 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // ✅ Driver request card with safe parsing
+  /// ✅ Driver request card with safe parsing
   Widget _buildDriverRequestCard(Map<String, dynamic> requestData, int index) {
     final Map<String, dynamic> orderData = requestData['order'] ?? {};
     final String requestType = requestData['request_type'] ?? 'regular';
     final String urgency = requestData['urgency'] ?? 'normal';
-    final double potentialEarnings = _parseDouble(requestData['potential_earnings']);
+    final double potentialEarnings =
+        _parseDouble(requestData['potential_earnings']);
 
-    final String customerName = orderData['customer']?['name'] ?? orderData['user']?['name'] ?? 'Customer';
-    final String storeName = orderData['store']?['name'] ?? 'Store';
-    final double totalAmount = _parseDouble(orderData['total_amount'] ?? orderData['totalAmount'] ?? orderData['total']);
-    final double deliveryFee = _parseDouble(orderData['delivery_fee'] ?? orderData['deliveryFee']);
-
+    // ✅ TAMBAHAN: Check processing state
+    final bool isProcessing = requestData['_isProcessing'] ?? false;
     final String requestId = requestData['id'].toString();
-    final String orderId = orderData['id']?.toString() ?? '';
-    final createdAt = requestData['created_at'] ?? requestData['createdAt'] ?? DateTime.now().toIso8601String();
 
-    final String notes = requestData['notes'] ?? orderData['notes'] ?? orderData['description'] ?? '';
-    final String location = requestData['location'] ?? orderData['delivery_address'] ?? orderData['deliveryAddress'] ?? '';
+    final String customerName = orderData['customer']?['name'] ??
+        orderData['user']?['name'] ??
+        'Customer';
+    final String storeName = orderData['store']?['name'] ?? 'Store';
+    final double totalAmount = _parseDouble(orderData['total_amount'] ??
+        orderData['totalAmount'] ??
+        orderData['total']);
+    final double deliveryFee =
+        _parseDouble(orderData['delivery_fee'] ?? orderData['deliveryFee']);
+
+    final String orderId = orderData['id']?.toString() ?? '';
+    final createdAt = requestData['created_at'] ??
+        requestData['createdAt'] ??
+        DateTime.now().toIso8601String();
+
+    final String notes = requestData['notes'] ??
+        orderData['notes'] ??
+        orderData['description'] ??
+        '';
+    final String location = requestData['location'] ??
+        orderData['delivery_address'] ??
+        orderData['deliveryAddress'] ??
+        '';
 
     return SlideTransition(
       position: _cardAnimations[index % _cardAnimations.length],
@@ -990,307 +1234,447 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               offset: const Offset(0, 4),
             ),
           ],
-          border: urgency == 'urgent'
-              ? Border.all(color: Colors.red, width: 2)
-              : urgency == 'high'
-              ? Border.all(color: Colors.orange, width: 1)
-              : null,
+          // ✅ TAMBAHAN: Border indicator saat processing
+          border: isProcessing
+              ? Border.all(color: Colors.blue, width: 2)
+              : urgency == 'urgent'
+                  ? Border.all(color: Colors.red, width: 2)
+                  : urgency == 'high'
+                      ? Border.all(color: Colors.orange, width: 1)
+                      : null,
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header with type and urgency
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: requestType == 'jasa_titip'
-                          ? Colors.orange.withOpacity(0.1)
-                          : GlobalStyle.primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      requestType == 'jasa_titip' ? Icons.local_shipping : Icons.shopping_bag,
-                      color: requestType == 'jasa_titip' ? Colors.orange : GlobalStyle.primaryColor,
-                      size: 20,
+        child: Stack(
+          children: [
+            // ✅ TAMBAHAN: Processing overlay
+            if (isProcessing)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: CircularProgressIndicator(
+                              color: Colors.blue,
+                              strokeWidth: 3,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Processing Request...',
+                            style: TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                          Text(
+                            'Please wait',
+                            style: TextStyle(
+                              color: Colors.blue[600],
+                              fontSize: 12,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+
+            // ✅ TAMBAHAN: Dimmed content saat processing
+            Opacity(
+              opacity: isProcessing ? 0.5 : 1.0,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header with type and urgency
+                    Row(
                       children: [
-                        Text(
-                          requestType == 'jasa_titip' ? 'Service Request' : 'Regular Order',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                            fontFamily: GlobalStyle.fontFamily,
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: requestType == 'jasa_titip'
+                                ? Colors.orange.withOpacity(0.1)
+                                : GlobalStyle.primaryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            requestType == 'jasa_titip'
+                                ? Icons.local_shipping
+                                : Icons.shopping_bag,
+                            color: requestType == 'jasa_titip'
+                                ? Colors.orange
+                                : GlobalStyle.primaryColor,
+                            size: 20,
                           ),
                         ),
-                        Text(
-                          requestType == 'jasa_titip' ? 'Request #$requestId' : 'Order #$orderId',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: GlobalStyle.fontFamily,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                requestType == 'jasa_titip'
+                                    ? 'Service Request'
+                                    : 'Regular Order',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                              Text(
+                                requestType == 'jasa_titip'
+                                    ? 'Request #$requestId'
+                                    : 'Order #$orderId',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (urgency != 'normal' && !isProcessing) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: urgency == 'urgent'
+                                  ? Colors.red
+                                  : Colors.orange,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              urgency == 'urgent' ? 'URGENT' : 'HIGH',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        // ✅ UBAH: Status indicator berdasarkan processing state
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isProcessing ? Colors.orange : Colors.blue,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            isProcessing ? 'Processing' : 'Pending',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  if (urgency != 'normal') ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: urgency == 'urgent' ? Colors.red : Colors.orange,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        urgency == 'urgent' ? 'URGENT' : 'HIGH',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.blue,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      'Pending',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-              // Customer & Store/Location Info
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    // Customer & Store/Location Info (existing code...)
+                    Row(
                       children: [
-                        Row(
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.person,
+                                      size: 16, color: Colors.grey[600]),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Customer:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                customerName,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              if (requestType == 'regular') ...[
+                                Row(
+                                  children: [
+                                    Icon(Icons.store,
+                                        size: 16, color: Colors.grey[600]),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Store:',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  storeName,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    fontFamily: GlobalStyle.fontFamily,
+                                  ),
+                                ),
+                              ] else ...[
+                                Row(
+                                  children: [
+                                    Icon(Icons.location_on,
+                                        size: 16, color: Colors.grey[600]),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Location:',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  location.isNotEmpty
+                                      ? location
+                                      : 'Location not available',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[700],
+                                    fontFamily: GlobalStyle.fontFamily,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Icon(Icons.person, size: 16, color: Colors.grey[600]),
-                            const SizedBox(width: 4),
+                            if (requestType == 'regular') ...[
+                              Text(
+                                GlobalStyle.formatRupiah(totalAmount),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: GlobalStyle.primaryColor,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ] else ...[
+                              Text(
+                                GlobalStyle.formatRupiah(deliveryFee),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ],
                             Text(
-                              'Customer:',
+                              DateFormat('dd/MM, HH:mm')
+                                  .format(DateTime.parse(createdAt)),
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey[600],
                               ),
                             ),
+                            if (potentialEarnings > 0) ...[
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Est. ${GlobalStyle.formatRupiah(potentialEarnings)}',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.green[700],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
-                        Text(
-                          customerName,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-
-                        if (requestType == 'regular') ...[
-                          Row(
-                            children: [
-                              Icon(Icons.store, size: 16, color: Colors.grey[600]),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Store:',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            storeName,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                        ] else ...[
-                          Row(
-                            children: [
-                              Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Location:',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            location.isNotEmpty ? location : 'Location not available',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[700],
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
                       ],
                     ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (requestType == 'regular') ...[
-                        Text(
-                          GlobalStyle.formatRupiah(totalAmount),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: GlobalStyle.primaryColor,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
+
+                    // Notes for service requests (existing code...)
+                    if (requestType == 'jasa_titip' && notes.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey[200]!),
                         ),
-                      ] else ...[
-                        Text(
-                          GlobalStyle.formatRupiah(deliveryFee),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                      ],
-                      Text(
-                        DateFormat('dd/MM, HH:mm').format(DateTime.parse(createdAt)),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Request Notes:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              notes,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[800],
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      if (potentialEarnings > 0) ...[
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
+                    ],
+
+                    const SizedBox(height: 16),
+
+                    // ✅ UBAH: Action Buttons dengan processing state
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: isProcessing
+                                ? null
+                                : () => _rejectDriverRequest(requestData),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor:
+                                  isProcessing ? Colors.grey : Colors.red,
+                              side: BorderSide(
+                                color: isProcessing ? Colors.grey : Colors.red,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (isProcessing) ...[
+                                  SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                                Text(
+                                  isProcessing ? 'Processing...' : 'Reject',
+                                  style: TextStyle(
+                                    color:
+                                        isProcessing ? Colors.grey : Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          child: Text(
-                            'Est. ${GlobalStyle.formatRupiah(potentialEarnings)}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.green[700],
-                              fontWeight: FontWeight.w500,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: isProcessing
+                                ? null
+                                : () => _acceptDriverRequest(requestData),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isProcessing
+                                  ? Colors.grey
+                                  : (requestType == 'jasa_titip'
+                                      ? Colors.orange
+                                      : GlobalStyle.primaryColor),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (isProcessing) ...[
+                                  SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                                Text(
+                                  isProcessing ? 'Processing...' : 'Accept',
+                                ),
+                              ],
                             ),
                           ),
                         ),
                       ],
-                    ],
-                  ),
-                ],
-              ),
-
-              // Notes for service requests
-              if (requestType == 'jasa_titip' && notes.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey[200]!),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Request Notes:',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        notes,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[800],
-                          fontFamily: GlobalStyle.fontFamily,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-
-              const SizedBox(height: 16),
-
-              // Action Buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _rejectDriverRequest(requestData),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
-                        side: const BorderSide(color: Colors.red),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Reject'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _acceptDriverRequest(requestData),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: requestType == 'jasa_titip' ? Colors.orange : GlobalStyle.primaryColor,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Accept'),
-                    ),
-                  ),
-                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // Build empty state
+  /// Build empty state
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -1333,7 +1717,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   Widget _buildStatsRow() {
     final int totalRequests = _parseInt(_requestStats['total_requests']);
     final int acceptedRequests = _parseInt(_requestStats['accepted_requests']);
-    final double acceptanceRate = _parseDouble(_requestStats['acceptance_rate']);
+    final double acceptanceRate =
+        _parseDouble(_requestStats['acceptance_rate']);
     final double totalEarnings = _parseDouble(_requestStats['total_earnings']);
 
     return Container(
@@ -1419,7 +1804,9 @@ class _HomeDriverPageState extends State<HomeDriverPage>
             child: Column(
               children: [
                 Text(
-                  totalEarnings > 0 ? GlobalStyle.formatRupiah(totalEarnings) : 'Rp 0',
+                  totalEarnings > 0
+                      ? GlobalStyle.formatRupiah(totalEarnings)
+                      : 'Rp 0',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -1551,7 +1938,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            DateFormat('EEEE, dd MMMM yyyy').format(DateTime.now()),
+                            DateFormat('EEEE, dd MMMM yyyy')
+                                .format(DateTime.now()),
                             style: TextStyle(
                               color: GlobalStyle.fontColor,
                               fontSize: 14,
@@ -1600,28 +1988,32 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           decoration: BoxDecoration(
                             boxShadow: [
                               BoxShadow(
-                                color: _getStatusColor(_driverStatus).withOpacity(0.3),
+                                color: _getStatusColor(_driverStatus)
+                                    .withOpacity(0.3),
                                 blurRadius: 8,
                                 offset: const Offset(0, 4),
                               ),
                             ],
                           ),
                           child: ElevatedButton.icon(
-                            onPressed: _isUpdatingStatus ? null : _toggleDriverStatus,
+                            onPressed:
+                                _isUpdatingStatus ? null : _toggleDriverStatus,
                             icon: _isUpdatingStatus
                                 ? SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              ),
-                            )
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
                                 : Icon(
-                              _driverStatus == 'active' ? Icons.toggle_on : Icons.toggle_off,
-                              color: Colors.white,
-                              size: 28,
-                            ),
+                                    _driverStatus == 'active'
+                                        ? Icons.toggle_on
+                                        : Icons.toggle_off,
+                                    color: Colors.white,
+                                    size: 28,
+                                  ),
                             label: Text(
                               _isUpdatingStatus
                                   ? 'Updating Status...'
@@ -1656,55 +2048,63 @@ class _HomeDriverPageState extends State<HomeDriverPage>
             // Request List
             Expanded(
               child: RefreshIndicator(
-                onRefresh: _loadDriverRequests,
+                onRefresh: () async {
+                  // ✅ BARU: Load requests + stats
+                  print('🔄 Manual refresh triggered');
+                  await _loadDriverRequests();
+                  await _loadDriverStats();
+                },
+                // onRefresh: _loadDriverRequests,
                 color: GlobalStyle.primaryColor,
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   child: _isLoadingRequests
                       ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(
-                          color: GlobalStyle.primaryColor,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          "Loading requests...",
-                          style: TextStyle(
-                            color: GlobalStyle.primaryColor,
-                            fontFamily: GlobalStyle.fontFamily,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                color: GlobalStyle.primaryColor,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                "Loading requests...",
+                                style: TextStyle(
+                                  color: GlobalStyle.primaryColor,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  )
+                        )
                       : _driverRequests.isEmpty
-                      ? _buildEmptyState()
-                      : Column(
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: Text(
-                          'New Requests (${_driverRequests.length})',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: GlobalStyle.fontColor,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: _driverRequests.length,
-                          itemBuilder: (context, index) =>
-                              _buildDriverRequestCard(_driverRequests[index], index),
-                        ),
-                      ),
-                    ],
-                  ),
+                          ? _buildEmptyState()
+                          : Column(
+                              children: [
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 8),
+                                  child: Text(
+                                    'New Requests (${_driverRequests.length})',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: GlobalStyle.fontColor,
+                                      fontFamily: GlobalStyle.fontFamily,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: ListView.builder(
+                                    itemCount: _driverRequests.length,
+                                    itemBuilder: (context, index) =>
+                                        _buildDriverRequestCard(
+                                            _driverRequests[index], index),
+                                  ),
+                                ),
+                              ],
+                            ),
                 ),
               ),
             ),
