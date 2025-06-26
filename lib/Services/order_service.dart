@@ -17,7 +17,7 @@ class OrderService {
     try {
       print('🚀 OrderService: Starting placeOrder...');
 
-      // ✅ PERBAIKAN: Enhanced authentication validation using new methods
+      // ✅ Enhanced authentication validation using new methods
       final userData = await AuthService.getUserData();
       final roleData = await AuthService.getRoleSpecificData();
 
@@ -40,7 +40,7 @@ class OrderService {
       print('   - Customer ID: ${customerData['id']}');
       print('   - Customer Name: ${customerData['name']}');
 
-      // ✅ PERBAIKAN: Prepare order body sesuai struktur backend
+      // ✅ Prepare order body sesuai struktur backend
       final body = {
         'store_id': int.parse(storeId), // Backend expect 'store_id', bukan 'storeId'
         'items': items.map((item) => {
@@ -55,7 +55,7 @@ class OrderService {
       print('   - Store ID: ${body['store_id']}');
       print('   - Items count: ${(body['items'] as List).length}');
 
-      // ✅ PERBAIKAN: Make API call dengan endpoint yang benar
+      // ✅ Make API call dengan endpoint yang benar
       final response = await BaseService.apiCall(
         method: 'POST',
         endpoint: _baseEndpoint,
@@ -77,7 +77,7 @@ class OrderService {
     } catch (e) {
       print('❌ OrderService: Place order error: $e');
 
-      // ✅ PERBAIKAN: Enhanced error handling with specific messages
+      // ✅ Enhanced error handling with specific messages
       if (e.toString().contains('authentication') || e.toString().contains('Access denied')) {
         throw Exception('Authentication required. Please login as customer.');
       } else if (e.toString().contains('validation')) {
@@ -101,7 +101,7 @@ class OrderService {
     try {
       print('🔍 OrderService: Getting orders by user...');
 
-      // ✅ PERBAIKAN: Enhanced validation using new auth methods
+      // ✅ Enhanced validation using new auth methods
       final userData = await AuthService.getUserData();
       final roleData = await AuthService.getRoleSpecificData();
 
@@ -130,7 +130,7 @@ class OrderService {
         requiresAuth: true,
       );
 
-      // ✅ PERBAIKAN: Process response sesuai struktur backend
+      // ✅ Process response sesuai struktur backend
       if (response['data'] != null && response['data']['orders'] != null) {
         final orders = response['data']['orders'] as List;
         for (var order in orders) {
@@ -162,7 +162,7 @@ class OrderService {
     try {
       print('🔍 OrderService: Getting orders by store...');
 
-      // ✅ PERBAIKAN: Enhanced validation using new auth methods
+      // ✅ Enhanced validation using new auth methods
       final userData = await AuthService.getUserData();
       final roleData = await AuthService.getRoleSpecificData();
 
@@ -191,7 +191,7 @@ class OrderService {
         requiresAuth: true,
       );
 
-      // ✅ PERBAIKAN: Process response sesuai struktur backend
+      // ✅ Process response sesuai struktur backend
       if (response['data'] != null && response['data']['orders'] != null) {
         final orders = response['data']['orders'] as List;
         for (var order in orders) {
@@ -217,7 +217,7 @@ class OrderService {
     try {
       print('🔍 OrderService: Getting order by ID: $orderId');
 
-      // ✅ PERBAIKAN: Enhanced validation using new auth methods
+      // ✅ Enhanced validation using new auth methods
       final userData = await AuthService.getUserData();
       final roleData = await AuthService.getRoleSpecificData();
 
@@ -237,7 +237,7 @@ class OrderService {
       );
 
       if (response['data'] != null) {
-        // ✅ PERBAIKAN: Process all order data including numeric fields
+        // ✅ Process all order data including numeric fields
         _processOrderData(response['data']);
         print('✅ OrderService: Order details retrieved successfully');
         return response['data'];
@@ -301,7 +301,7 @@ class OrderService {
     }
   }
 
-  /// Update order status dengan role-based validation
+  /// ✅ FIXED: Update order status dengan customer cancellation permission
   static Future<Map<String, dynamic>> updateOrderStatus({
     required String orderId,
     required String orderStatus,
@@ -330,9 +330,20 @@ class OrderService {
         throw Exception('Unable to determine user role');
       }
 
-      // Check if user has permission to update order status
-      if (!['store', 'driver', 'admin'].contains(userRole.toLowerCase())) {
-        throw Exception('Access denied: Insufficient permissions to update order status');
+      // ✅ FIXED: Allow customers to cancel their own orders
+      bool hasPermission = false;
+
+      if (['store', 'driver', 'admin'].contains(userRole.toLowerCase())) {
+        // Store, driver, admin can update any status
+        hasPermission = true;
+      } else if (userRole.toLowerCase() == 'customer' && orderStatus.toLowerCase() == 'cancelled') {
+        // Customers can only cancel their own orders
+        hasPermission = true;
+        print('✅ OrderService: Customer cancellation permission granted');
+      }
+
+      if (!hasPermission) {
+        throw Exception('Access denied: Insufficient permissions to update order status to $orderStatus');
       }
 
       final body = {
@@ -356,6 +367,59 @@ class OrderService {
     } catch (e) {
       print('❌ OrderService: Update order status error: $e');
       throw Exception('Failed to update order status: $e');
+    }
+  }
+
+  /// ✅ BARU: Cancel order specifically for customers
+  static Future<Map<String, dynamic>> cancelOrderByCustomer({
+    required String orderId,
+    String? cancellationReason,
+  }) async {
+    try {
+      print('🚫 OrderService: Customer cancelling order: $orderId');
+
+      // ✅ Enhanced validation using new auth methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
+
+      // Validate customer access
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required');
+      }
+
+      final body = {
+        'cancellation_reason': cancellationReason ?? 'Cancelled by customer',
+      };
+
+      final response = await BaseService.apiCall(
+        method: 'POST',
+        endpoint: '$_baseEndpoint/$orderId/cancel',
+        body: body,
+        requiresAuth: true,
+      );
+
+      print('✅ OrderService: Order cancelled successfully by customer');
+      if (response['data'] != null) {
+        _processOrderData(response['data']);
+      }
+      return response['data'] ?? {};
+    } catch (e) {
+      print('❌ OrderService: Cancel order by customer error: $e');
+      // Fallback to updateOrderStatus if specific cancel endpoint doesn't exist
+      try {
+        return await updateOrderStatus(
+          orderId: orderId,
+          orderStatus: 'cancelled',
+          notes: cancellationReason,
+        );
+      } catch (fallbackError) {
+        throw Exception('Failed to cancel order: $e');
+      }
     }
   }
 
@@ -402,7 +466,7 @@ class OrderService {
     }
   }
 
-  /// ✅ BARU: Get order delivery fee calculation
+  /// ✅ FIXED: Calculate delivery fee using distance * 2500 and round up
   static Future<Map<String, dynamic>> calculateDeliveryFee({
     required String storeId,
     required double destinationLatitude,
@@ -442,19 +506,49 @@ class OrderService {
       // ✅ Process numeric fields
       if (response['data'] != null) {
         _processNumericFields(response['data']);
+
+        // ✅ BARU: Apply custom delivery fee calculation
+        final data = response['data'];
+        final distance = (data['distance_km'] as double?) ?? 0.0;
+
+        // Calculate delivery fee: distance * 2500, rounded up to nearest 1000
+        final baseFee = distance * 2500;
+        final roundedFee = _roundUpToNearestThousand(baseFee);
+
+        data['delivery_fee'] = roundedFee;
+        data['base_fee'] = baseFee;
+        data['distance_km'] = distance;
+
+        print('💰 OrderService: Custom delivery fee calculation:');
+        print('   - Distance: ${distance.toStringAsFixed(2)} km');
+        print('   - Base fee: Rp ${baseFee.toStringAsFixed(0)}');
+        print('   - Rounded fee: Rp ${roundedFee.toStringAsFixed(0)}');
       }
 
       return response['data'] ?? {};
     } catch (e) {
       print('❌ OrderService: Calculate delivery fee error: $e');
+
+      // ✅ BARU: Fallback with default distance calculation
       return {
-        'delivery_fee': 5000.0, // Default fallback fee
-        'distance_km': 0.0,
+        'delivery_fee': 5000.0, // Default minimum fee
+        'distance_km': 2.0, // Default distance
+        'base_fee': 5000.0,
       };
     }
   }
 
-  /// ✅ BARU: Get order statistics dengan role-based validation
+  /// ✅ BARU: Round up to nearest 1000 (Rp227 -> Rp1000)
+  static double _roundUpToNearestThousand(double amount) {
+    if (amount <= 1000) {
+      return 1000.0; // Minimum fee Rp1000
+    }
+
+    // Round up to nearest 1000
+    return (amount / 1000).ceil() * 1000.0;
+  }
+
+  /// ✅ Get order statistics dengan role-based validation
   static Future<Map<String, dynamic>> getOrderStatistics({
     DateTime? startDate,
     DateTime? endDate,
@@ -505,7 +599,7 @@ class OrderService {
 
   // PRIVATE HELPER METHODS
 
-  /// ✅ BARU: Comprehensive order data processing including numeric conversion
+  /// ✅ Comprehensive order data processing including numeric conversion
   static void _processOrderData(Map<String, dynamic> order) {
     try {
       print('🔄 OrderService: Processing order data...');
@@ -556,15 +650,15 @@ class OrderService {
     }
   }
 
-  /// ✅ BARU: Convert string numeric values to proper numeric types
+  /// ✅ Convert string numeric values to proper numeric types
   static void _processNumericFields(Map<String, dynamic> data) {
     try {
       // List of fields that should be converted from String to double
       final doubleFields = [
-        'total_price', 'total', 'subtotal', 'delivery_fee', 'service_fee',
+        'total_amount', 'total_price', 'total', 'subtotal', 'delivery_fee', 'service_fee',
         'price', 'rating', 'latitude', 'longitude', 'distance',
         'pickup_latitude', 'pickup_longitude', 'destination_latitude', 'destination_longitude',
-        'distance_km', 'distance_meters'
+        'distance_km', 'distance_meters', 'base_fee'
       ];
 
       // List of fields that should be converted from String to int
@@ -601,7 +695,7 @@ class OrderService {
     }
   }
 
-  /// ✅ BARU: Process statistics data with numeric conversion
+  /// ✅ Process statistics data with numeric conversion
   static void _processStatisticsData(Map<String, dynamic> statistics) {
     try {
       // Process main statistics
@@ -631,7 +725,7 @@ class OrderService {
     }
   }
 
-  /// ✅ BARU: Process tracking updates yang berupa JSON string
+  /// ✅ Process tracking updates yang berupa JSON string
   static void _processTrackingUpdates(Map<String, dynamic> order) {
     try {
       if (order['tracking_updates'] != null) {

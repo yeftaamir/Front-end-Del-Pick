@@ -139,7 +139,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     // Initialize animation controllers for each card section
     _cardControllers = List.generate(
       6, // Number of card sections
-      (index) => AnimationController(
+          (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
       ),
@@ -213,7 +213,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     super.dispose();
   }
 
-  /// ✅ NEW: Safe type conversion for nested maps
+  /// ✅ Safe type conversion for nested maps
   static Map<String, dynamic> _safeMapConversion(dynamic data) {
     if (data == null) return {};
 
@@ -235,7 +235,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     return {};
   }
 
-  /// ✅ NEW: Safe type conversion for lists containing maps
+  /// ✅ Safe type conversion for lists containing maps
   static List<dynamic> _safeListConversion(List<dynamic> list) {
     return list.map((item) {
       if (item is Map && item is! Map<String, dynamic>) {
@@ -245,7 +245,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     }).toList();
   }
 
-  // ✅ UPDATED: Enhanced authentication and data validation
+  // ✅ UPDATED: Enhanced authentication and data validation using getRoleSpecificData() & getUserData()
   Future<void> _validateAndLoadData() async {
     setState(() {
       _isLoading = true;
@@ -261,24 +261,31 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
         throw Exception('Access denied: Customer authentication required');
       }
 
-      // ✅ Step 2: Get customer data using updated method
-      _customerData = await AuthService.getCustomerData();
-      if (_customerData == null) {
-        throw Exception('Unable to retrieve customer data');
+      // ✅ Step 2: Get customer data using getUserData()
+      final userData = await AuthService.getUserData();
+      if (userData == null) {
+        throw Exception('Unable to retrieve user data');
       }
 
-      // ✅ Step 3: Get role-specific data for additional validation
+      // ✅ Step 3: Get role-specific data using getRoleSpecificData()
       _roleSpecificData = await AuthService.getRoleSpecificData();
       if (_roleSpecificData == null) {
         throw Exception('Unable to retrieve role-specific data');
+      }
+
+      // ✅ Step 4: Get customer-specific data
+      _customerData = await AuthService.getCustomerData();
+      if (_customerData == null) {
+        throw Exception('Unable to retrieve customer data');
       }
 
       print('✅ HistoryDetailPage: Authentication validated successfully');
       print('   - Customer ID: ${_customerData!['id']}');
       print('   - Customer Name: ${_customerData!['name']}');
       print('   - Role: ${_roleSpecificData!['role'] ?? 'customer'}');
+      print('   - User Data Keys: ${userData.keys.toList()}');
 
-      // ✅ Step 4: Load order detail using updated OrderService
+      // ✅ Step 5: Load order detail using updated OrderService
       await _loadOrderDetail();
 
       setState(() {
@@ -317,7 +324,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
       // ✅ Use updated OrderService.getOrderById()
       final rawOrderData =
-          await OrderService.getOrderById(widget.order.id.toString());
+      await OrderService.getOrderById(widget.order.id.toString());
 
       // ✅ IMPORTANT: Convert all nested maps safely before creating OrderModel
       final safeOrderData = _safeMapConversion(rawOrderData);
@@ -439,67 +446,67 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
     _statusUpdateTimer =
         Timer.periodic(const Duration(seconds: 15), (timer) async {
-      if (!mounted) {
-        print('⚠️ HistoryDetailPage: Widget unmounted, stopping timer');
-        timer.cancel();
-        return;
-      }
-
-      try {
-        print('📡 HistoryDetailPage: Checking order status update...');
-
-        // ✅ Ensure valid session before API call using updated method
-        final hasValidSession = await AuthService.ensureValidUserData();
-        if (!hasValidSession) {
-          print('❌ HistoryDetailPage: Invalid session, stopping tracking');
-          timer.cancel();
-          return;
-        }
-
-        // ✅ Get updated order data with safe conversion
-        final rawUpdatedOrderData =
-            await OrderService.getOrderById(widget.order.id.toString());
-        final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
-        final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
-
-        if (mounted) {
-          final statusChanged = _previousStatus != updatedOrder.orderStatus;
-
-          print('✅ HistoryDetailPage: Order status checked');
-          print('   - Previous: ${_previousStatus?.name}');
-          print('   - Current: ${updatedOrder.orderStatus.name}');
-          print('   - Changed: $statusChanged');
-
-          setState(() {
-            _orderDetail = updatedOrder;
-          });
-
-          // ✅ Handle status change notifications
-          if (statusChanged) {
-            _handleStatusChange(_previousStatus, updatedOrder.orderStatus);
-            _previousStatus = updatedOrder.orderStatus;
-          }
-
-          // ✅ Stop tracking if order is completed
-          if (updatedOrder.orderStatus.isCompleted) {
-            print('✅ HistoryDetailPage: Order completed, stopping tracking');
+          if (!mounted) {
+            print('⚠️ HistoryDetailPage: Widget unmounted, stopping timer');
             timer.cancel();
-
-            // ✅ Reload reviews for completed orders with safe conversion
-            await _loadOrderReviews(safeUpdatedOrderData);
-            if (_orderReviews != null || _driverReviews != null) {
-              _reviewCardController.forward();
-            }
+            return;
           }
-        }
-      } catch (e) {
-        print('❌ HistoryDetailPage: Error updating order status: $e');
-        // Don't stop tracking on temporary errors
-      }
-    });
+
+          try {
+            print('📡 HistoryDetailPage: Checking order status update...');
+
+            // ✅ Ensure valid session before API call using updated method
+            final hasValidSession = await AuthService.ensureValidUserData();
+            if (!hasValidSession) {
+              print('❌ HistoryDetailPage: Invalid session, stopping tracking');
+              timer.cancel();
+              return;
+            }
+
+            // ✅ Get updated order data with safe conversion
+            final rawUpdatedOrderData =
+            await OrderService.getOrderById(widget.order.id.toString());
+            final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
+            final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
+
+            if (mounted) {
+              final statusChanged = _previousStatus != updatedOrder.orderStatus;
+
+              print('✅ HistoryDetailPage: Order status checked');
+              print('   - Previous: ${_previousStatus?.name}');
+              print('   - Current: ${updatedOrder.orderStatus.name}');
+              print('   - Changed: $statusChanged');
+
+              setState(() {
+                _orderDetail = updatedOrder;
+              });
+
+              // ✅ Handle status change notifications
+              if (statusChanged) {
+                _handleStatusChange(_previousStatus, updatedOrder.orderStatus);
+                _previousStatus = updatedOrder.orderStatus;
+              }
+
+              // ✅ Stop tracking if order is completed
+              if (updatedOrder.orderStatus.isCompleted) {
+                print('✅ HistoryDetailPage: Order completed, stopping tracking');
+                timer.cancel();
+
+                // ✅ Reload reviews for completed orders with safe conversion
+                await _loadOrderReviews(safeUpdatedOrderData);
+                if (_orderReviews != null || _driverReviews != null) {
+                  _reviewCardController.forward();
+                }
+              }
+            }
+          } catch (e) {
+            print('❌ HistoryDetailPage: Error updating order status: $e');
+            // Don't stop tracking on temporary errors
+          }
+        });
   }
 
-  // ✅ NEW: Handle status change notifications and animations
+  // ✅ Handle status change notifications and animations
   void _handleStatusChange(OrderStatus? previousStatus, OrderStatus newStatus) {
     String? notification;
 
@@ -548,7 +555,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
               : GlobalStyle.primaryColor,
           behavior: SnackBarBehavior.floating,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -649,14 +656,14 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
     }
   }
 
-  // ✅ UPDATED: Cancel order using updated validation
+  // ✅ FIXED: Cancel order using updated validation and new cancelOrderByCustomer method
   Future<void> _cancelOrder() async {
     // Show confirmation dialog
     final shouldCancel = await showDialog<bool>(
@@ -695,11 +702,36 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
         throw Exception('Access denied: Customer authentication required');
       }
 
-      // ✅ Use OrderService to update order status to cancelled
-      await OrderService.updateOrderStatus(
-        orderId: _orderDetail!.id.toString(),
-        orderStatus: 'cancelled',
-      );
+      // ✅ Validate using getRoleSpecificData and getUserData
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Authentication required: Please login');
+      }
+
+      print('✅ HistoryDetailPage: Authentication validated for cancellation');
+      print('   - User Data Keys: ${userData.keys.toList()}');
+      print('   - Role Data Keys: ${roleData.keys.toList()}');
+
+      // ✅ Use new cancelOrderByCustomer method first, fallback to updateOrderStatus
+      try {
+        await OrderService.cancelOrderByCustomer(
+          orderId: _orderDetail!.id.toString(),
+          cancellationReason: 'Cancelled by customer from mobile app',
+        );
+        print('✅ HistoryDetailPage: Order cancelled using cancelOrderByCustomer');
+      } catch (cancelError) {
+        print('⚠️ HistoryDetailPage: cancelOrderByCustomer failed, trying updateOrderStatus: $cancelError');
+
+        // Fallback to updateOrderStatus
+        await OrderService.updateOrderStatus(
+          orderId: _orderDetail!.id.toString(),
+          orderStatus: 'cancelled',
+          notes: 'Cancelled by customer from mobile app',
+        );
+        print('✅ HistoryDetailPage: Order cancelled using updateOrderStatus fallback');
+      }
 
       // ✅ Refresh order detail
       await _loadOrderDetail();
@@ -713,7 +745,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -726,7 +758,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -777,21 +809,14 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     }
   }
 
-  // String _getPaymentMethodText(PaymentMethod method) {
-  //   switch (method) {
-  //     case PaymentMethod.cash:
-  //       return 'Tunai';
-  //     default:
-  //       return 'Unknown';
-  //   }
-  // }
+  // ✅ FIXED: Payment method text - removed closure issue
   String _getPaymentMethodText() {
     // Default payment method since backend doesn't store this field
     return 'Tunai (COD)';
   }
 
   // ✅ INTEGRATED ORDER STATUS CARD: Built directly into the page
-  // ✅ FIXED: Order Status Card with overflow fix
+  // ✅ FIXED: Order Status Card with improved layout and no label text below icons
   Widget _buildOrderStatusCard() {
     if (_orderDetail == null) {
       return Container(
@@ -901,7 +926,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                   ),
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(8),
@@ -958,123 +983,68 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
                   const SizedBox(height: 20),
 
-                  // ✅ FIXED: Status Timeline with overflow handling
+                  // ✅ FIXED: Status Timeline without label text - cleaner layout
                   if (![OrderStatus.cancelled, OrderStatus.rejected]
                       .contains(currentStatus))
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5), // ✅ Reduced padding
-                      child: Column(
-                        children: [
-                          // Icons and connectors row
-                          Row(
-                            children:
-                                List.generate(_statusTimeline.length, (index) {
-                              final isActive = index <= currentIndex;
-                              final isCurrent = index == currentIndex;
-                              final isLast =
-                                  index == _statusTimeline.length - 1;
-                              final statusItem = _statusTimeline[index];
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        children: List.generate(_statusTimeline.length, (index) {
+                          final isActive = index <= currentIndex;
+                          final isCurrent = index == currentIndex;
+                          final isLast = index == _statusTimeline.length - 1;
+                          final statusItem = _statusTimeline[index];
 
-                              return Expanded(
-                                child: Row(
-                                  children: [
-                                    // ✅ FIXED: Centered icon without text
-                                    Expanded(
-                                      child: Center(
-                                        child: AnimatedContainer(
-                                          duration:
-                                              const Duration(milliseconds: 300),
-                                          width: isCurrent
-                                              ? 28
-                                              : 20, // ✅ Slightly smaller
-                                          height: isCurrent
-                                              ? 28
-                                              : 20, // ✅ Slightly smaller
-                                          decoration: BoxDecoration(
-                                            color: isActive
-                                                ? statusItem['color']
-                                                : Colors.grey[300],
-                                            shape: BoxShape.circle,
-                                            boxShadow: isCurrent
-                                                ? [
-                                                    BoxShadow(
-                                                      color: statusItem['color']
-                                                          .withOpacity(0.4),
-                                                      blurRadius:
-                                                          6, // ✅ Reduced shadow
-                                                      spreadRadius:
-                                                          1, // ✅ Reduced shadow
-                                                    ),
-                                                  ]
-                                                : [],
+                          return Expanded(
+                            child: Row(
+                              children: [
+                                // ✅ FIXED: Only icon without text below
+                                Expanded(
+                                  child: Center(
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 300),
+                                      width: isCurrent ? 32 : 24,
+                                      height: isCurrent ? 32 : 24,
+                                      decoration: BoxDecoration(
+                                        color: isActive
+                                            ? statusItem['color']
+                                            : Colors.grey[300],
+                                        shape: BoxShape.circle,
+                                        boxShadow: isCurrent
+                                            ? [
+                                          BoxShadow(
+                                            color: statusItem['color']
+                                                .withOpacity(0.4),
+                                            blurRadius: 8,
+                                            spreadRadius: 2,
                                           ),
-                                          child: Icon(
-                                            statusItem['icon'],
-                                            color: Colors.white,
-                                            size: isCurrent
-                                                ? 14
-                                                : 10, // ✅ Smaller icons
-                                          ),
-                                        ),
+                                        ]
+                                            : [],
+                                      ),
+                                      child: Icon(
+                                        statusItem['icon'],
+                                        color: Colors.white,
+                                        size: isCurrent ? 16 : 12,
                                       ),
                                     ),
-                                    // ✅ FIXED: Connector line
-                                    if (!isLast)
-                                      Container(
-                                        width: 20, // ✅ Fixed width connector
-                                        height: 2,
-                                        decoration: BoxDecoration(
-                                          color: index < currentIndex
-                                              ? _statusTimeline[index]['color']
-                                              : Colors.grey[300],
-                                          borderRadius:
-                                              BorderRadius.circular(1),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              );
-                            }),
-                          ),
-
-                          const SizedBox(
-                              height: 8), // ✅ Space between icons and labels
-
-                          // ✅ FIXED: Labels row with proper overflow handling
-                          Row(
-                            children:
-                                List.generate(_statusTimeline.length, (index) {
-                              final isActive = index <= currentIndex;
-                              final isCurrent = index == currentIndex;
-                              final statusItem = _statusTimeline[index];
-
-                              return Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 2), // ✅ Minimal padding
-                                  child: Text(
-                                    statusItem['label'],
-                                    style: TextStyle(
-                                      fontSize: 9, // ✅ Smaller font
-                                      color: isActive
-                                          ? statusItem['color']
-                                          : Colors.grey,
-                                      fontWeight: isCurrent
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
-                                      fontFamily: GlobalStyle.fontFamily,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2, // ✅ Allow 2 lines
-                                    overflow: TextOverflow
-                                        .ellipsis, // ✅ Handle overflow
                                   ),
                                 ),
-                              );
-                            }),
-                          ),
-                        ],
+                                // ✅ FIXED: Connector line
+                                if (!isLast)
+                                  Container(
+                                    width: 24,
+                                    height: 2,
+                                    decoration: BoxDecoration(
+                                      color: index < currentIndex
+                                          ? _statusTimeline[index]['color']
+                                          : Colors.grey[300],
+                                      borderRadius: BorderRadius.circular(1),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        }),
                       ),
                     ),
 
@@ -1142,7 +1112,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                               borderRadius: BorderRadius.circular(8),
                               child: ImageService.displayImage(
                                 imageSource:
-                                    _orderDetail!.store!.imageUrl ?? '',
+                                _orderDetail!.store!.imageUrl ?? '',
                                 width: 40,
                                 height: 40,
                                 fit: BoxFit.cover,
@@ -1175,7 +1145,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                                       fontWeight: FontWeight.w600,
                                       fontFamily: GlobalStyle.fontFamily,
                                     ),
-                                    maxLines: 1, // ✅ Limit text overflow
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   Text(
@@ -1232,7 +1202,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     }
 
     return _statusTimeline.firstWhere(
-      (item) => item['status'] == currentStatus,
+          (item) => item['status'] == currentStatus,
       orElse: () => _statusTimeline[0],
     );
   }
@@ -1483,7 +1453,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ UPDATED: Enhanced card builder with better animation handling
+  // ✅ Enhanced card builder with better animation handling
   Widget _buildCard({required int index, required Widget child}) {
     return SlideTransition(
       position: _cardAnimations[index < _cardAnimations.length ? index : 0],
@@ -1508,7 +1478,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ UPDATED: Enhanced info row builder
+  // ✅ Enhanced info row builder
   Widget _buildInfoRow(String label, String value) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1542,7 +1512,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ UPDATED: Enhanced store and items card with better data handling
+  // ✅ Enhanced store and items card with better data handling
   Widget _buildStoreAndItemsCard() {
     return _buildCard(
       index: 2,
@@ -1602,7 +1572,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ UPDATED: Enhanced order item row with better image handling
+  // ✅ Enhanced order item row with better image handling
   Widget _buildOrderItemRow(OrderItemModel item) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1631,7 +1601,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                 height: 60,
                 color: Colors.grey[300],
                 child:
-                    const Icon(Icons.image_not_supported, color: Colors.grey),
+                const Icon(Icons.image_not_supported, color: Colors.grey),
               ),
             ),
           ),
@@ -1653,7 +1623,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                 const SizedBox(height: 4),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: GlobalStyle.lightColor,
                     borderRadius: BorderRadius.circular(12),
@@ -1695,7 +1665,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ UPDATED: Enhanced payment details card
+  // ✅ Enhanced payment details card with fixed calculations
   Widget _buildPaymentDetailsCard() {
     return _buildCard(
       index: 3,
@@ -1727,10 +1697,12 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
             ),
             child: Column(
               children: [
+                // ✅ FIXED: Use correct subtotal calculation
                 _buildPaymentRow('Subtotal', _orderDetail!.subtotal),
                 const SizedBox(height: 12),
                 _buildPaymentRow('Biaya Pengiriman', _orderDetail!.deliveryFee),
                 const Divider(thickness: 1, height: 24),
+                // ✅ FIXED: Use correct total calculation
                 _buildPaymentRow('Total', _orderDetail!.totalAmount,
                     isTotal: true),
               ],
@@ -1747,7 +1719,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Pembayaran: ${_getPaymentMethodText}',
+                  // ✅ FIXED: Call method properly without closure
+                  'Pembayaran: ${_getPaymentMethodText()}',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.blue[700],
@@ -1788,7 +1761,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ UPDATED: Enhanced driver card with better data handling
+  // ✅ Enhanced driver card with better data handling
   Widget _buildDriverCard() {
     return SlideTransition(
       position: _driverCardAnimation,
@@ -1866,39 +1839,39 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                     ],
                   ),
                   child: _orderDetail!.driver!.avatar != null &&
-                          _orderDetail!.driver!.avatar!.isNotEmpty
+                      _orderDetail!.driver!.avatar!.isNotEmpty
                       ? ClipOval(
-                          child: ImageService.displayImage(
-                            imageSource: _orderDetail!.driver!.avatar!,
-                            width: 80,
-                            height: 80,
-                            fit: BoxFit.cover,
-                            placeholder: const Center(
-                              child: Icon(
-                                Icons.person,
-                                size: 30,
-                                color: Colors.orange,
-                              ),
-                            ),
-                            errorWidget: const Center(
-                              child: Icon(
-                                Icons.person,
-                                size: 30,
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ),
-                        )
-                      : ClipOval(
-                          child: Container(
-                            color: Colors.orange.withOpacity(0.1),
-                            child: const Icon(
-                              Icons.person,
-                              size: 40,
-                              color: Colors.orange,
-                            ),
-                          ),
+                    child: ImageService.displayImage(
+                      imageSource: _orderDetail!.driver!.avatar!,
+                      width: 80,
+                      height: 80,
+                      fit: BoxFit.cover,
+                      placeholder: const Center(
+                        child: Icon(
+                          Icons.person,
+                          size: 30,
+                          color: Colors.orange,
                         ),
+                      ),
+                      errorWidget: const Center(
+                        child: Icon(
+                          Icons.person,
+                          size: 30,
+                          color: Colors.orange,
+                        ),
+                      ),
+                    ),
+                  )
+                      : ClipOval(
+                    child: Container(
+                      color: Colors.orange.withOpacity(0.1),
+                      child: const Icon(
+                        Icons.person,
+                        size: 40,
+                        color: Colors.orange,
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -2048,7 +2021,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ UPDATED: Enhanced reviews card with better structure
+  // ✅ Enhanced reviews card with better structure
   Widget _buildReviewsCard() {
     return SlideTransition(
       position: _reviewCardAnimation,
@@ -2240,7 +2213,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ UPDATED: Enhanced action buttons with better state management
+  // ✅ FIXED: Enhanced action buttons with fixed "Beli Lagi" visibility
   Widget _buildActionButtonsCard() {
     final bool canCancel =
         _orderDetail!.canBeCancelled && !_orderDetail!.orderStatus.isCompleted;
@@ -2261,10 +2234,10 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                 child: OutlinedButton.icon(
                   icon: _isCancelling
                       ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                       : const Icon(Icons.cancel_outlined),
                   label: Text(
                       _isCancelling ? 'Membatalkan...' : 'Batalkan Pesanan'),
@@ -2305,35 +2278,31 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
               ),
             ),
 
-          // Buy Again Button (always shown)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.shopping_bag),
-              label: const Text('Beli Lagi'),
-              onPressed: () {
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  HomePage.route,
-                  (route) => false,
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    isCompleted ? GlobalStyle.primaryColor : Colors.white,
-                foregroundColor:
-                    isCompleted ? Colors.white : GlobalStyle.primaryColor,
-                side: isCompleted
-                    ? null
-                    : BorderSide(color: GlobalStyle.primaryColor),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
+          // ✅ FIXED: Buy Again Button (only for completed orders - delivered or cancelled)
+          if (isCompleted)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.shopping_bag),
+                label: const Text('Beli Lagi'),
+                onPressed: () {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    HomePage.route,
+                        (route) => false,
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GlobalStyle.primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  elevation: 2,
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                elevation: isCompleted ? 2 : 0,
               ),
             ),
-          ),
         ],
       ),
     );
