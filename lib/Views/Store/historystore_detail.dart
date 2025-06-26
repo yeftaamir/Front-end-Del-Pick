@@ -34,6 +34,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   // Data state
   OrderModel? _orderDetail;
   Map<String, dynamic>? _storeData;
+  Map<String, dynamic>? _userData;
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
@@ -193,7 +194,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }).toList();
   }
 
-  // ✅ FIXED: Enhanced validation and data loading
+  // ✅ FIXED: Enhanced validation and data loading menggunakan getRoleSpecificData
   Future<void> _validateAndLoadData() async {
     try {
       setState(() {
@@ -203,10 +204,41 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
       print('🏪 HistoryStoreDetail: Starting validation and data loading...');
 
-      // ✅ FIXED: Validate store access
-      final hasStoreAccess = await AuthService.hasRole('store');
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
+      // ✅ FIXED: First check if user is authenticated
+      final isAuthenticated = await AuthService.isAuthenticated();
+      if (!isAuthenticated) {
+        throw Exception('User not authenticated. Please login again.');
+      }
+
+      // ✅ FIXED: Get user data and role-specific data
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null) {
+        throw Exception('Unable to retrieve user data. Please login again.');
+      }
+
+      if (roleData == null) {
+        throw Exception('Unable to retrieve role data. Please login again.');
+      }
+
+      print('✅ HistoryStoreDetail: User data retrieved');
+      print('   - User data keys: ${userData.keys.toList()}');
+      print('   - Role data keys: ${roleData.keys.toList()}');
+
+      // ✅ FIXED: Check if user has store role
+      final userRole = await AuthService.getUserRole();
+      print('🔍 HistoryStoreDetail: User role: $userRole');
+
+      if (userRole?.toLowerCase() != 'store') {
+        // ✅ BACKUP: Check from roleData if getUserRole fails
+        final hasStoreData = roleData['store'] != null;
+        if (!hasStoreData) {
+          throw Exception('Access denied: Store authentication required');
+        }
+        print('✅ HistoryStoreDetail: Store access confirmed via roleData');
+      } else {
+        print('✅ HistoryStoreDetail: Store access confirmed via userRole');
       }
 
       // ✅ FIXED: Ensure valid user session
@@ -215,14 +247,20 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         throw Exception('Invalid user session. Please login again.');
       }
 
-      // ✅ FIXED: Get store data for context
-      final roleData = await AuthService.getRoleSpecificData();
-      if (roleData != null && roleData['store'] != null) {
+      // ✅ FIXED: Store user and store data
+      setState(() {
+        _userData = userData;
         _storeData = roleData['store'];
+      });
+
+      if (_storeData != null) {
         print('✅ HistoryStoreDetail: Store data loaded - ID: ${_storeData!['id']}');
+        print('   - Store Name: ${_storeData!['name']}');
+      } else {
+        print('⚠️ HistoryStoreDetail: No store data found, but proceeding...');
       }
 
-      print('✅ HistoryStoreDetail: Store access validated');
+      print('✅ HistoryStoreDetail: Authentication and validation completed');
 
       // Load order data using getOrderById
       await _loadOrderData();
@@ -251,10 +289,10 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     try {
       print('📋 HistoryStoreDetail: Loading order data for ID: ${widget.orderId}');
 
-      // ✅ FIXED: Validate store access before loading
-      final hasStoreAccess = await AuthService.hasRole('store');
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
+      // ✅ FIXED: Additional validation before API call
+      final isAuthenticated = await AuthService.isAuthenticated();
+      if (!isAuthenticated) {
+        throw Exception('User not authenticated');
       }
 
       // ✅ FIXED: Get order detail using OrderService.getOrderById
@@ -317,7 +355,14 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       try {
         print('📡 HistoryStoreDetail: Checking order status update...');
 
-        // ✅ Ensure valid session before API call
+        // ✅ Enhanced session validation
+        final isAuthenticated = await AuthService.isAuthenticated();
+        if (!isAuthenticated) {
+          print('❌ HistoryStoreDetail: User not authenticated, stopping tracking');
+          timer.cancel();
+          return;
+        }
+
         final hasValidSession = await AuthService.ensureValidUserData();
         if (!hasValidSession) {
           print('❌ HistoryStoreDetail: Invalid session, stopping tracking');
@@ -584,6 +629,13 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 'assets/animations/diambil.json',
                 height: 100,
                 width: 100,
+                errorBuilder: (context, error, stackTrace) {
+                  return Icon(
+                    Icons.shopping_bag,
+                    size: 100,
+                    color: Colors.grey[400],
+                  );
+                },
               ),
               const SizedBox(height: 16),
               Text(
@@ -706,6 +758,13 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                             child: Lottie.asset(
                               currentStatusInfo['animation'],
                               repeat: true,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(
+                                  currentStatusInfo['icon'],
+                                  size: 100,
+                                  color: currentStatusInfo['color'],
+                                );
+                              },
                             ),
                           ),
                         );
@@ -717,6 +776,13 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       child: Lottie.asset(
                         currentStatusInfo['animation'],
                         repeat: ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus),
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            currentStatusInfo['icon'],
+                            size: 100,
+                            color: currentStatusInfo['color'],
+                          );
+                        },
                       ),
                     ),
 
@@ -1797,10 +1863,17 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     try {
       print('⚙️ HistoryStoreDetail: Processing order with action: $action');
 
-      // ✅ FIXED: Validate store access
-      final hasStoreAccess = await AuthService.hasRole('store');
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
+      // ✅ FIXED: Enhanced authentication check
+      final isAuthenticated = await AuthService.isAuthenticated();
+      if (!isAuthenticated) {
+        throw Exception('User not authenticated');
+      }
+
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Unable to retrieve authentication data');
       }
 
       // ✅ FIXED: Process order using OrderService.processOrderByStore
@@ -1857,10 +1930,17 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     try {
       print('📝 HistoryStoreDetail: Updating order status to: ${status.name}');
 
-      // ✅ FIXED: Validate store access
-      final hasStoreAccess = await AuthService.hasRole('store');
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
+      // ✅ FIXED: Enhanced authentication check
+      final isAuthenticated = await AuthService.isAuthenticated();
+      if (!isAuthenticated) {
+        throw Exception('User not authenticated');
+      }
+
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Unable to retrieve authentication data');
       }
 
       // ✅ FIXED: Update status using OrderService.updateOrderStatus

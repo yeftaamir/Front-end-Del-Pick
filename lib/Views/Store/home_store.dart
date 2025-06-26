@@ -28,7 +28,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   int _currentIndex = 0;
   late List<AnimationController> _cardControllers = [];
   late List<Animation<Offset>> _cardAnimations = [];
-  late AnimationController _statisticsController;
   late AnimationController _celebrationController;
   late AnimationController _pulseController;
   late AnimationController _rotationController;
@@ -47,12 +46,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   bool _isLoadingMore = false;
   bool _hasMoreData = true;
   final ScrollController _scrollController = ScrollController();
-
-  // Statistics data
-  int _pendingOrders = 0;
-  int _processingOrders = 0;
-  int _todayOrders = 0;
-  double _todayRevenue = 0.0;
 
   // New order celebration
   String? _newOrderId;
@@ -73,11 +66,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   }
 
   void _initializeAnimations() {
-    _statisticsController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
     _celebrationController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -124,15 +112,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       // Load store-specific data
       await _loadStoreData();
 
-      // Load orders and statistics
+      // Load orders only (statistics removed)
       await _loadOrders();
-      await _calculateStatistics();
 
       // Start real-time monitoring
       _startOrderMonitoring();
-
-      // Start statistics animation
-      _statisticsController.forward();
 
       setState(() {
         _isLoading = false;
@@ -280,55 +264,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ FIXED: Enhanced statistics calculation
-  Future<void> _calculateStatistics() async {
-    try {
-      print('📊 HomeStore: Calculating statistics...');
-
-      int pending = 0;
-      int processing = 0;
-      int today = 0;
-      double revenue = 0.0;
-
-      final DateTime todayStart = DateTime.now().copyWith(hour: 0, minute: 0, second: 0);
-
-      for (var order in _orders) {
-        final status = order['order_status'] as String? ?? 'pending';
-        final createdAt = DateTime.tryParse(order['created_at'] ?? '');
-        final amount = (order['total_amount'] as num?)?.toDouble() ?? 0.0;
-
-        // Count pending and processing orders
-        if (status == 'pending') {
-          pending++;
-        } else if (['confirmed', 'preparing', 'ready_for_pickup'].contains(status)) {
-          processing++;
-        }
-
-        // Count today's orders and revenue
-        if (createdAt != null && createdAt.isAfter(todayStart)) {
-          today++;
-          if (status != 'cancelled' && status != 'rejected') {
-            revenue += amount;
-          }
-        }
-      }
-
-      setState(() {
-        _pendingOrders = pending;
-        _processingOrders = processing;
-        _todayOrders = today;
-        _todayRevenue = revenue;
-      });
-
-      print('📊 HomeStore: Statistics calculated');
-      print('   - Pending: $pending, Processing: $processing');
-      print('   - Today: $today orders, Revenue: ${GlobalStyle.formatRupiah(revenue)}');
-
-    } catch (e) {
-      print('❌ HomeStore: Error calculating statistics: $e');
-    }
-  }
-
   // ✅ FIXED: Real-time order monitoring dengan service yang benar
   void _startOrderMonitoring() {
     print('🔄 HomeStore: Starting real-time order monitoring...');
@@ -444,7 +379,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
       print('✅ HomeStore: Order processed successfully');
 
-      // Refresh orders and statistics
+      // Refresh orders
       await _refreshOrders();
 
     } catch (e) {
@@ -542,7 +477,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     try {
       print('🔄 HomeStore: Refreshing orders...');
       await _loadOrders(isRefresh: true);
-      await _calculateStatistics();
       print('✅ HomeStore: Orders refreshed successfully');
     } catch (e) {
       print('❌ HomeStore: Error refreshing orders: $e');
@@ -716,12 +650,25 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     const NotificationDetails platformChannelSpecifics =
     NotificationDetails(android: androidPlatformChannelSpecifics);
 
+    // ✅ FIXED: Safe numeric conversion for notification
+    final totalAmount = _parseDouble(orderDetails['total_amount']) ?? 0.0;
+    final customerName = orderDetails['customer']?['name'] ?? 'Customer';
+
     await _flutterLocalNotificationsPlugin.show(
       0,
       'Pesanan Baru!',
-      'Pelanggan: ${orderDetails['customer']?['name']} - ${GlobalStyle.formatRupiah(orderDetails['total_amount']?.toDouble() ?? 0)}',
+      'Pelanggan: $customerName - ${GlobalStyle.formatRupiah(totalAmount)}',
       platformChannelSpecifics,
     );
+  }
+
+  // ✅ BARU: Helper method untuk safely parse double dari string
+  double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
   @override
@@ -729,7 +676,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     for (var controller in _cardControllers) {
       controller.dispose();
     }
-    _statisticsController.dispose();
     _celebrationController.dispose();
     _pulseController.dispose();
     _rotationController.dispose();
@@ -739,6 +685,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // ✅ FIXED: Filter to show active orders (not cancelled/completed)
   List<Map<String, dynamic>> get filteredOrders {
     return _orders.where((order) =>
         ['pending', 'confirmed', 'preparing', 'ready_for_pickup'].contains(order['order_status'])
@@ -791,197 +738,14 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  Widget _buildStatisticsCards() {
-    return AnimatedBuilder(
-      animation: _statisticsController,
-      builder: (context, child) {
-        return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, -0.5),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(
-            parent: _statisticsController,
-            curve: Curves.easeOutCubic,
-          )),
-          child: FadeTransition(
-            opacity: _statisticsController,
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 20),
-              child: Column(
-                children: [
-                  // Top row - Main statistics
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildStatCard(
-                          title: 'Menunggu',
-                          value: _pendingOrders.toString(),
-                          icon: Icons.pending_actions,
-                          gradient: [Colors.orange, Colors.orange.shade300],
-                          isPulsing: _pendingOrders > 0,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildStatCard(
-                          title: 'Diproses',
-                          value: _processingOrders.toString(),
-                          icon: Icons.kitchen,
-                          gradient: [Colors.blue, Colors.blue.shade300],
-                          isPulsing: _processingOrders > 0,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  // Bottom row - Today's performance
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildStatCard(
-                          title: 'Hari Ini',
-                          value: _todayOrders.toString(),
-                          subtitle: 'pesanan',
-                          icon: Icons.today,
-                          gradient: [Colors.green, Colors.green.shade300],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildStatCard(
-                          title: 'Pendapatan',
-                          value: GlobalStyle.formatRupiah(_todayRevenue),
-                          subtitle: 'hari ini',
-                          icon: Icons.attach_money,
-                          gradient: [Colors.purple, Colors.purple.shade300],
-                          isRevenue: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildStatCard({
-    required String title,
-    required String value,
-    String? subtitle,
-    required IconData icon,
-    required List<Color> gradient,
-    bool isPulsing = false,
-    bool isRevenue = false,
-  }) {
-    Widget cardContent = Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: gradient[0].withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Icon(
-                icon,
-                color: Colors.white,
-                size: 24,
-              ),
-              if (isPulsing)
-                AnimatedBuilder(
-                  animation: _pulseController,
-                  builder: (context, child) {
-                    return Transform.scale(
-                      scale: 1.0 + (_pulseController.value * 0.2),
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.white.withOpacity(0.6),
-                              blurRadius: 4,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isRevenue ? 14 : 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 10,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-
-    if (isPulsing) {
-      return AnimatedBuilder(
-        animation: _pulseController,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: 1.0 + (_pulseController.value * 0.05),
-            child: cardContent,
-          );
-        },
-      );
-    }
-
-    return cardContent;
-  }
-
   Widget _buildOrderCard(Map<String, dynamic> order, int index) {
     String status = order['order_status'] as String? ?? 'pending';
     String orderId = order['id']?.toString() ?? '';
     bool isNewOrder = _newOrderId == orderId;
+
+    // ✅ FIXED: Safe parsing of numeric values
+    final totalAmount = _parseDouble(order['total_amount']) ?? 0.0;
+    final deliveryFee = _parseDouble(order['delivery_fee']) ?? 0.0;
 
     Widget cardContent = Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1046,7 +810,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                   // Header section
                   Row(
                     children: [
-                      // Customer avatar
+                      // Order ID badge
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -1059,19 +823,19 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
-                          Icons.person,
+                          Icons.receipt_long,
                           color: Colors.white,
                           size: 24,
                         ),
                       ),
                       const SizedBox(width: 16),
-                      // Customer info
+                      // Order info
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              order['customer']?['name'] ?? 'Unknown Customer',
+                              'Order #$orderId',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 18,
@@ -1145,13 +909,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                         Row(
                           children: [
                             Icon(
-                              Icons.shopping_basket,
+                              Icons.attach_money,
                               color: GlobalStyle.primaryColor,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              '${order['items']?.length ?? 0} item',
+                              'Total Amount',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 14,
@@ -1173,7 +937,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
-                                GlobalStyle.formatRupiah(order['total_amount']?.toDouble() ?? 0),
+                                GlobalStyle.formatRupiah(totalAmount),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
@@ -1187,13 +951,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                         Row(
                           children: [
                             Icon(
-                              Icons.phone,
+                              Icons.delivery_dining,
                               color: Colors.grey.shade600,
                               size: 16,
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              order['customer']?['phone'] ?? 'Unknown',
+                              'Delivery Fee: ${GlobalStyle.formatRupiah(deliveryFee)}',
                               style: TextStyle(
                                 color: Colors.grey.shade600,
                                 fontSize: 13,
@@ -1526,7 +1290,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       body: SafeArea(
         child: Column(
           children: [
-            // Enhanced Header
+            // Enhanced Header (Statistics removed)
             Container(
               margin: const EdgeInsets.all(16),
               padding: const EdgeInsets.all(20),
@@ -1618,10 +1382,38 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               ),
             ),
 
-            // Statistics Cards
+            // Orders List Header
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _buildStatisticsCards(),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Text(
+                    'Pesanan Masuk',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: GlobalStyle.fontFamily,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: GlobalStyle.primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${orders.length} pesanan',
+                      style: TextStyle(
+                        color: GlobalStyle.primaryColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
 
             // Orders List
