@@ -1446,7 +1446,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           ),
         ),
         const Text(': '),
-        Expanded(
+        Flexible(
           child: Text(
             value,
             style: TextStyle(
@@ -1455,6 +1455,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               color: GlobalStyle.fontColor,
               fontFamily: GlobalStyle.fontFamily,
             ),
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
           ),
         ),
       ],
