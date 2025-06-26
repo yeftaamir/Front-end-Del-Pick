@@ -307,7 +307,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   }
 
   // ✅ Load driver requests with improved error handling
-  // ✅ UBAH: Load requests dengan better state management
   Future<void> _loadDriverRequests() async {
     if (!mounted || _driverId == null || _isLoadingRequests) {
       return; // ✅ Prevent multiple simultaneous loads
@@ -550,15 +549,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       return;
     }
 
-    // ✅ DECLARE OUTSIDE TRY: Variable scope fix
-    // List<Map<String, dynamic>> originalRequests = [];
-
     try {
       // ✅ Mark as processing
       setState(() {
         _processingRequests[requestId] = true;
         _driverRequests.removeWhere((r) => r['id'].toString() == requestId);
-        // requestData['_isProcessing'] = true;
       });
       print('🔄 Accepting driver request: $requestId');
       await DriverRequestService.respondToDriverRequest(
@@ -616,42 +611,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         });
       }
 
-      // if (requestType == 'jasa_titip') {
-      //   _showRequestAcceptedDialog(requestData, () {
-      //     final orderId = requestData['order']?['id']?.toString();
-      //     if (orderId != null) {
-      //       Navigator.pushNamed(
-      //         context,
-      //         ContactUserPage.route,
-      //         arguments: {
-      //           'orderId': orderId,
-      //           'orderDetail': requestData,
-      //         },
-      //       );
-      //     }
-      //   });
-      // } else {
-      //   _showOrderAcceptedDialog(requestData, () {
-      //     final orderId = requestData['order']?['id']?.toString();
-      //     if (orderId != null) {
-      //       Navigator.pushNamed(
-      //         context,
-      //         HistoryDriverDetailPage.route,
-      //         arguments: orderId,
-      //       );
-      //     }
-      //   });
-      // }
-
-      // ✅ IMMEDIATE REFRESH: Refresh list setelah 2 detik untuk confirm
-      // Refresh segera setelah API call berhasil
-      // if (result.isSuccess) {
-      // Update state langsung
-      // setState(() {
-      //   _driverRequests.removeWhere((r) => r['id'].toString() == requestId);
-      // });
-
-      // Refresh data dari server untuk sinkronisasi
       // ✅ TAMBAHKAN MULTIPLE REFRESH UNTUK MEMASTIKAN:
       // Immediate refresh
       Future.delayed(const Duration(milliseconds: 300), () {
@@ -683,14 +642,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     } catch (e) {
       print('❌ Error accepting driver request: $e');
 
-      // ✅ REVERT OPTIMISTIC UPDATE: Restore original list on error
-      // if (mounted) {
-      //   setState(() {
-      //     _driverRequests = originalRequests; // ✅ Now accessible
-      //     requestData['_isProcessing'] = false;
-      //   });
-      // }
-      // Jangan restore, langsung refresh untuk data terbaru
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
           _loadDriverRequests(); // Ambil data fresh dari server

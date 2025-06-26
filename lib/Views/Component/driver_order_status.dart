@@ -149,7 +149,8 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     if (widget.initialOrderData != null) {
       // ✅ FIXED: Safe conversion for initial data
       final safeInitialData = _safeMapConversion(widget.initialOrderData!);
-      print('🔄 DriverOrderStatusCard: Using initial data, converting safely...');
+      print(
+          '🔄 DriverOrderStatusCard: Using initial data, converting safely...');
       _processOrderData(safeInitialData);
       return;
     }
@@ -167,7 +168,8 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     });
 
     try {
-      print('🔍 DriverOrderStatusCard: Starting data loading for order: ${widget.orderId}');
+      print(
+          '🔍 DriverOrderStatusCard: Starting data loading for order: ${widget.orderId}');
 
       // ✅ UPDATED: Enhanced authentication using new methods
       final userData = await AuthService.getUserData();
@@ -199,13 +201,13 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
 
       // ✅ CRITICAL: Safe conversion before processing
       final safeOrderData = _safeMapConversion(rawOrderData);
-      print('✅ DriverOrderStatusCard: Order data retrieved and converted safely');
+      print(
+          '✅ DriverOrderStatusCard: Order data retrieved and converted safely');
       print('   - Order ID: ${safeOrderData['id']}');
       print('   - Status: ${safeOrderData['order_status']}');
       print('   - Driver ID: ${safeOrderData['driver_id']}');
 
       _processOrderData(safeOrderData);
-
     } catch (e) {
       print('❌ DriverOrderStatusCard: Error loading data: $e');
       setState(() {
@@ -348,7 +350,7 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     }
 
     return _statusTimeline.firstWhere(
-          (item) => item['status'] == currentStatus,
+      (item) => item['status'] == currentStatus,
       orElse: () => _statusTimeline[0],
     );
   }
@@ -356,7 +358,8 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
   int _getCurrentStatusIndex() {
     if (_currentOrder == null) return 0;
     final currentStatus = _currentOrder!.orderStatus;
-    return _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
+    return _statusTimeline
+        .indexWhere((item) => item['status'] == currentStatus);
   }
 
   double _calculateEstimatedEarnings() {
@@ -364,6 +367,25 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
     const double baseDeliveryFee = 5000.0;
     const double commissionRate = 0.8;
     return baseDeliveryFee + (_currentOrder!.deliveryFee * commissionRate);
+  }
+
+  // ✅ FIXED: Helper method to get delivery location info
+  String _getDeliveryLocationInfo() {
+    if (_currentOrder == null) return 'Lokasi tidak tersedia';
+
+    // Check if we have store information
+    if (_currentOrder!.store != null) {
+      return _currentOrder!.store!.address;
+    }
+
+    // Check if we have destination coordinates
+    if (_currentOrder!.destinationLatitude != null &&
+        _currentOrder!.destinationLongitude != null) {
+      return 'Lat: ${_currentOrder!.destinationLatitude!.toStringAsFixed(4)}, '
+          'Lng: ${_currentOrder!.destinationLongitude!.toStringAsFixed(4)}';
+    }
+
+    return 'Lokasi tujuan belum tersedia';
   }
 
   @override
@@ -462,10 +484,13 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
                           CircleAvatar(
                             radius: 12,
                             child: ImageService.displayProfileImage(
-                              imageSource: _currentOrder!.customer!.avatar ?? '',
+                              imageSource:
+                                  _currentOrder!.customer!.avatar ?? '',
                               radius: 12,
-                              placeholder: Icon(Icons.person, size: 16, color: Colors.white),
-                              errorWidget: Icon(Icons.person, size: 16, color: Colors.white),
+                              placeholder: Icon(Icons.person,
+                                  size: 16, color: Colors.white),
+                              errorWidget: Icon(Icons.person,
+                                  size: 16, color: Colors.white),
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -512,18 +537,24 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
                       height: 180,
                       child: Lottie.asset(
                         currentStatusInfo['animation'],
-                        repeat: ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus),
+                        repeat: ![
+                          OrderStatus.delivered,
+                          OrderStatus.cancelled,
+                          OrderStatus.rejected
+                        ].contains(currentStatus),
                       ),
                     ),
 
                   const SizedBox(height: 20),
 
                   // Status Timeline (only for active orders)
-                  if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
+                  if (![OrderStatus.cancelled, OrderStatus.rejected]
+                      .contains(currentStatus))
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
-                        children: List.generate(_statusTimeline.length, (index) {
+                        children:
+                            List.generate(_statusTimeline.length, (index) {
                           final isActive = index <= currentIndex;
                           final isCurrent = index == currentIndex;
                           final isLast = index == _statusTimeline.length - 1;
@@ -535,7 +566,8 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
                                 Column(
                                   children: [
                                     AnimatedContainer(
-                                      duration: const Duration(milliseconds: 300),
+                                      duration:
+                                          const Duration(milliseconds: 300),
                                       width: isCurrent ? 32 : 24,
                                       height: isCurrent ? 32 : 24,
                                       decoration: BoxDecoration(
@@ -543,13 +575,16 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
                                             ? statusItem['color']
                                             : Colors.grey[300],
                                         shape: BoxShape.circle,
-                                        boxShadow: isCurrent ? [
-                                          BoxShadow(
-                                            color: statusItem['color'].withOpacity(0.4),
-                                            blurRadius: 8,
-                                            spreadRadius: 2,
-                                          ),
-                                        ] : [],
+                                        boxShadow: isCurrent
+                                            ? [
+                                                BoxShadow(
+                                                  color: statusItem['color']
+                                                      .withOpacity(0.4),
+                                                  blurRadius: 8,
+                                                  spreadRadius: 2,
+                                                ),
+                                              ]
+                                            : [],
                                       ),
                                       child: Icon(
                                         statusItem['icon'],
@@ -639,39 +674,39 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
                     ),
                   ),
 
-                  // Additional order info sections...
-                  if (_currentOrder!.deliveryAddress != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.grey.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _currentOrder!.deliveryAddress!,
-                                style: TextStyle(
-                                  color: Colors.grey[700],
-                                  fontSize: 12,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
+                  // ✅ FIXED: Delivery location info using helper method
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.grey.withOpacity(0.2),
                         ),
                       ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.location_on,
+                              size: 16, color: Colors.grey[600]),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _getDeliveryLocationInfo(),
+                              style: TextStyle(
+                                color: Colors.grey[700],
+                                fontSize: 12,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  ),
 
                   // Earnings info
                   if (currentStatus == OrderStatus.delivered)
@@ -686,7 +721,8 @@ class _DriverOrderStatusCardState extends State<DriverOrderStatusCard>
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.monetization_on, size: 16, color: Colors.green),
+                            Icon(Icons.monetization_on,
+                                size: 16, color: Colors.green),
                             const SizedBox(width: 6),
                             Text(
                               'Pendapatan: ${GlobalStyle.formatRupiah(_calculateEstimatedEarnings())}',

@@ -31,11 +31,12 @@ class HistoryDriverDetailPage extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _HistoryDriverDetailPageState createState() => _HistoryDriverDetailPageState();
+  _HistoryDriverDetailPageState createState() =>
+      _HistoryDriverDetailPageState();
 }
 
-class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with TickerProviderStateMixin {
-
+class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
+    with TickerProviderStateMixin {
   // Audio player initialization
   final AudioPlayer _audioPlayer = AudioPlayer();
 
@@ -132,7 +133,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     // Initialize animation controllers for card sections
     _cardControllers = List.generate(
       5, // Status, Order Info, Store, Customer, Items cards
-          (index) => AnimationController(
+      (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 150)),
       ),
@@ -223,7 +224,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       final roleData = await AuthService.getRoleSpecificData();
       if (roleData != null && roleData['driver'] != null) {
         _driverData = roleData['driver'];
-        print('✅ HistoryDriverDetail: Driver data loaded - ID: ${_driverData!['id']}');
+        print(
+            '✅ HistoryDriverDetail: Driver data loaded - ID: ${_driverData!['id']}');
       }
 
       print('✅ HistoryDriverDetail: Driver access validated');
@@ -247,7 +249,6 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       });
 
       print('✅ HistoryDriverDetail: Data loading completed successfully');
-
     } catch (e) {
       print('❌ HistoryDriverDetail: Validation/loading error: $e');
       setState(() {
@@ -274,7 +275,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       // ✅ FIXED: Use requestId if available, otherwise use orderId
       if (widget.requestId != null) {
         // ✅ FIXED: Get driver request detail menggunakan DriverRequestService.getDriverRequestDetail
-        requestData = await DriverRequestService.getDriverRequestDetail(widget.requestId!);
+        requestData = await DriverRequestService.getDriverRequestDetail(
+            widget.requestId!);
       } else {
         // ✅ FIXED: Fallback to finding request by order ID
         final requests = await DriverRequestService.getDriverRequests(
@@ -284,8 +286,9 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
 
         final requestsList = requests['requests'] as List? ?? [];
         final targetRequest = requestsList.firstWhere(
-              (req) => req['order']?['id']?.toString() == widget.orderId,
-          orElse: () => throw Exception('Driver request not found for order ${widget.orderId}'),
+          (req) => req['order']?['id']?.toString() == widget.orderId,
+          orElse: () => throw Exception(
+              'Driver request not found for order ${widget.orderId}'),
         );
 
         requestData = targetRequest;
@@ -321,8 +324,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       final safeOrderData = _safeMapConversion(_orderData);
 
       // Ensure proper data structure
-      safeOrderData['order_status'] = safeOrderData['order_status'] ?? 'pending';
-      safeOrderData['delivery_status'] = safeOrderData['delivery_status'] ?? 'pending';
+      safeOrderData['order_status'] =
+          safeOrderData['order_status'] ?? 'pending';
+      safeOrderData['delivery_status'] =
+          safeOrderData['delivery_status'] ?? 'pending';
       safeOrderData['total_amount'] = safeOrderData['total_amount'] ?? 0.0;
       safeOrderData['delivery_fee'] = safeOrderData['delivery_fee'] ?? 0.0;
 
@@ -342,8 +347,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
         _customerData!['phone'] = _customerData!['phone'] ?? '';
 
         // Process customer avatar
-        if (_customerData!['avatar'] != null && _customerData!['avatar'].toString().isNotEmpty) {
-          _customerData!['avatar'] = ImageService.getImageUrl(_customerData!['avatar']);
+        if (_customerData!['avatar'] != null &&
+            _customerData!['avatar'].toString().isNotEmpty) {
+          _customerData!['avatar'] =
+              ImageService.getImageUrl(_customerData!['avatar']);
         }
       }
 
@@ -354,8 +361,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
         _storeData!['phone'] = _storeData!['phone'] ?? '';
 
         // Process store image
-        if (_storeData!['image_url'] != null && _storeData!['image_url'].toString().isNotEmpty) {
-          _storeData!['image_url'] = ImageService.getImageUrl(_storeData!['image_url']);
+        if (_storeData!['image_url'] != null &&
+            _storeData!['image_url'].toString().isNotEmpty) {
+          _storeData!['image_url'] =
+              ImageService.getImageUrl(_storeData!['image_url']);
         }
       }
 
@@ -364,7 +373,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
         _orderItems = _orderData['items'] as List;
         for (var item in _orderItems) {
           // Process item image
-          if (item['image_url'] != null && item['image_url'].toString().isNotEmpty) {
+          if (item['image_url'] != null &&
+              item['image_url'].toString().isNotEmpty) {
             item['image_url'] = ImageService.getImageUrl(item['image_url']);
           }
 
@@ -384,8 +394,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
           driverUser['phone'] = driverUser['phone'] ?? '';
 
           // Process driver avatar
-          if (driverUser['avatar'] != null && driverUser['avatar'].toString().isNotEmpty) {
-            driverUser['avatar'] = ImageService.getImageUrl(driverUser['avatar']);
+          if (driverUser['avatar'] != null &&
+              driverUser['avatar'].toString().isNotEmpty) {
+            driverUser['avatar'] =
+                ImageService.getImageUrl(driverUser['avatar']);
           }
         }
       }
@@ -434,7 +446,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
 
   void _startStatusPolling() {
     _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      if (mounted && widget.orderId != null && _currentOrder != null && !_currentOrder!.orderStatus.isCompleted) {
+      if (mounted &&
+          widget.orderId != null &&
+          _currentOrder != null &&
+          !_currentOrder!.orderStatus.isCompleted) {
         print('🔄 HistoryDriverDetail: Polling status update...');
         _loadRequestData();
       }
@@ -590,18 +605,23 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                           CircleAvatar(
                             radius: 12,
                             backgroundColor: Colors.white.withOpacity(0.2),
-                            child: _currentOrder!.customer!.avatar != null && _currentOrder!.customer!.avatar!.isNotEmpty
+                            child: _currentOrder!.customer!.avatar != null &&
+                                    _currentOrder!.customer!.avatar!.isNotEmpty
                                 ? ClipOval(
-                              child: ImageService.displayImage(
-                                imageSource: _currentOrder!.customer!.avatar!,
-                                width: 24,
-                                height: 24,
-                                fit: BoxFit.cover,
-                                placeholder: Icon(Icons.person, size: 16, color: Colors.white),
-                                errorWidget: Icon(Icons.person, size: 16, color: Colors.white),
-                              ),
-                            )
-                                : Icon(Icons.person, size: 16, color: Colors.white),
+                                    child: ImageService.displayImage(
+                                      imageSource:
+                                          _currentOrder!.customer!.avatar!,
+                                      width: 24,
+                                      height: 24,
+                                      fit: BoxFit.cover,
+                                      placeholder: Icon(Icons.person,
+                                          size: 16, color: Colors.white),
+                                      errorWidget: Icon(Icons.person,
+                                          size: 16, color: Colors.white),
+                                    ),
+                                  )
+                                : Icon(Icons.person,
+                                    size: 16, color: Colors.white),
                           ),
                           const SizedBox(width: 6),
                           Text(
@@ -647,18 +667,24 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                       height: 180,
                       child: Lottie.asset(
                         currentStatusInfo['animation'],
-                        repeat: ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus),
+                        repeat: ![
+                          OrderStatus.delivered,
+                          OrderStatus.cancelled,
+                          OrderStatus.rejected
+                        ].contains(currentStatus),
                       ),
                     ),
 
                   const SizedBox(height: 20),
 
                   // Status Timeline (only for active orders)
-                  if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
+                  if (![OrderStatus.cancelled, OrderStatus.rejected]
+                      .contains(currentStatus))
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
-                        children: List.generate(_statusTimeline.length, (index) {
+                        children:
+                            List.generate(_statusTimeline.length, (index) {
                           final isActive = index <= currentIndex;
                           final isCurrent = index == currentIndex;
                           final isLast = index == _statusTimeline.length - 1;
@@ -670,7 +696,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                                 Column(
                                   children: [
                                     AnimatedContainer(
-                                      duration: const Duration(milliseconds: 300),
+                                      duration:
+                                          const Duration(milliseconds: 300),
                                       width: isCurrent ? 32 : 24,
                                       height: isCurrent ? 32 : 24,
                                       decoration: BoxDecoration(
@@ -678,13 +705,16 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                                             ? statusItem['color']
                                             : Colors.grey[300],
                                         shape: BoxShape.circle,
-                                        boxShadow: isCurrent ? [
-                                          BoxShadow(
-                                            color: statusItem['color'].withOpacity(0.4),
-                                            blurRadius: 8,
-                                            spreadRadius: 2,
-                                          ),
-                                        ] : [],
+                                        boxShadow: isCurrent
+                                            ? [
+                                                BoxShadow(
+                                                  color: statusItem['color']
+                                                      .withOpacity(0.4),
+                                                  blurRadius: 8,
+                                                  spreadRadius: 2,
+                                                ),
+                                              ]
+                                            : [],
                                       ),
                                       child: Icon(
                                         statusItem['icon'],
@@ -774,41 +804,74 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                     ),
                   ),
 
-                  // Additional order info sections...
-                  if (_currentOrder!.deliveryAddress != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.grey.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _currentOrder!.deliveryAddress!,
-                                style: TextStyle(
-                                  color: Colors.grey[700],
-                                  fontSize: 12,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  // // Additional order info sections...
+                  // // if (_currentOrder!.deliveryAddress != null)
+                  //   Padding(
+                  //     padding: const EdgeInsets.only(top: 12),
+                  //     child: Container(
+                  //       padding: const EdgeInsets.all(12),
+                  //       decoration: BoxDecoration(
+                  //         color: Colors.grey.withOpacity(0.05),
+                  //         borderRadius: BorderRadius.circular(8),
+                  //         border: Border.all(
+                  //           color: Colors.grey.withOpacity(0.2),
+                  //         ),
+                  //       ),
+                  //       child: Row(
+                  //         children: [
+                  //           Icon(Icons.location_on,
+                  //               size: 16, color: Colors.grey[600]),
+                  //           const SizedBox(width: 8),
+                  //           Expanded(
+                  //             child: Text(
+                  //               _currentOrder!.deliveryAddress!,
+                  //               style: TextStyle(
+                  //                 color: Colors.grey[700],
+                  //                 fontSize: 12,
+                  //                 fontFamily: GlobalStyle.fontFamily,
+                  //               ),
+                  //               maxLines: 2,
+                  //               overflow: TextOverflow.ellipsis,
+                  //             ),
+                  //           ),
+                  //         ],
+                  //       ),
+                  //     ),
+                  //   ),
 
                   // Earnings info
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.grey.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.location_on,
+                              size: 16, color: Colors.grey[600]),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _getDeliveryLocationInfo(), // ✅ Gunakan helper method
+                              style: TextStyle(
+                                color: Colors.grey[700],
+                                fontSize: 12,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   if (currentStatus == OrderStatus.delivered)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
@@ -821,7 +884,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.monetization_on, size: 16, color: Colors.green),
+                            Icon(Icons.monetization_on,
+                                size: 16, color: Colors.green),
                             const SizedBox(width: 6),
                             Text(
                               'Pendapatan: ${GlobalStyle.formatRupiah(_calculateEstimatedEarnings())}',
@@ -876,7 +940,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     }
 
     return _statusTimeline.firstWhere(
-          (item) => item['status'] == currentStatus,
+      (item) => item['status'] == currentStatus,
       orElse: () => _statusTimeline[0],
     );
   }
@@ -884,7 +948,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
   int _getCurrentStatusIndex() {
     if (_currentOrder == null) return 0;
     final currentStatus = _currentOrder!.orderStatus;
-    return _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
+    return _statusTimeline
+        .indexWhere((item) => item['status'] == currentStatus);
   }
 
   double _calculateEstimatedEarnings() {
@@ -892,6 +957,30 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     const double baseDeliveryFee = 5000.0;
     const double commissionRate = 0.8;
     return baseDeliveryFee + (_currentOrder!.deliveryFee * commissionRate);
+  }
+
+  // ✅ ADD: Helper method untuk mendapatkan info lokasi
+  String _getDeliveryLocationInfo() {
+    // Check if we have store information from _storeData
+    if (_storeData != null && _storeData!['address'] != null) {
+      return _storeData!['address'];
+    }
+
+    // Check if we have destination coordinates from _orderData
+    if (_orderData['destination_latitude'] != null &&
+        _orderData['destination_longitude'] != null) {
+      final lat = _orderData['destination_latitude'];
+      final lng = _orderData['destination_longitude'];
+      return 'Lat: ${lat.toString()}, Lng: ${lng.toString()}';
+    }
+
+    // Check if we have pickup address from order data
+    if (_orderData['pickup_address'] != null) {
+      return _orderData['pickup_address'];
+    }
+
+    // Default fallback
+    return 'Lokasi tujuan belum tersedia';
   }
 
   // ✅ FIXED: Enhanced status mapping sesuai backend
@@ -942,8 +1031,9 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
 
   Widget _buildCard({required Widget child, required int index}) {
     return SlideTransition(
-      position: index < _cardAnimations.length ? _cardAnimations[index] :
-      const AlwaysStoppedAnimation(Offset.zero),
+      position: index < _cardAnimations.length
+          ? _cardAnimations[index]
+          : const AlwaysStoppedAnimation(Offset.zero),
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
@@ -973,8 +1063,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     final orderStatus = _orderData['order_status']?.toString() ?? 'pending';
     final requestStatus = _requestData['status']?.toString() ?? 'pending';
     final createdAt = _orderData['created_at']?.toString() ?? '';
-    final estimatedPickupTime = _requestData['estimated_pickup_time']?.toString() ?? '';
-    final estimatedDeliveryTime = _requestData['estimated_delivery_time']?.toString() ?? '';
+    final estimatedPickupTime =
+        _requestData['estimated_pickup_time']?.toString() ?? '';
+    final estimatedDeliveryTime =
+        _requestData['estimated_delivery_time']?.toString() ?? '';
 
     return _buildCard(
       index: 0,
@@ -1031,7 +1123,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: _getStatusColor(requestStatus).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(20),
@@ -1054,21 +1147,24 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
               const SizedBox(height: 12),
               _buildInfoRow(
                 'Waktu Pesanan',
-                DateFormat('dd MMM yyyy, HH:mm').format(DateTime.parse(createdAt)),
+                DateFormat('dd MMM yyyy, HH:mm')
+                    .format(DateTime.parse(createdAt)),
               ),
             ],
             if (estimatedPickupTime.isNotEmpty) ...[
               const SizedBox(height: 12),
               _buildInfoRow(
                 'Estimasi Pickup',
-                DateFormat('dd MMM yyyy, HH:mm').format(DateTime.parse(estimatedPickupTime)),
+                DateFormat('dd MMM yyyy, HH:mm')
+                    .format(DateTime.parse(estimatedPickupTime)),
               ),
             ],
             if (estimatedDeliveryTime.isNotEmpty) ...[
               const SizedBox(height: 12),
               _buildInfoRow(
                 'Estimasi Delivery',
-                DateFormat('dd MMM yyyy, HH:mm').format(DateTime.parse(estimatedDeliveryTime)),
+                DateFormat('dd MMM yyyy, HH:mm')
+                    .format(DateTime.parse(estimatedDeliveryTime)),
               ),
             ],
           ],
@@ -1161,19 +1257,19 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                     borderRadius: BorderRadius.circular(10),
                     child: _storeData!['image_url'] != null
                         ? Image.network(
-                      _storeData!['image_url'],
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Icon(
-                        Icons.store,
-                        color: Colors.blue,
-                        size: 28,
-                      ),
-                    )
+                            _storeData!['image_url'],
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Icon(
+                              Icons.store,
+                              color: Colors.blue,
+                              size: 28,
+                            ),
+                          )
                         : Icon(
-                      Icons.store,
-                      color: Colors.blue,
-                      size: 28,
-                    ),
+                            Icons.store,
+                            color: Colors.blue,
+                            size: 28,
+                          ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -1194,7 +1290,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                       if (_storeData!['address'] != null)
                         Row(
                           children: [
-                            Icon(Icons.location_on, color: Colors.grey[600], size: 16),
+                            Icon(Icons.location_on,
+                                color: Colors.grey[600], size: 16),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
@@ -1210,12 +1307,14 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                             ),
                           ],
                         ),
-                      if (_storeData!['phone'] != null && _storeData!['phone'].toString().isNotEmpty)
+                      if (_storeData!['phone'] != null &&
+                          _storeData!['phone'].toString().isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Row(
                             children: [
-                              Icon(Icons.phone, color: Colors.grey[600], size: 16),
+                              Icon(Icons.phone,
+                                  color: Colors.grey[600], size: 16),
                               const SizedBox(width: 4),
                               Text(
                                 _storeData!['phone'],
@@ -1233,7 +1332,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                 ),
               ],
             ),
-            if (_storeData!['phone'] != null && _storeData!['phone'].toString().isNotEmpty) ...[
+            if (_storeData!['phone'] != null &&
+                _storeData!['phone'].toString().isNotEmpty) ...[
               const SizedBox(height: 20),
               Container(
                 width: double.infinity,
@@ -1336,19 +1436,19 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                   child: ClipOval(
                     child: _customerData!['avatar'] != null
                         ? Image.network(
-                      _customerData!['avatar'],
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Icon(
-                        Icons.person,
-                        color: Colors.green,
-                        size: 28,
-                      ),
-                    )
+                            _customerData!['avatar'],
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Icon(
+                              Icons.person,
+                              color: Colors.green,
+                              size: 28,
+                            ),
+                          )
                         : Icon(
-                      Icons.person,
-                      color: Colors.green,
-                      size: 28,
-                    ),
+                            Icons.person,
+                            color: Colors.green,
+                            size: 28,
+                          ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -1366,10 +1466,12 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                         ),
                       ),
                       const SizedBox(height: 6),
-                      if (_orderData['destination_latitude'] != null && _orderData['destination_longitude'] != null)
+                      if (_orderData['destination_latitude'] != null &&
+                          _orderData['destination_longitude'] != null)
                         Row(
                           children: [
-                            Icon(Icons.location_on, color: Colors.grey[600], size: 16),
+                            Icon(Icons.location_on,
+                                color: Colors.grey[600], size: 16),
                             const SizedBox(width: 4),
                             Text(
                               'Koordinat tujuan tersedia',
@@ -1381,12 +1483,14 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                             ),
                           ],
                         ),
-                      if (_customerData!['phone'] != null && _customerData!['phone'].toString().isNotEmpty)
+                      if (_customerData!['phone'] != null &&
+                          _customerData!['phone'].toString().isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Row(
                             children: [
-                              Icon(Icons.phone, color: Colors.grey[600], size: 16),
+                              Icon(Icons.phone,
+                                  color: Colors.grey[600], size: 16),
                               const SizedBox(width: 4),
                               Text(
                                 _customerData!['phone'],
@@ -1404,7 +1508,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                 ),
               ],
             ),
-            if (_customerData!['phone'] != null && _customerData!['phone'].toString().isNotEmpty) ...[
+            if (_customerData!['phone'] != null &&
+                _customerData!['phone'].toString().isNotEmpty) ...[
               const SizedBox(height: 20),
               Container(
                 width: double.infinity,
@@ -1516,37 +1621,37 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                       borderRadius: BorderRadius.circular(10),
                       child: imageUrl.isNotEmpty
                           ? Image.network(
-                        imageUrl,
-                        width: 60,
-                        height: 60,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(
-                              Icons.fastfood,
-                              color: Colors.grey[600],
-                            ),
-                          );
-                        },
-                      )
+                              imageUrl,
+                              width: 60,
+                              height: 60,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  width: 60,
+                                  height: 60,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[300],
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Icon(
+                                    Icons.fastfood,
+                                    color: Colors.grey[600],
+                                  ),
+                                );
+                              },
+                            )
                           : Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.fastfood,
-                          color: Colors.grey[600],
-                        ),
-                      ),
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[300],
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                Icons.fastfood,
+                                color: Colors.grey[600],
+                              ),
+                            ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -1577,7 +1682,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
                             color: GlobalStyle.primaryColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(20),
@@ -1693,7 +1799,9 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                   color: Colors.transparent,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: _isRespondingRequest ? null : () => _respondToRequest('reject'),
+                    onTap: _isRespondingRequest
+                        ? null
+                        : () => _respondToRequest('reject'),
                     child: Center(
                       child: Icon(
                         Icons.close,
@@ -1725,26 +1833,29 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(12),
-                      onTap: _isRespondingRequest ? null : () => _respondToRequest('accept'),
+                      onTap: _isRespondingRequest
+                          ? null
+                          : () => _respondToRequest('accept'),
                       child: Center(
                         child: _isRespondingRequest
                             ? SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
+                                height: 24,
+                                width: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
+                                ),
+                              )
                             : Text(
-                          'Terima Request',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
+                                'Terima Request',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
                       ),
                     ),
                   ),
@@ -1846,26 +1957,29 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
             color: Colors.transparent,
             child: InkWell(
               borderRadius: BorderRadius.circular(12),
-              onTap: _isUpdatingStatus ? null : () => _updateOrderStatus(nextStatus!),
+              onTap: _isUpdatingStatus
+                  ? null
+                  : () => _updateOrderStatus(nextStatus!),
               child: Center(
                 child: _isUpdatingStatus
                     ? SizedBox(
-                  height: 24,
-                  width: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
                     : Text(
-                  _getActionButtonText(orderStatus),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
+                        _getActionButtonText(orderStatus),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
               ),
             ),
           ),
@@ -1913,7 +2027,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
     });
 
     try {
-      print('📝 HistoryDriverDetail: Responding to request with action: $action');
+      print(
+          '📝 HistoryDriverDetail: Responding to request with action: $action');
 
       // ✅ FIXED: Validate driver access
       final hasDriverAccess = await AuthService.hasRole('driver');
@@ -1937,11 +2052,14 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              action == 'accept' ? 'Request berhasil diterima' : 'Request berhasil ditolak',
+              action == 'accept'
+                  ? 'Request berhasil diterima'
+                  : 'Request berhasil ditolak',
             ),
             backgroundColor: action == 'accept' ? Colors.green : Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -1958,7 +2076,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
             content: Text('Gagal merespon request: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -2016,10 +2135,12 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Status berhasil diupdate ke ${_getStatusButtonText(status)}'),
+            content: Text(
+                'Status berhasil diupdate ke ${_getStatusButtonText(status)}'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -2036,7 +2157,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
             content: Text('Gagal mengupdate status: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -2105,12 +2227,13 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(24),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 40, vertical: 12),
                   ),
                   onPressed: () {
                     Navigator.of(context).pushNamedAndRemoveUntil(
                       '/Driver/HomePage',
-                          (Route<dynamic> route) => false,
+                      (Route<dynamic> route) => false,
                     );
                   },
                   child: Text(
@@ -2142,7 +2265,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
       cleanPhone = '62$cleanPhone';
     }
 
-    final message = 'Halo! Saya driver dari Del Pick mengenai pesanan #${widget.orderId}. Apakah ada yang bisa saya bantu?';
+    final message =
+        'Halo! Saya driver dari Del Pick mengenai pesanan #${widget.orderId}. Apakah ada yang bisa saya bantu?';
     final encodedMessage = Uri.encodeComponent(message);
     final url = 'https://wa.me/$cleanPhone?text=$encodedMessage';
 
@@ -2159,7 +2283,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
             content: Text('Tidak dapat membuka WhatsApp: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -2226,7 +2351,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
               child: Text(
                 'Coba Lagi',
@@ -2278,44 +2404,44 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage> with 
         child: _isLoading
             ? _buildLoadingState()
             : _hasError
-            ? _buildErrorState()
-            : SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ✅ INTEGRATED: Driver Order Status Card directly built in
-                AnimatedBuilder(
-                  animation: _statusController,
-                  child: _buildDriverOrderStatusCard(),
-                  builder: (context, child) {
-                    return SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, -0.3),
-                        end: Offset.zero,
-                      ).animate(CurvedAnimation(
-                        parent: _statusController,
-                        curve: Curves.easeOutCubic,
-                      )),
-                      child: FadeTransition(
-                        opacity: _statusController,
-                        child: child,
+                ? _buildErrorState()
+                : SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // ✅ INTEGRATED: Driver Order Status Card directly built in
+                          AnimatedBuilder(
+                            animation: _statusController,
+                            child: _buildDriverOrderStatusCard(),
+                            builder: (context, child) {
+                              return SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, -0.3),
+                                  end: Offset.zero,
+                                ).animate(CurvedAnimation(
+                                  parent: _statusController,
+                                  curve: Curves.easeOutCubic,
+                                )),
+                                child: FadeTransition(
+                                  opacity: _statusController,
+                                  child: child,
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          _buildOrderInfoCard(),
+                          _buildStoreInfoCard(),
+                          _buildCustomerInfoCard(),
+                          _buildItemsCard(),
+                          _buildActionButtons(),
+                          const SizedBox(height: 100), // Bottom padding
+                        ],
                       ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-                _buildOrderInfoCard(),
-                _buildStoreInfoCard(),
-                _buildCustomerInfoCard(),
-                _buildItemsCard(),
-                _buildActionButtons(),
-                const SizedBox(height: 100), // Bottom padding
-              ],
-            ),
-          ),
-        ),
+                    ),
+                  ),
       ),
     );
   }

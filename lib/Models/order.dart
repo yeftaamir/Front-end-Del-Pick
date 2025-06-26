@@ -1,13 +1,12 @@
 // ========================================
-// 8. lib/models/order_model.dart - FIXED VERSION
+// Order Model - Fixed Version
 // ========================================
 
+import 'package:del_pick/Models/driver.dart';
+import 'package:del_pick/Models/order_enum.dart';
+import 'package:del_pick/Models/order_item.dart';
 import 'package:del_pick/Models/store.dart';
-
-import 'customer.dart';
-import 'driver.dart';
-import 'order_enum.dart';
-import 'order_item.dart';
+import 'package:del_pick/Models/user.dart';
 
 class OrderModel {
   final int id;
@@ -18,22 +17,18 @@ class OrderModel {
   final DeliveryStatus deliveryStatus;
   final double totalAmount;
   final double deliveryFee;
-  final String? deliveryAddress;
-  final double? customerLatitude;
-  final double? customerLongitude;
+  final double? destinationLatitude;
+  final double? destinationLongitude;
   final DateTime? estimatedPickupTime;
   final DateTime? actualPickupTime;
   final DateTime? estimatedDeliveryTime;
   final DateTime? actualDeliveryTime;
   final List<Map<String, dynamic>>? trackingUpdates;
-  final String? notes;
-  final PaymentMethod paymentMethod;
-  final PaymentStatus paymentStatus;
   final DateTime createdAt;
   final DateTime updatedAt;
 
   // Related models
-  final CustomerModel? customer;
+  final UserModel? customer;
   final StoreModel? store;
   final DriverModel? driver;
   final List<OrderItemModel> items;
@@ -49,24 +44,20 @@ class OrderModel {
     this.orderStatus = OrderStatus.pending,
     this.deliveryStatus = DeliveryStatus.pending,
     this.deliveryFee = 0.0,
-    this.deliveryAddress,
-    this.customerLatitude,
-    this.customerLongitude,
+    this.destinationLatitude,
+    this.destinationLongitude,
     this.estimatedPickupTime,
     this.actualPickupTime,
     this.estimatedDeliveryTime,
     this.actualDeliveryTime,
     this.trackingUpdates,
-    this.notes,
-    this.paymentMethod = PaymentMethod.cash,
-    this.paymentStatus = PaymentStatus.pending,
     this.customer,
     this.store,
     this.driver,
     this.items = const [],
   });
 
-  // ✅ TAMBAHAN: Safe parsing untuk numeric values yang mungkin berupa string
+  // Safe parsing untuk numeric values
   static double _parseDouble(dynamic value) {
     if (value == null) return 0.0;
     if (value is double) return value;
@@ -77,7 +68,7 @@ class OrderModel {
     return 0.0;
   }
 
-  // ✅ TAMBAHAN: Safe parsing untuk nullable double values
+  // Safe parsing untuk nullable double values
   static double? _parseNullableDouble(dynamic value) {
     if (value == null) return null;
     if (value is double) return value;
@@ -94,15 +85,14 @@ class OrderModel {
       customerId: json['customer_id'] ?? 0,
       storeId: json['store_id'] ?? 0,
       driverId: json['driver_id'],
-      orderStatus: OrderStatusExtension.fromString(json['order_status'] ?? 'pending'),
-      deliveryStatus: DeliveryStatusExtension.fromString(json['delivery_status'] ?? 'pending'),
-      // ✅ PERBAIKAN: Safe parsing untuk numeric fields
+      orderStatus:
+          OrderStatusExtension.fromString(json['order_status'] ?? 'pending'),
+      deliveryStatus: DeliveryStatusExtension.fromString(
+          json['delivery_status'] ?? 'pending'),
       totalAmount: _parseDouble(json['total_amount']),
       deliveryFee: _parseDouble(json['delivery_fee']),
-      deliveryAddress: json['delivery_address'],
-      // ✅ PERBAIKAN: Safe parsing untuk nullable coordinates
-      customerLatitude: _parseNullableDouble(json['customer_latitude']),
-      customerLongitude: _parseNullableDouble(json['customer_longitude']),
+      destinationLatitude: _parseNullableDouble(json['destination_latitude']),
+      destinationLongitude: _parseNullableDouble(json['destination_longitude']),
       estimatedPickupTime: json['estimated_pickup_time'] != null
           ? DateTime.parse(json['estimated_pickup_time'])
           : null,
@@ -118,24 +108,23 @@ class OrderModel {
       trackingUpdates: json['tracking_updates'] != null
           ? List<Map<String, dynamic>>.from(json['tracking_updates'])
           : null,
-      notes: json['notes'],
-      paymentMethod: PaymentMethod.cash, // Default as per requirements
-      paymentStatus: PaymentStatus.pending, // Default
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
-      customer: json['customer'] != null ? CustomerModel.fromJson(json['customer']) : null,
+      customer: json['customer'] != null
+          ? UserModel.fromJson(json['customer'])
+          : null,
       store: json['store'] != null ? StoreModel.fromJson(json['store']) : null,
-      driver: json['driver'] != null ? DriverModel.fromJson(json['driver']) : null,
+      driver:
+          json['driver'] != null ? DriverModel.fromJson(json['driver']) : null,
       items: json['items'] != null
           ? (json['items'] as List).map((item) {
-        // ✅ PERBAIKAN: Safe parsing untuk order items juga
-        if (item is Map<String, dynamic>) {
-          final safeItem = Map<String, dynamic>.from(item);
-          safeItem['price'] = _parseDouble(item['price']);
-          return OrderItemModel.fromJson(safeItem);
-        }
-        return OrderItemModel.fromJson(item);
-      }).toList()
+              if (item is Map<String, dynamic>) {
+                final safeItem = Map<String, dynamic>.from(item);
+                safeItem['price'] = _parseDouble(item['price']);
+                return OrderItemModel.fromJson(safeItem);
+              }
+              return OrderItemModel.fromJson(item);
+            }).toList()
           : [],
     );
   }
@@ -150,17 +139,17 @@ class OrderModel {
       'delivery_status': deliveryStatus.value,
       'total_amount': totalAmount,
       'delivery_fee': deliveryFee,
-      'delivery_address': deliveryAddress,
-      'customer_latitude': customerLatitude,
-      'customer_longitude': customerLongitude,
-      if (estimatedPickupTime != null) 'estimated_pickup_time': estimatedPickupTime!.toIso8601String(),
-      if (actualPickupTime != null) 'actual_pickup_time': actualPickupTime!.toIso8601String(),
-      if (estimatedDeliveryTime != null) 'estimated_delivery_time': estimatedDeliveryTime!.toIso8601String(),
-      if (actualDeliveryTime != null) 'actual_delivery_time': actualDeliveryTime!.toIso8601String(),
+      'destination_latitude': destinationLatitude,
+      'destination_longitude': destinationLongitude,
+      if (estimatedPickupTime != null)
+        'estimated_pickup_time': estimatedPickupTime!.toIso8601String(),
+      if (actualPickupTime != null)
+        'actual_pickup_time': actualPickupTime!.toIso8601String(),
+      if (estimatedDeliveryTime != null)
+        'estimated_delivery_time': estimatedDeliveryTime!.toIso8601String(),
+      if (actualDeliveryTime != null)
+        'actual_delivery_time': actualDeliveryTime!.toIso8601String(),
       'tracking_updates': trackingUpdates,
-      'notes': notes,
-      'payment_method': paymentMethod.name,
-      'payment_status': paymentStatus.name,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       if (customer != null) 'customer': customer!.toJson(),
@@ -179,20 +168,16 @@ class OrderModel {
     DeliveryStatus? deliveryStatus,
     double? totalAmount,
     double? deliveryFee,
-    String? deliveryAddress,
-    double? customerLatitude,
-    double? customerLongitude,
+    double? destinationLatitude,
+    double? destinationLongitude,
     DateTime? estimatedPickupTime,
     DateTime? actualPickupTime,
     DateTime? estimatedDeliveryTime,
     DateTime? actualDeliveryTime,
     List<Map<String, dynamic>>? trackingUpdates,
-    String? notes,
-    PaymentMethod? paymentMethod,
-    PaymentStatus? paymentStatus,
     DateTime? createdAt,
     DateTime? updatedAt,
-    CustomerModel? customer,
+    UserModel? customer,
     StoreModel? store,
     DriverModel? driver,
     List<OrderItemModel>? items,
@@ -206,17 +191,14 @@ class OrderModel {
       deliveryStatus: deliveryStatus ?? this.deliveryStatus,
       totalAmount: totalAmount ?? this.totalAmount,
       deliveryFee: deliveryFee ?? this.deliveryFee,
-      deliveryAddress: deliveryAddress ?? this.deliveryAddress,
-      customerLatitude: customerLatitude ?? this.customerLatitude,
-      customerLongitude: customerLongitude ?? this.customerLongitude,
+      destinationLatitude: destinationLatitude ?? this.destinationLatitude,
+      destinationLongitude: destinationLongitude ?? this.destinationLongitude,
       estimatedPickupTime: estimatedPickupTime ?? this.estimatedPickupTime,
       actualPickupTime: actualPickupTime ?? this.actualPickupTime,
-      estimatedDeliveryTime: estimatedDeliveryTime ?? this.estimatedDeliveryTime,
+      estimatedDeliveryTime:
+          estimatedDeliveryTime ?? this.estimatedDeliveryTime,
       actualDeliveryTime: actualDeliveryTime ?? this.actualDeliveryTime,
       trackingUpdates: trackingUpdates ?? this.trackingUpdates,
-      notes: notes ?? this.notes,
-      paymentMethod: paymentMethod ?? this.paymentMethod,
-      paymentStatus: paymentStatus ?? this.paymentStatus,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       customer: customer ?? this.customer,
@@ -228,27 +210,34 @@ class OrderModel {
 
   // Utility methods
   double get subtotal => items.fold(0, (sum, item) => sum + item.totalPrice);
-  double get grandTotal => subtotal + deliveryFee;
+  double get grandTotal => totalAmount + deliveryFee;
 
   String formatTotalAmount() {
     return 'Rp ${totalAmount.toStringAsFixed(0).replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
           (Match m) => '${m[1]}.',
-    )}';
+        )}';
   }
 
   String formatDeliveryFee() {
     return 'Rp ${deliveryFee.toStringAsFixed(0).replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
           (Match m) => '${m[1]}.',
-    )}';
+        )}';
   }
 
   String formatSubtotal() {
     return 'Rp ${subtotal.toStringAsFixed(0).replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
           (Match m) => '${m[1]}.',
-    )}';
+        )}';
+  }
+
+  String formatGrandTotal() {
+    return 'Rp ${grandTotal.toStringAsFixed(0).replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]}.',
+        )}';
   }
 
   String get formattedDate {
@@ -258,31 +247,67 @@ class OrderModel {
   String get statusMessage {
     switch (orderStatus) {
       case OrderStatus.pending:
-        return 'Waiting for store confirmation';
+        return 'Menunggu konfirmasi toko';
       case OrderStatus.confirmed:
-        return 'Order confirmed by store';
+        return 'Pesanan dikonfirmasi toko';
       case OrderStatus.preparing:
-        return 'Order is being prepared';
+        return 'Pesanan sedang disiapkan';
       case OrderStatus.readyForPickup:
-        return 'Order ready for pickup';
+        return 'Pesanan siap untuk diambil';
       case OrderStatus.onDelivery:
-        return 'Order is on the way';
+        return 'Pesanan sedang diantar';
       case OrderStatus.delivered:
-        return 'Order delivered successfully';
+        return 'Pesanan berhasil diantar';
       case OrderStatus.cancelled:
-        return 'Order cancelled';
+        return 'Pesanan dibatalkan';
       case OrderStatus.rejected:
-        return 'Order rejected by store';
+        return 'Pesanan ditolak toko';
     }
   }
 
-  bool get canBeCancelled =>
-      orderStatus == OrderStatus.pending ||
-          orderStatus == OrderStatus.confirmed;
-
+  bool get canBeCancelled => orderStatus.canBeCancelled;
   bool get isCompleted => orderStatus.isCompleted;
-
   bool get hasDriver => driverId != null && driver != null;
-
   int get totalItems => items.fold(0, (sum, item) => sum + item.quantity);
+
+  // Helper methods untuk tracking
+  String? get currentLocationDescription {
+    if (trackingUpdates?.isNotEmpty == true) {
+      final lastUpdate = trackingUpdates!.last;
+      return lastUpdate['message'] as String?;
+    }
+    return null;
+  }
+
+  DateTime? get lastUpdateTime {
+    if (trackingUpdates?.isNotEmpty == true) {
+      final lastUpdate = trackingUpdates!.last;
+      final timestamp = lastUpdate['timestamp'];
+      if (timestamp != null) {
+        return DateTime.parse(timestamp);
+      }
+    }
+    return null;
+  }
+
+  // Method untuk mendapatkan progress order dalam bentuk persentase
+  double get orderProgress {
+    switch (orderStatus) {
+      case OrderStatus.pending:
+        return 0.1;
+      case OrderStatus.confirmed:
+        return 0.25;
+      case OrderStatus.preparing:
+        return 0.5;
+      case OrderStatus.readyForPickup:
+        return 0.75;
+      case OrderStatus.onDelivery:
+        return 0.9;
+      case OrderStatus.delivered:
+        return 1.0;
+      case OrderStatus.cancelled:
+      case OrderStatus.rejected:
+        return 0.0;
+    }
+  }
 }

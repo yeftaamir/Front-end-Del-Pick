@@ -37,7 +37,8 @@ class HistoryDetailPage extends StatefulWidget {
   State<HistoryDetailPage> createState() => _HistoryDetailPageState();
 }
 
-class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProviderStateMixin {
+class _HistoryDetailPageState extends State<HistoryDetailPage>
+    with TickerProviderStateMixin {
   // Animation controllers
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
@@ -138,7 +139,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     // Initialize animation controllers for each card section
     _cardControllers = List.generate(
       6, // Number of card sections
-          (index) => AnimationController(
+      (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
       ),
@@ -315,7 +316,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       print('🔍 HistoryDetailPage: Loading order detail: ${widget.order.id}');
 
       // ✅ Use updated OrderService.getOrderById()
-      final rawOrderData = await OrderService.getOrderById(widget.order.id.toString());
+      final rawOrderData =
+          await OrderService.getOrderById(widget.order.id.toString());
 
       // ✅ IMPORTANT: Convert all nested maps safely before creating OrderModel
       final safeOrderData = _safeMapConversion(rawOrderData);
@@ -344,7 +346,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
       // ✅ Store previous status for change detection
       _previousStatus = _orderDetail!.orderStatus;
-
     } catch (e) {
       print('❌ HistoryDetailPage: Error loading order detail: $e');
       throw Exception('Failed to load order details: $e');
@@ -395,7 +396,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           final review = _safeMapConversion(reviewData);
           if (review['type'] == 'store' || review['target_type'] == 'store') {
             _orderReviews = review;
-          } else if (review['type'] == 'driver' || review['target_type'] == 'driver') {
+          } else if (review['type'] == 'driver' ||
+              review['target_type'] == 'driver') {
             _driverReviews = review;
           }
         }
@@ -419,7 +421,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
       print('   - Has Order Review: ${_orderReviews != null}');
       print('   - Has Driver Review: ${_driverReviews != null}');
       print('   - Has Given Rating: $_hasGivenRating');
-
     } catch (e) {
       print('❌ HistoryDetailPage: Error loading reviews: $e');
     }
@@ -428,13 +429,16 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
   // ✅ UPDATED: Enhanced status tracking with better session management
   void _startStatusTracking() {
     if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
-      print('⚠️ HistoryDetailPage: Order is completed, skipping status tracking');
+      print(
+          '⚠️ HistoryDetailPage: Order is completed, skipping status tracking');
       return;
     }
 
-    print('🔄 HistoryDetailPage: Starting status tracking for order ${_orderDetail!.id}');
+    print(
+        '🔄 HistoryDetailPage: Starting status tracking for order ${_orderDetail!.id}');
 
-    _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
+    _statusUpdateTimer =
+        Timer.periodic(const Duration(seconds: 15), (timer) async {
       if (!mounted) {
         print('⚠️ HistoryDetailPage: Widget unmounted, stopping timer');
         timer.cancel();
@@ -453,7 +457,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         }
 
         // ✅ Get updated order data with safe conversion
-        final rawUpdatedOrderData = await OrderService.getOrderById(widget.order.id.toString());
+        final rawUpdatedOrderData =
+            await OrderService.getOrderById(widget.order.id.toString());
         final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
         final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
 
@@ -542,7 +547,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               ? (newStatus == OrderStatus.delivered ? Colors.green : Colors.red)
               : GlobalStyle.primaryColor,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -578,12 +584,14 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     if (_orderDetail == null) return;
 
     try {
-      print('⭐ HistoryDetailPage: Opening rating page for order: ${_orderDetail!.id}');
+      print(
+          '⭐ HistoryDetailPage: Opening rating page for order: ${_orderDetail!.id}');
 
       // ✅ Validate customer access before rating using updated method
       final hasAccess = await AuthService.validateCustomerAccess();
       if (!hasAccess) {
-        throw Exception('Access denied: Customer authentication required for rating');
+        throw Exception(
+            'Access denied: Customer authentication required for rating');
       }
 
       final result = await Navigator.push(
@@ -626,7 +634,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               content: const Text('Rating berhasil dikirim. Terima kasih!'),
               backgroundColor: Colors.green,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
           );
         }
@@ -639,7 +648,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
             content: Text('Gagal mengirim rating: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -663,7 +673,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Ya, Batalkan', style: TextStyle(color: Colors.white)),
+            child: const Text('Ya, Batalkan',
+                style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -701,7 +712,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
             content: const Text('Pesanan berhasil dibatalkan'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -713,7 +725,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
             content: Text('Gagal membatalkan pesanan: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -764,13 +777,17 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
   }
 
-  String _getPaymentMethodText(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Tunai';
-      default:
-        return 'Unknown';
-    }
+  // String _getPaymentMethodText(PaymentMethod method) {
+  //   switch (method) {
+  //     case PaymentMethod.cash:
+  //       return 'Tunai';
+  //     default:
+  //       return 'Unknown';
+  //   }
+  // }
+  String _getPaymentMethodText() {
+    // Default payment method since backend doesn't store this field
+    return 'Tunai (COD)';
   }
 
   // ✅ INTEGRATED ORDER STATUS CARD: Built directly into the page
@@ -883,7 +900,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(8),
@@ -930,24 +948,32 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                       height: 180,
                       child: Lottie.asset(
                         currentStatusInfo['animation'],
-                        repeat: ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus),
+                        repeat: ![
+                          OrderStatus.delivered,
+                          OrderStatus.cancelled,
+                          OrderStatus.rejected
+                        ].contains(currentStatus),
                       ),
                     ),
 
                   const SizedBox(height: 20),
 
                   // ✅ FIXED: Status Timeline with overflow handling
-                  if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
+                  if (![OrderStatus.cancelled, OrderStatus.rejected]
+                      .contains(currentStatus))
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5), // ✅ Reduced padding
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5), // ✅ Reduced padding
                       child: Column(
                         children: [
                           // Icons and connectors row
                           Row(
-                            children: List.generate(_statusTimeline.length, (index) {
+                            children:
+                                List.generate(_statusTimeline.length, (index) {
                               final isActive = index <= currentIndex;
                               final isCurrent = index == currentIndex;
-                              final isLast = index == _statusTimeline.length - 1;
+                              final isLast =
+                                  index == _statusTimeline.length - 1;
                               final statusItem = _statusTimeline[index];
 
                               return Expanded(
@@ -957,26 +983,38 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                                     Expanded(
                                       child: Center(
                                         child: AnimatedContainer(
-                                          duration: const Duration(milliseconds: 300),
-                                          width: isCurrent ? 28 : 20, // ✅ Slightly smaller
-                                          height: isCurrent ? 28 : 20, // ✅ Slightly smaller
+                                          duration:
+                                              const Duration(milliseconds: 300),
+                                          width: isCurrent
+                                              ? 28
+                                              : 20, // ✅ Slightly smaller
+                                          height: isCurrent
+                                              ? 28
+                                              : 20, // ✅ Slightly smaller
                                           decoration: BoxDecoration(
                                             color: isActive
                                                 ? statusItem['color']
                                                 : Colors.grey[300],
                                             shape: BoxShape.circle,
-                                            boxShadow: isCurrent ? [
-                                              BoxShadow(
-                                                color: statusItem['color'].withOpacity(0.4),
-                                                blurRadius: 6, // ✅ Reduced shadow
-                                                spreadRadius: 1, // ✅ Reduced shadow
-                                              ),
-                                            ] : [],
+                                            boxShadow: isCurrent
+                                                ? [
+                                                    BoxShadow(
+                                                      color: statusItem['color']
+                                                          .withOpacity(0.4),
+                                                      blurRadius:
+                                                          6, // ✅ Reduced shadow
+                                                      spreadRadius:
+                                                          1, // ✅ Reduced shadow
+                                                    ),
+                                                  ]
+                                                : [],
                                           ),
                                           child: Icon(
                                             statusItem['icon'],
                                             color: Colors.white,
-                                            size: isCurrent ? 14 : 10, // ✅ Smaller icons
+                                            size: isCurrent
+                                                ? 14
+                                                : 10, // ✅ Smaller icons
                                           ),
                                         ),
                                       ),
@@ -990,7 +1028,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                                           color: index < currentIndex
                                               ? _statusTimeline[index]['color']
                                               : Colors.grey[300],
-                                          borderRadius: BorderRadius.circular(1),
+                                          borderRadius:
+                                              BorderRadius.circular(1),
                                         ),
                                       ),
                                   ],
@@ -999,18 +1038,21 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                             }),
                           ),
 
-                          const SizedBox(height: 8), // ✅ Space between icons and labels
+                          const SizedBox(
+                              height: 8), // ✅ Space between icons and labels
 
                           // ✅ FIXED: Labels row with proper overflow handling
                           Row(
-                            children: List.generate(_statusTimeline.length, (index) {
+                            children:
+                                List.generate(_statusTimeline.length, (index) {
                               final isActive = index <= currentIndex;
                               final isCurrent = index == currentIndex;
                               final statusItem = _statusTimeline[index];
 
                               return Expanded(
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 2), // ✅ Minimal padding
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 2), // ✅ Minimal padding
                                   child: Text(
                                     statusItem['label'],
                                     style: TextStyle(
@@ -1025,7 +1067,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                                     ),
                                     textAlign: TextAlign.center,
                                     maxLines: 2, // ✅ Allow 2 lines
-                                    overflow: TextOverflow.ellipsis, // ✅ Handle overflow
+                                    overflow: TextOverflow
+                                        .ellipsis, // ✅ Handle overflow
                                   ),
                                 ),
                               );
@@ -1098,7 +1141,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
                               child: ImageService.displayImage(
-                                imageSource: _orderDetail!.store!.imageUrl ?? '',
+                                imageSource:
+                                    _orderDetail!.store!.imageUrl ?? '',
                                 width: 40,
                                 height: 40,
                                 fit: BoxFit.cover,
@@ -1106,13 +1150,15 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                                   width: 40,
                                   height: 40,
                                   color: Colors.grey[300],
-                                  child: Icon(Icons.store, color: Colors.grey[600], size: 20),
+                                  child: Icon(Icons.store,
+                                      color: Colors.grey[600], size: 20),
                                 ),
                                 errorWidget: Container(
                                   width: 40,
                                   height: 40,
                                   color: Colors.grey[300],
-                                  child: Icon(Icons.store, color: Colors.grey[600], size: 20),
+                                  child: Icon(Icons.store,
+                                      color: Colors.grey[600], size: 20),
                                 ),
                               ),
                             ),
@@ -1186,7 +1232,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
     }
 
     return _statusTimeline.firstWhere(
-          (item) => item['status'] == currentStatus,
+      (item) => item['status'] == currentStatus,
       orElse: () => _statusTimeline[0],
     );
   }
@@ -1194,7 +1240,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
   int _getCurrentStatusIndex() {
     if (_orderDetail == null) return 0;
     final currentStatus = _orderDetail!.orderStatus;
-    return _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
+    return _statusTimeline
+        .indexWhere((item) => item['status'] == currentStatus);
   }
 
   @override
@@ -1205,7 +1252,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         appBar: AppBar(
           backgroundColor: Colors.white,
           elevation: 0.5,
-          title: const Text('Detail Pesanan', style: TextStyle(color: Colors.black)),
+          title: const Text('Detail Pesanan',
+              style: TextStyle(color: Colors.black)),
           leading: IconButton(
             icon: Container(
               padding: const EdgeInsets.all(7.0),
@@ -1213,7 +1261,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 shape: BoxShape.circle,
                 border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
               ),
-              child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+              child: Icon(Icons.arrow_back_ios_new,
+                  color: GlobalStyle.primaryColor, size: 18),
             ),
             onPressed: () => Navigator.pop(context),
           ),
@@ -1253,7 +1302,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
         appBar: AppBar(
           backgroundColor: Colors.white,
           elevation: 0.5,
-          title: const Text('Detail Pesanan', style: TextStyle(color: Colors.black)),
+          title: const Text('Detail Pesanan',
+              style: TextStyle(color: Colors.black)),
           leading: IconButton(
             icon: Container(
               padding: const EdgeInsets.all(7.0),
@@ -1261,7 +1311,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 shape: BoxShape.circle,
                 border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
               ),
-              child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+              child: Icon(Icons.arrow_back_ios_new,
+                  color: GlobalStyle.primaryColor, size: 18),
             ),
             onPressed: () => Navigator.pop(context),
           ),
@@ -1311,7 +1362,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30)),
                 ),
               ),
             ],
@@ -1341,7 +1393,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               shape: BoxShape.circle,
               border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
             ),
-            child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+            child: Icon(Icons.arrow_back_ios_new,
+                color: GlobalStyle.primaryColor, size: 18),
           ),
           onPressed: () => Navigator.pop(context),
         ),
@@ -1394,35 +1447,35 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                   ],
                 ),
                 const SizedBox(height: 12),
-                _buildInfoRow('Tanggal Pesanan',
-                    DateFormat('dd MMM yyyy, hh.mm a').format(_orderDetail!.createdAt)),
+                _buildInfoRow(
+                    'Tanggal Pesanan',
+                    DateFormat('dd MMM yyyy, hh.mm a')
+                        .format(_orderDetail!.createdAt)),
                 const SizedBox(height: 8),
-                _buildInfoRow('Status Pesanan', _getStatusText(_orderDetail!.orderStatus)),
+                _buildInfoRow('Status Pesanan',
+                    _getStatusText(_orderDetail!.orderStatus)),
                 const SizedBox(height: 8),
-                _buildInfoRow('Total Pembayaran', _orderDetail!.formatTotalAmount()),
+                _buildInfoRow(
+                    'Total Pembayaran', _orderDetail!.formatTotalAmount()),
               ],
             ),
           ),
 
           // Store and Items Section
-          if (_orderDetail != null)
-            _buildStoreAndItemsCard(),
+          if (_orderDetail != null) _buildStoreAndItemsCard(),
 
           // Payment Details Section
-          if (_orderDetail != null)
-            _buildPaymentDetailsCard(),
+          if (_orderDetail != null) _buildPaymentDetailsCard(),
 
           // Driver Information Section
-          if (_orderDetail?.driver != null)
-            _buildDriverCard(),
+          if (_orderDetail?.driver != null) _buildDriverCard(),
 
           // Reviews Section (shown after rating is given)
           if (_orderReviews != null || _driverReviews != null)
             _buildReviewsCard(),
 
           // Action Buttons Section
-          if (_orderDetail != null)
-            _buildActionButtonsCard(),
+          if (_orderDetail != null) _buildActionButtonsCard(),
 
           const SizedBox(height: 20),
         ],
@@ -1577,7 +1630,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 width: 60,
                 height: 60,
                 color: Colors.grey[300],
-                child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                child:
+                    const Icon(Icons.image_not_supported, color: Colors.grey),
               ),
             ),
           ),
@@ -1598,7 +1652,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 ),
                 const SizedBox(height: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: GlobalStyle.lightColor,
                     borderRadius: BorderRadius.circular(12),
@@ -1676,7 +1731,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 const SizedBox(height: 12),
                 _buildPaymentRow('Biaya Pengiriman', _orderDetail!.deliveryFee),
                 const Divider(thickness: 1, height: 24),
-                _buildPaymentRow('Total', _orderDetail!.totalAmount, isTotal: true),
+                _buildPaymentRow('Total', _orderDetail!.totalAmount,
+                    isTotal: true),
               ],
             ),
           ),
@@ -1691,7 +1747,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Pembayaran: ${_getPaymentMethodText(_orderDetail!.paymentMethod)}',
+                  'Pembayaran: ${_getPaymentMethodText}',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.blue[700],
@@ -1809,39 +1865,40 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                       ),
                     ],
                   ),
-                  child: _orderDetail!.driver!.avatar != null && _orderDetail!.driver!.avatar!.isNotEmpty
+                  child: _orderDetail!.driver!.avatar != null &&
+                          _orderDetail!.driver!.avatar!.isNotEmpty
                       ? ClipOval(
-                    child: ImageService.displayImage(
-                      imageSource: _orderDetail!.driver!.avatar!,
-                      width: 80,
-                      height: 80,
-                      fit: BoxFit.cover,
-                      placeholder: const Center(
-                        child: Icon(
-                          Icons.person,
-                          size: 30,
-                          color: Colors.orange,
-                        ),
-                      ),
-                      errorWidget: const Center(
-                        child: Icon(
-                          Icons.person,
-                          size: 30,
-                          color: Colors.orange,
-                        ),
-                      ),
-                    ),
-                  )
+                          child: ImageService.displayImage(
+                            imageSource: _orderDetail!.driver!.avatar!,
+                            width: 80,
+                            height: 80,
+                            fit: BoxFit.cover,
+                            placeholder: const Center(
+                              child: Icon(
+                                Icons.person,
+                                size: 30,
+                                color: Colors.orange,
+                              ),
+                            ),
+                            errorWidget: const Center(
+                              child: Icon(
+                                Icons.person,
+                                size: 30,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ),
+                        )
                       : ClipOval(
-                    child: Container(
-                      color: Colors.orange.withOpacity(0.1),
-                      child: const Icon(
-                        Icons.person,
-                        size: 40,
-                        color: Colors.orange,
-                      ),
-                    ),
-                  ),
+                          child: Container(
+                            color: Colors.orange.withOpacity(0.1),
+                            child: const Icon(
+                              Icons.person,
+                              size: 40,
+                              color: Colors.orange,
+                            ),
+                          ),
+                        ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -1870,10 +1927,12 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.star, color: Colors.amber, size: 16),
+                                const Icon(Icons.star,
+                                    color: Colors.amber, size: 16),
                                 const SizedBox(width: 4),
                                 Text(
-                                  _orderDetail!.driver!.rating.toStringAsFixed(1),
+                                  _orderDetail!.driver!.rating
+                                      .toStringAsFixed(1),
                                   style: TextStyle(
                                     color: Colors.amber[800],
                                     fontWeight: FontWeight.bold,
@@ -1898,7 +1957,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.motorcycle, color: Colors.grey[700], size: 16),
+                            Icon(Icons.motorcycle,
+                                color: Colors.grey[700], size: 16),
                             const SizedBox(width: 4),
                             Text(
                               _orderDetail!.driver!.vehiclePlate,
@@ -1934,7 +1994,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        icon: const Icon(Icons.call, color: Colors.white, size: 18),
+                        icon: const Icon(Icons.call,
+                            color: Colors.white, size: 18),
                         label: const Text(
                           'Hubungi',
                           style: TextStyle(
@@ -1950,13 +2011,15 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                           ),
                           elevation: 2,
                         ),
-                        onPressed: () => _callDriver(_orderDetail!.driver!.phone),
+                        onPressed: () =>
+                            _callDriver(_orderDetail!.driver!.phone),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton.icon(
-                        icon: const Icon(Icons.message, color: Colors.white, size: 18),
+                        icon: const Icon(Icons.message,
+                            color: Colors.white, size: 18),
                         label: const Text(
                           'Pesan',
                           style: TextStyle(
@@ -1972,7 +2035,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                           ),
                           elevation: 2,
                         ),
-                        onPressed: () => _messageDriver(_orderDetail!.driver!.phone),
+                        onPressed: () =>
+                            _messageDriver(_orderDetail!.driver!.phone),
                       ),
                     ),
                   ],
@@ -2104,7 +2168,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.delivery_dining, color: Colors.orange, size: 20),
+                          const Icon(Icons.delivery_dining,
+                              color: Colors.orange, size: 20),
                           const SizedBox(width: 8),
                           const Text(
                             'Review Driver',
@@ -2152,7 +2217,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.green[700], size: 16),
+                    Icon(Icons.check_circle,
+                        color: Colors.green[700], size: 16),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -2176,10 +2242,10 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
   // ✅ UPDATED: Enhanced action buttons with better state management
   Widget _buildActionButtonsCard() {
-    final bool canCancel = _orderDetail!.canBeCancelled &&
-        !_orderDetail!.orderStatus.isCompleted;
-    final bool canRate = _orderDetail!.orderStatus == OrderStatus.delivered &&
-        !_hasGivenRating;
+    final bool canCancel =
+        _orderDetail!.canBeCancelled && !_orderDetail!.orderStatus.isCompleted;
+    final bool canRate =
+        _orderDetail!.orderStatus == OrderStatus.delivered && !_hasGivenRating;
     final bool isCompleted = _orderDetail!.orderStatus.isCompleted;
 
     return _buildCard(
@@ -2195,12 +2261,13 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 child: OutlinedButton.icon(
                   icon: _isCancelling
                       ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Icon(Icons.cancel_outlined),
-                  label: Text(_isCancelling ? 'Membatalkan...' : 'Batalkan Pesanan'),
+                  label: Text(
+                      _isCancelling ? 'Membatalkan...' : 'Batalkan Pesanan'),
                   onPressed: _isCancelling ? null : _cancelOrder,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red,
@@ -2248,13 +2315,17 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                 Navigator.pushNamedAndRemoveUntil(
                   context,
                   HomePage.route,
-                      (route) => false,
+                  (route) => false,
                 );
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: isCompleted ? GlobalStyle.primaryColor : Colors.white,
-                foregroundColor: isCompleted ? Colors.white : GlobalStyle.primaryColor,
-                side: isCompleted ? null : BorderSide(color: GlobalStyle.primaryColor),
+                backgroundColor:
+                    isCompleted ? GlobalStyle.primaryColor : Colors.white,
+                foregroundColor:
+                    isCompleted ? Colors.white : GlobalStyle.primaryColor,
+                side: isCompleted
+                    ? null
+                    : BorderSide(color: GlobalStyle.primaryColor),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
