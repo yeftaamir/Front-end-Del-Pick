@@ -774,6 +774,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
   }
 
   // ✅ INTEGRATED ORDER STATUS CARD: Built directly into the page
+  // ✅ FIXED: Order Status Card with overflow fix
   Widget _buildOrderStatusCard() {
     if (_orderDetail == null) {
       return Container(
@@ -935,79 +936,102 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
 
                   const SizedBox(height: 20),
 
-                  // Status Timeline
+                  // ✅ FIXED: Status Timeline with overflow handling
                   if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Row(
-                        children: List.generate(_statusTimeline.length, (index) {
-                          final isActive = index <= currentIndex;
-                          final isCurrent = index == currentIndex;
-                          final isLast = index == _statusTimeline.length - 1;
-                          final statusItem = _statusTimeline[index];
+                      padding: const EdgeInsets.symmetric(horizontal: 5), // ✅ Reduced padding
+                      child: Column(
+                        children: [
+                          // Icons and connectors row
+                          Row(
+                            children: List.generate(_statusTimeline.length, (index) {
+                              final isActive = index <= currentIndex;
+                              final isCurrent = index == currentIndex;
+                              final isLast = index == _statusTimeline.length - 1;
+                              final statusItem = _statusTimeline[index];
 
-                          return Expanded(
-                            child: Row(
-                              children: [
-                                Column(
+                              return Expanded(
+                                child: Row(
                                   children: [
-                                    AnimatedContainer(
-                                      duration: const Duration(milliseconds: 300),
-                                      width: isCurrent ? 32 : 24,
-                                      height: isCurrent ? 32 : 24,
-                                      decoration: BoxDecoration(
-                                        color: isActive
-                                            ? statusItem['color']
-                                            : Colors.grey[300],
-                                        shape: BoxShape.circle,
-                                        boxShadow: isCurrent ? [
-                                          BoxShadow(
-                                            color: statusItem['color'].withOpacity(0.4),
-                                            blurRadius: 8,
-                                            spreadRadius: 2,
+                                    // ✅ FIXED: Centered icon without text
+                                    Expanded(
+                                      child: Center(
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 300),
+                                          width: isCurrent ? 28 : 20, // ✅ Slightly smaller
+                                          height: isCurrent ? 28 : 20, // ✅ Slightly smaller
+                                          decoration: BoxDecoration(
+                                            color: isActive
+                                                ? statusItem['color']
+                                                : Colors.grey[300],
+                                            shape: BoxShape.circle,
+                                            boxShadow: isCurrent ? [
+                                              BoxShadow(
+                                                color: statusItem['color'].withOpacity(0.4),
+                                                blurRadius: 6, // ✅ Reduced shadow
+                                                spreadRadius: 1, // ✅ Reduced shadow
+                                              ),
+                                            ] : [],
                                           ),
-                                        ] : [],
-                                      ),
-                                      child: Icon(
-                                        statusItem['icon'],
-                                        color: Colors.white,
-                                        size: isCurrent ? 16 : 12,
+                                          child: Icon(
+                                            statusItem['icon'],
+                                            color: Colors.white,
+                                            size: isCurrent ? 14 : 10, // ✅ Smaller icons
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      statusItem['label'],
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isActive
-                                            ? statusItem['color']
-                                            : Colors.grey,
-                                        fontWeight: isCurrent
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
-                                        fontFamily: GlobalStyle.fontFamily,
+                                    // ✅ FIXED: Connector line
+                                    if (!isLast)
+                                      Container(
+                                        width: 20, // ✅ Fixed width connector
+                                        height: 2,
+                                        decoration: BoxDecoration(
+                                          color: index < currentIndex
+                                              ? _statusTimeline[index]['color']
+                                              : Colors.grey[300],
+                                          borderRadius: BorderRadius.circular(1),
+                                        ),
                                       ),
-                                      textAlign: TextAlign.center,
-                                    ),
                                   ],
                                 ),
-                                if (!isLast)
-                                  Expanded(
-                                    child: Container(
-                                      height: 2,
-                                      margin: const EdgeInsets.only(bottom: 20),
-                                      decoration: BoxDecoration(
-                                        color: index < currentIndex
-                                            ? _statusTimeline[index]['color']
-                                            : Colors.grey[300],
-                                        borderRadius: BorderRadius.circular(1),
-                                      ),
+                              );
+                            }),
+                          ),
+
+                          const SizedBox(height: 8), // ✅ Space between icons and labels
+
+                          // ✅ FIXED: Labels row with proper overflow handling
+                          Row(
+                            children: List.generate(_statusTimeline.length, (index) {
+                              final isActive = index <= currentIndex;
+                              final isCurrent = index == currentIndex;
+                              final statusItem = _statusTimeline[index];
+
+                              return Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 2), // ✅ Minimal padding
+                                  child: Text(
+                                    statusItem['label'],
+                                    style: TextStyle(
+                                      fontSize: 9, // ✅ Smaller font
+                                      color: isActive
+                                          ? statusItem['color']
+                                          : Colors.grey,
+                                      fontWeight: isCurrent
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                      fontFamily: GlobalStyle.fontFamily,
                                     ),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2, // ✅ Allow 2 lines
+                                    overflow: TextOverflow.ellipsis, // ✅ Handle overflow
                                   ),
-                              ],
-                            ),
-                          );
-                        }),
+                                ),
+                              );
+                            }),
+                          ),
+                        ],
                       ),
                     ),
 
@@ -1105,6 +1129,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> with TickerProvid
                                       fontWeight: FontWeight.w600,
                                       fontFamily: GlobalStyle.fontFamily,
                                     ),
+                                    maxLines: 1, // ✅ Limit text overflow
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                   Text(
                                     '${_orderDetail!.totalItems} item',
