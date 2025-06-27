@@ -59,6 +59,26 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   Timer? _orderMonitorTimer;
   Set<String> _existingOrderIds = {};
 
+  ///state management untuk melacak perubahan
+  Set<String> _processedOrderIds = <String>{}; // Track processed orders locally
+  bool _needsRefresh =
+      false; // Flag untuk refresh saat kembali dari halaman lain
+  DateTime? _lastRefreshTime; // Track last refresh time
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Check if we need to refresh when returning from other pages
+    if (_needsRefresh) {
+      _needsRefresh = false;
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          _forceRefreshOrders();
+        }
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -174,6 +194,36 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     } catch (e) {
       print('❌ HomeStore: Error loading store data: $e');
       throw Exception('Failed to load store data: $e');
+    }
+  }
+
+  Future<void> _forceRefreshOrders() async {
+    try {
+      print('🔄 HomeStore: Force refreshing orders...');
+
+      // Clear all local state
+      setState(() {
+        _processedOrderIds.clear();
+        _orders.clear();
+        _existingOrderIds.clear();
+      });
+
+      await _loadOrders(forceRefresh: true);
+
+      print('✅ HomeStore: Force refresh completed');
+    } catch (e) {
+      print('❌ HomeStore: Error force refreshing orders: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memuat pesanan: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
     }
   }
 
@@ -550,10 +600,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   }
 
   // ✅ FIXED: Enhanced order loading dengan OrderService yang benar
-  // Perbaiki method _loadOrders di home_store.dart
-  Future<void> _loadOrders({bool isRefresh = false}) async {
+  Future<void> _loadOrders(
+      {bool isRefresh = false, bool forceRefresh = false}) async {
     try {
-      print('📋 HomeStore: Loading orders (refresh: $isRefresh)...');
+      print(
+          '📋 HomeStore: Loading orders (refresh: $isRefresh, force: $forceRefresh)...');
 
       // Validate store access before loading orders
       final hasStoreAccess = await AuthService.hasRole('store');
@@ -561,37 +612,59 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         throw Exception('Access denied: Store authentication required');
       }
 
-      if (isRefresh) {
+      if (isRefresh || forceRefresh) {
         setState(() {
           _currentPage = 1;
           _hasMoreData = true;
+          // ✅ BARU: Clear processed orders cache when force refreshing
+          if (forceRefresh) {
+            _processedOrderIds.clear();
+          }
         });
       }
 
-      // Get orders by store dengan filter status yang lebih spesifik
+      // ✅ PERBAIKAN: Get orders dengan timestamp untuk mencegah data lama
       final response = await OrderService.getOrdersByStore(
         page: _currentPage,
         limit: 10,
         sortBy: 'created_at',
         sortOrder: 'desc',
-        // Tambahkan filter status jika API mendukung
-        status: 'pending', // Hanya ambil order dengan status pending
+        // ✅ BARU: Tambahkan timestamp parameter jika API mendukung
+        timestamp: forceRefresh ? DateTime.now().millisecondsSinceEpoch : null,
       );
 
-      // Process response sesuai struktur backend baru
-      final orders = List<Map<String, dynamic>>.from(response['orders'] ?? [])
-          .where((order) =>
-              order['order_status'] ==
-              'pending') // Filter di client side jika API belum support
-          .toList();
+      // ✅ PERBAIKAN: Process response dengan filtering yang lebih ketat
+      final allOrders =
+          List<Map<String, dynamic>>.from(response['orders'] ?? []);
+
+      // ✅ PERBAIKAN: Filter orders yang valid untuk ditampilkan
+      final validOrders = allOrders.where((order) {
+        final orderId = order['id']?.toString() ?? '';
+        final orderStatus = order['order_status']?.toString() ?? '';
+
+        // ✅ Filter 1: Hanya tampilkan status pending
+        if (orderStatus != 'pending') {
+          print('🔍 Filtering out order $orderId with status: $orderStatus');
+          return false;
+        }
+
+        // ✅ Filter 2: Exclude orders yang sudah diproses locally
+        if (_processedOrderIds.contains(orderId)) {
+          print('🔍 Filtering out processed order: $orderId');
+          return false;
+        }
+
+        return true;
+      }).toList();
 
       final totalPages = response['totalPages'] ?? 1;
 
-      print('📋 HomeStore: Retrieved ${orders.length} pending orders');
+      print(
+          '📋 HomeStore: Retrieved ${validOrders.length} valid pending orders from ${allOrders.length} total orders');
 
       // Detect new orders for celebration
-      if (!isRefresh && _existingOrderIds.isNotEmpty) {
-        for (var order in orders) {
+      if (!isRefresh && !forceRefresh && _existingOrderIds.isNotEmpty) {
+        for (var order in validOrders) {
           final orderId = order['id']?.toString();
           if (orderId != null && !_existingOrderIds.contains(orderId)) {
             print('🎉 HomeStore: New order detected: $orderId');
@@ -603,23 +676,24 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
       // Update existing order IDs
       _existingOrderIds =
-          orders.map((order) => order['id']?.toString() ?? '').toSet();
+          validOrders.map((order) => order['id']?.toString() ?? '').toSet();
 
       setState(() {
-        if (isRefresh) {
-          _orders = orders;
+        if (isRefresh || forceRefresh) {
+          _orders = validOrders;
           _initialAnimations();
         } else {
-          _orders.addAll(orders);
-          _addNewAnimations(orders.length);
+          _orders.addAll(validOrders);
+          _addNewAnimations(validOrders.length);
         }
 
         _hasMoreData = _currentPage < totalPages;
         _currentPage++;
+        _lastRefreshTime = DateTime.now();
       });
 
       // Start animations for new items
-      if (isRefresh) {
+      if (isRefresh || forceRefresh) {
         _startAnimations();
       } else {
         _startNewAnimations();
@@ -628,28 +702,28 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       print('✅ HomeStore: Orders loaded successfully');
     } catch (e) {
       print('❌ HomeStore: Error loading orders: $e');
-      if (isRefresh) {
+      if (isRefresh || forceRefresh) {
         throw e;
       }
     }
   }
 
-  // ✅ FIXED: Real-time order monitoring dengan service yang benar
-// Perbaiki method _startOrderMonitoring di home_store.dart
+  //Real-time order monitoring dengan service yang benar
   void _startOrderMonitoring() {
     print(
         '🔄 HomeStore: Starting real-time order monitoring (35s interval)...');
 
     _orderMonitorTimer =
         Timer.periodic(const Duration(seconds: 35), (timer) async {
-      // ✅ Ubah ke 35 detik
       if (!mounted) {
         timer.cancel();
         return;
       }
+
       setState(() {
         _isAutoRefreshing = true;
       });
+
       try {
         print('📡 HomeStore: Checking for new orders...');
 
@@ -669,12 +743,20 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           sortOrder: 'desc',
         );
 
-        final latestOrders =
-            List<Map<String, dynamic>>.from(response['orders'] ?? [])
-                .where((order) => order['order_status'] == 'pending')
-                .toList();
+        final allLatestOrders =
+            List<Map<String, dynamic>>.from(response['orders'] ?? []);
 
-        // ✅ PERBAIKAN: Detect both new orders AND removed orders
+        // ✅ PERBAIKAN: Filter dengan aturan yang sama seperti _loadOrders
+        final latestOrders = allLatestOrders.where((order) {
+          final orderId = order['id']?.toString() ?? '';
+          final orderStatus = order['order_status']?.toString() ?? '';
+
+          // Filter hanya pending dan belum diproses
+          return orderStatus == 'pending' &&
+              !_processedOrderIds.contains(orderId);
+        }).toList();
+
+        // Check for changes
         final currentOrderIds =
             _orders.map((order) => order['id']?.toString() ?? '').toSet();
         final latestOrderIds =
@@ -692,7 +774,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           print(
               '🔄 HomeStore: Changes detected - New: ${newOrderIds.length}, Removed: ${removedOrderIds.length}');
 
-          // ✅ PERBAIKAN: Update UI directly instead of full refresh
+          // ✅ PERBAIKAN: Update UI dengan validasi yang lebih ketat
           setState(() {
             // Dispose old controllers for removed orders
             for (var controller in _cardControllers) {
@@ -709,7 +791,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           // Start animations
           _startAnimations();
 
-          // ✅ PERBAIKAN: Show notifications and celebrations for new orders
+          // Show notifications and celebrations for new orders
           for (String orderId in newOrderIds) {
             final newOrder = latestOrders.firstWhere(
               (order) => order['id']?.toString() == orderId,
@@ -721,7 +803,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             }
           }
 
-          // ✅ PERBAIKAN: Show update feedback
+          // Show update feedback
           if (mounted && newOrderIds.isNotEmpty) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -744,6 +826,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         } else {
           print('✅ HomeStore: No changes detected');
         }
+
         if (mounted) {
           setState(() {
             _isAutoRefreshing = false;
@@ -751,13 +834,16 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         }
       } catch (e) {
         print('❌ HomeStore: Error during order monitoring: $e');
-        // Silently fail to avoid disrupting user experience
+        if (mounted) {
+          setState(() {
+            _isAutoRefreshing = false;
+          });
+        }
       }
     });
   }
 
-  // ✅ FIXED: Enhanced order processing menggunakan OrderService.processOrderByStore
-// Perbaiki method _processOrder di home_store.dart
+  /// Enhanced order processing menggunakan OrderService.processOrderByStore
   Future<void> _processOrder(String orderId, String action) async {
     try {
       print('⚙️ HomeStore: Processing order $orderId with action: $action');
@@ -767,6 +853,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
       }
+
+      // ✅ BARU: Immediately mark as processed to prevent re-appearance
+      setState(() {
+        _processedOrderIds.add(orderId);
+      });
 
       // Show loading dialog
       showDialog(
@@ -806,7 +897,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       // Close loading dialog
       if (mounted) Navigator.of(context).pop();
 
-      // ✅ IMMEDIATE UI UPDATE - Remove order from list immediately
+      // ✅ PERBAIKAN: Immediate UI update dengan validation
       setState(() {
         final orderIndex =
             _orders.indexWhere((order) => order['id']?.toString() == orderId);
@@ -827,7 +918,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         }
       });
 
-      print('✅ HomeStore: Order processed successfully and removed from UI');
+      print(
+          '✅ HomeStore: Order $orderId processed successfully and removed from UI');
 
       // Show appropriate response
       if (action == 'approve') {
@@ -854,7 +946,15 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           );
         }
       }
+
+      // ✅ BARU: Set flag to refresh when returning from other pages
+      _needsRefresh = true;
     } catch (e) {
+      // ✅ BARU: Remove from processed if failed
+      setState(() {
+        _processedOrderIds.remove(orderId);
+      });
+
       // Close loading dialog if still open
       if (mounted) Navigator.of(context).pop();
 
@@ -881,12 +981,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ FIXED: Enhanced order detail viewing menggunakan OrderService.getOrderById
+  /// Enhanced order detail viewing menggunakan OrderService.getOrderById
   Future<void> _viewOrderDetail(String orderId) async {
     try {
       print('👁️ HomeStore: Viewing order detail: $orderId');
 
-      // ✅ FIXED: Validate access before viewing details
+      // Validate access before viewing details
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
@@ -919,14 +1019,14 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         ),
       );
 
-      // ✅ FIXED: Get order detail menggunakan OrderService.getOrderById
+      // Get order detail menggunakan OrderService.getOrderById
       final orderDetail = await OrderService.getOrderById(orderId);
 
       Navigator.of(context).pop(); // Close loading dialog
 
       if (orderDetail.isNotEmpty) {
-        // Navigate to detail page
-        Navigator.push(
+        // ✅ PERBAIKAN: Navigate dengan proper return handling
+        final result = await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => HistoryStoreDetailPage(
@@ -934,6 +1034,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             ),
           ),
         );
+
+        // ✅ BARU: Handle return from detail page
+        if (result != null || mounted) {
+          await _handleNavigationReturn();
+        }
 
         print('✅ HomeStore: Navigated to order detail');
       } else {
@@ -956,13 +1061,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ FIXED: Enhanced refresh dengan proper error handling
+  /// Enhanced refresh dengan proper error handling
   Future<void> _refreshOrders() async {
     try {
       print('🔄 HomeStore: Refreshing orders...');
 
-      // Don't show loading spinner for refresh, just update data
-      await _loadOrders(isRefresh: true);
+      // Use force refresh to clear cache
+      await _forceRefreshOrders();
 
       print('✅ HomeStore: Orders refreshed successfully');
 
@@ -998,6 +1103,18 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _handleNavigationReturn() async {
+    print('🔙 HomeStore: Handling navigation return');
+    _needsRefresh = true;
+
+    // Small delay to ensure smooth transition
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (mounted) {
+      _forceRefreshOrders();
     }
   }
 
@@ -1209,11 +1326,23 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   }
 
   /// method filteredOrders di home_store.dart
+
   List<Map<String, dynamic>> get filteredOrders {
     return _orders.where((order) {
+      final orderId = order['id']?.toString() ?? '';
       final status = order['order_status']?.toString() ?? 'pending';
-      // ✅ FIXED: Filter lebih ketat untuk hanya menampilkan order yang perlu action
-      return ['pending', 'confirmed'].contains(order['order_status']);
+
+      // ✅ Filter 1: Hanya tampilkan pending orders
+      if (status != 'pending') {
+        return false;
+      }
+
+      // ✅ Filter 2: Exclude orders yang sudah diproses locally
+      if (_processedOrderIds.contains(orderId)) {
+        return false;
+      }
+
+      return true;
     }).toList();
   }
 

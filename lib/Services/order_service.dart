@@ -42,12 +42,17 @@ class OrderService {
 
       // ✅ Prepare order body sesuai struktur backend
       final body = {
-        'store_id': int.parse(storeId), // Backend expect 'store_id', bukan 'storeId'
-        'items': items.map((item) => {
-          'menu_item_id': item['id'] ?? item['menu_item_id'] ?? item['itemId'], // Backend expect 'menu_item_id'
-          'quantity': item['quantity'] ?? 1,
-          'notes': item['notes'] ?? '',
-        }).toList(),
+        'store_id':
+            int.parse(storeId), // Backend expect 'store_id', bukan 'storeId'
+        'items': items
+            .map((item) => {
+                  'menu_item_id': item['id'] ??
+                      item['menu_item_id'] ??
+                      item['itemId'], // Backend expect 'menu_item_id'
+                  'quantity': item['quantity'] ?? 1,
+                  'notes': item['notes'] ?? '',
+                })
+            .toList(),
         if (notes != null && notes.isNotEmpty) 'notes': notes,
       };
 
@@ -78,12 +83,16 @@ class OrderService {
       print('❌ OrderService: Place order error: $e');
 
       // ✅ Enhanced error handling with specific messages
-      if (e.toString().contains('authentication') || e.toString().contains('Access denied')) {
+      if (e.toString().contains('authentication') ||
+          e.toString().contains('Access denied')) {
         throw Exception('Authentication required. Please login as customer.');
       } else if (e.toString().contains('validation')) {
-        throw Exception('Order validation failed. Please check your order details.');
-      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
-        throw Exception('Network error. Please check your internet connection.');
+        throw Exception(
+            'Order validation failed. Please check your order details.');
+      } else if (e.toString().contains('network') ||
+          e.toString().contains('connection')) {
+        throw Exception(
+            'Network error. Please check your internet connection.');
       } else {
         throw Exception('Failed to place order: ${e.toString()}');
       }
@@ -139,12 +148,13 @@ class OrderService {
         print('✅ OrderService: Retrieved ${orders.length} orders');
       }
 
-      return response['data'] ?? {
-        'orders': [],
-        'totalItems': 0,
-        'totalPages': 0,
-        'currentPage': 1,
-      };
+      return response['data'] ??
+          {
+            'orders': [],
+            'totalItems': 0,
+            'totalPages': 0,
+            'currentPage': 1,
+          };
     } catch (e) {
       print('❌ OrderService: Get orders by user error: $e');
       throw Exception('Failed to get user orders: $e');
@@ -158,6 +168,7 @@ class OrderService {
     String? status,
     String? sortBy,
     String? sortOrder,
+    int? timestamp,
   }) async {
     try {
       print('🔍 OrderService: Getting orders by store...');
@@ -182,8 +193,11 @@ class OrderService {
         if (status != null) 'status': status,
         if (sortBy != null) 'sortBy': sortBy,
         if (sortOrder != null) 'sortOrder': sortOrder,
+        if (timestamp != null) '_t': timestamp.toString(),
       };
-
+      if (timestamp != null) {
+        print('🕒 OrderService: Force refresh with timestamp: $timestamp');
+      }
       final response = await BaseService.apiCall(
         method: 'GET',
         endpoint: '$_baseEndpoint/store',
@@ -198,18 +212,43 @@ class OrderService {
           _processOrderData(order);
         }
         print('✅ OrderService: Retrieved ${orders.length} store orders');
+
+        if (timestamp != null) {
+          print('🔄 OrderService: Force refresh completed');
+        }
       }
 
-      return response['data'] ?? {
-        'orders': [],
-        'totalItems': 0,
-        'totalPages': 0,
-        'currentPage': 1,
-      };
+      return response['data'] ??
+          {
+            'orders': [],
+            'totalItems': 0,
+            'totalPages': 0,
+            'currentPage': 1,
+          };
     } catch (e) {
       print('❌ OrderService: Get orders by store error: $e');
       throw Exception('Failed to get store orders: $e');
     }
+  }
+
+  ///Method khusus untuk force refresh
+  static Future<Map<String, dynamic>> forceRefreshOrdersByStore({
+    int page = 1,
+    int limit = 10,
+    String? status,
+    String? sortBy,
+    String? sortOrder,
+  }) async {
+    print('🔄 OrderService: Force refreshing orders by store...');
+
+    return await getOrdersByStore(
+      page: page,
+      limit: limit,
+      status: status,
+      sortBy: sortBy,
+      sortOrder: sortOrder,
+      timestamp: DateTime.now().millisecondsSinceEpoch, // Auto timestamp
+    );
   }
 
   /// Get order by ID dengan enhanced data processing dan numeric conversion
@@ -336,14 +375,16 @@ class OrderService {
       if (['store', 'driver', 'admin'].contains(userRole.toLowerCase())) {
         // Store, driver, admin can update any status
         hasPermission = true;
-      } else if (userRole.toLowerCase() == 'customer' && orderStatus.toLowerCase() == 'cancelled') {
+      } else if (userRole.toLowerCase() == 'customer' &&
+          orderStatus.toLowerCase() == 'cancelled') {
         // Customers can only cancel their own orders
         hasPermission = true;
         print('✅ OrderService: Customer cancellation permission granted');
       }
 
       if (!hasPermission) {
-        throw Exception('Access denied: Insufficient permissions to update order status to $orderStatus');
+        throw Exception(
+            'Access denied: Insufficient permissions to update order status to $orderStatus');
       }
 
       final body = {
@@ -568,11 +609,13 @@ class OrderService {
       // Validate store or admin access
       final userRole = await AuthService.getUserRole();
       if (!['store', 'admin'].contains(userRole?.toLowerCase())) {
-        throw Exception('Access denied: Only store or admin can view statistics');
+        throw Exception(
+            'Access denied: Only store or admin can view statistics');
       }
 
       final queryParams = <String, String>{};
-      if (startDate != null) queryParams['startDate'] = startDate.toIso8601String();
+      if (startDate != null)
+        queryParams['startDate'] = startDate.toIso8601String();
       if (endDate != null) queryParams['endDate'] = endDate.toIso8601String();
       if (groupBy != null) queryParams['groupBy'] = groupBy;
 
@@ -655,17 +698,39 @@ class OrderService {
     try {
       // List of fields that should be converted from String to double
       final doubleFields = [
-        'total_amount', 'total_price', 'total', 'subtotal', 'delivery_fee', 'service_fee',
-        'price', 'rating', 'latitude', 'longitude', 'distance',
-        'pickup_latitude', 'pickup_longitude', 'destination_latitude', 'destination_longitude',
-        'distance_km', 'distance_meters', 'base_fee'
+        'total_amount',
+        'total_price',
+        'total',
+        'subtotal',
+        'delivery_fee',
+        'service_fee',
+        'price',
+        'rating',
+        'latitude',
+        'longitude',
+        'distance',
+        'pickup_latitude',
+        'pickup_longitude',
+        'destination_latitude',
+        'destination_longitude',
+        'distance_km',
+        'distance_meters',
+        'base_fee'
       ];
 
       // List of fields that should be converted from String to int
       final intFields = [
-        'id', 'customer_id', 'driver_id', 'store_id', 'menu_item_id',
-        'quantity', 'reviews_count', 'review_count', 'total_products',
-        'estimated_duration', 'duration_minutes'
+        'id',
+        'customer_id',
+        'driver_id',
+        'store_id',
+        'menu_item_id',
+        'quantity',
+        'reviews_count',
+        'review_count',
+        'total_products',
+        'estimated_duration',
+        'duration_minutes'
       ];
 
       // Convert double fields
@@ -689,7 +754,6 @@ class OrderService {
           }
         }
       }
-
     } catch (e) {
       print('❌ OrderService: Error processing numeric fields: $e');
     }
@@ -702,7 +766,8 @@ class OrderService {
       _processNumericFields(statistics);
 
       // Process nested data if present
-      if (statistics['daily_stats'] != null && statistics['daily_stats'] is List) {
+      if (statistics['daily_stats'] != null &&
+          statistics['daily_stats'] is List) {
         final dailyStats = statistics['daily_stats'] as List;
         for (var stat in dailyStats) {
           if (stat is Map<String, dynamic>) {
@@ -711,7 +776,8 @@ class OrderService {
         }
       }
 
-      if (statistics['monthly_stats'] != null && statistics['monthly_stats'] is List) {
+      if (statistics['monthly_stats'] != null &&
+          statistics['monthly_stats'] is List) {
         final monthlyStats = statistics['monthly_stats'] as List;
         for (var stat in monthlyStats) {
           if (stat is Map<String, dynamic>) {
@@ -719,7 +785,6 @@ class OrderService {
           }
         }
       }
-
     } catch (e) {
       print('❌ OrderService: Error processing statistics data: $e');
     }
@@ -771,20 +836,25 @@ class OrderService {
     try {
       // Process store image
       if (order['store'] != null && order['store']['image_url'] != null) {
-        order['store']['image_url'] = ImageService.getImageUrl(order['store']['image_url']);
+        order['store']['image_url'] =
+            ImageService.getImageUrl(order['store']['image_url']);
       }
 
       // Process customer avatar
       if (order['customer'] != null && order['customer']['avatar'] != null) {
-        order['customer']['avatar'] = ImageService.getImageUrl(order['customer']['avatar']);
+        order['customer']['avatar'] =
+            ImageService.getImageUrl(order['customer']['avatar']);
       }
 
       // Process driver avatar (bisa di nested user atau langsung)
       if (order['driver'] != null) {
-        if (order['driver']['user'] != null && order['driver']['user']['avatar'] != null) {
-          order['driver']['user']['avatar'] = ImageService.getImageUrl(order['driver']['user']['avatar']);
+        if (order['driver']['user'] != null &&
+            order['driver']['user']['avatar'] != null) {
+          order['driver']['user']['avatar'] =
+              ImageService.getImageUrl(order['driver']['user']['avatar']);
         } else if (order['driver']['avatar'] != null) {
-          order['driver']['avatar'] = ImageService.getImageUrl(order['driver']['avatar']);
+          order['driver']['avatar'] =
+              ImageService.getImageUrl(order['driver']['avatar']);
         }
       }
 
@@ -805,8 +875,10 @@ class OrderService {
           if (item['image_url'] != null) {
             item['image_url'] = ImageService.getImageUrl(item['image_url']);
           }
-          if (item['menu_item'] != null && item['menu_item']['image_url'] != null) {
-            item['menu_item']['image_url'] = ImageService.getImageUrl(item['menu_item']['image_url']);
+          if (item['menu_item'] != null &&
+              item['menu_item']['image_url'] != null) {
+            item['menu_item']['image_url'] =
+                ImageService.getImageUrl(item['menu_item']['image_url']);
           }
         }
       }
