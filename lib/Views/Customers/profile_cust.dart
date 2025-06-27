@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:isolate';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -11,6 +13,116 @@ import '../../Services/image_service.dart';
 import '../../Services/Core/token_service.dart';
 import '../Controls/login_page.dart';
 
+// Ultra-Optimized Cache System for Profile
+class _ProfileCacheManager {
+  static Map<String, dynamic>? _cachedProfile;
+  static DateTime? _cacheTimestamp;
+  static String? _cachedAvatarUrl;
+  static const Duration _cacheExpiry = Duration(minutes: 5);
+  static const Duration _avatarCacheExpiry = Duration(minutes: 15);
+
+  static bool _isProfileCacheValid() {
+    return _cacheTimestamp != null &&
+        DateTime.now().difference(_cacheTimestamp!) < _cacheExpiry;
+  }
+
+  static void cacheProfile(Map<String, dynamic> profile) {
+    _cachedProfile = Map<String, dynamic>.from(profile);
+    _cacheTimestamp = DateTime.now();
+  }
+
+  static Map<String, dynamic>? getCachedProfile() {
+    return _isProfileCacheValid() ? _cachedProfile : null;
+  }
+
+  static void cacheAvatarUrl(String avatarUrl) {
+    _cachedAvatarUrl = avatarUrl;
+  }
+
+  static String? getCachedAvatarUrl() {
+    return _cachedAvatarUrl;
+  }
+
+  static void clearCache() {
+    _cachedProfile = null;
+    _cacheTimestamp = null;
+    _cachedAvatarUrl = null;
+  }
+
+  static void updateProfileField(String key, dynamic value) {
+    if (_cachedProfile != null) {
+      _cachedProfile![key] = value;
+    }
+  }
+}
+
+// Background Processing for Profile Operations
+class _ProfileBackgroundProcessor {
+  static Future<String?> processImageInBackground(XFile imageFile) async {
+    return await Isolate.run(() async {
+      try {
+        // Validate image file
+        if (!ImageService.isValidImageFile(imageFile)) {
+          return null;
+        }
+
+        // Check image size
+        final imageSizeMB = await ImageService.getImageSizeInMB(imageFile);
+        if (imageSizeMB > 5) {
+          throw Exception('Image size too large');
+        }
+
+        // Convert to base64
+        return await ImageService.imageToBase64(imageFile);
+      } catch (e) {
+        return null;
+      }
+    });
+  }
+
+  static Future<Map<String, dynamic>?> loadProfileInBackground() async {
+    try {
+      // Check cache first
+      final cachedProfile = _ProfileCacheManager.getCachedProfile();
+      if (cachedProfile != null) {
+        return cachedProfile;
+      }
+
+      // Load from service
+      final profileData = await AuthService.getProfile();
+      if (profileData != null && profileData.isNotEmpty) {
+        _ProfileCacheManager.cacheProfile(profileData);
+        return profileData;
+      }
+
+      // Fallback to cached user data
+      final cachedData = await AuthService.getUserData();
+      if (cachedData != null && cachedData['user'] != null) {
+        return cachedData['user'];
+      }
+
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> updateProfileInBackground({
+    required Map<String, dynamic> updateData,
+  }) async {
+    try {
+      final updatedProfile = await AuthService.updateProfile(updateData: updateData);
+      if (updatedProfile.isNotEmpty) {
+        _ProfileCacheManager.cacheProfile(updatedProfile);
+        return updatedProfile;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
 class ProfilePage extends StatefulWidget {
   static const String route = "/Customers/Profile";
 
@@ -20,67 +132,79 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin {
-  Map<String, dynamic>? _userProfile;
-  bool _isLoading = true;
-  bool _isUpdatingImage = false;
-  bool _hasError = false;
-  String _errorMessage = '';
+class _ProfilePageState extends State<ProfilePage>
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
 
+  static const bool _debugMode = false;
+
+  void _log(String message) {
+    if (_debugMode) print(message);
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
+  // Performance-Optimized State with ValueNotifiers
+  final ValueNotifier<Map<String, dynamic>?> _userProfileNotifier = ValueNotifier(null);
+  final ValueNotifier<bool> _isLoadingNotifier = ValueNotifier(true);
+  final ValueNotifier<bool> _isUpdatingImageNotifier = ValueNotifier(false);
+  final ValueNotifier<bool> _hasErrorNotifier = ValueNotifier(false);
+  final ValueNotifier<String> _errorMessageNotifier = ValueNotifier('');
+
+  // Optimized Animation Controllers
   late AnimationController _fadeController;
   late AnimationController _slideController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
+  // Performance flags
+  bool _disposed = false;
+  bool _initialLoadComplete = false;
+
   @override
   void initState() {
     super.initState();
-    _initializeAnimations();
-    _loadUserProfile();
+    _initializeControllersOptimized();
+    _loadUserProfileOptimized();
   }
 
-  void _initializeAnimations() {
+  void _initializeControllersOptimized() {
+    // Lighter, faster animations
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 400), // Reduced from 800ms
       vsync: this,
     );
+
     _slideController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 300), // Reduced from 600ms
       vsync: this,
     );
 
     _fadeAnimation = CurvedAnimation(
       parent: _fadeController,
-      curve: Curves.easeIn,
+      curve: Curves.easeOut, // Faster curve
     );
 
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.1),
+      begin: const Offset(0, 0.05), // Reduced movement
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _slideController,
-      curve: Curves.easeOutQuart,
+      curve: Curves.easeOut, // Faster curve
     ));
   }
 
-  @override
-  void dispose() {
-    _fadeController.dispose();
-    _slideController.dispose();
-    super.dispose();
-  }
+  // Ultra-Fast Profile Loading with Caching
+  Future<void> _loadUserProfileOptimized() async {
+    if (_disposed) return;
 
-  /// Load user profile using AuthService.getProfile()
-  Future<void> _loadUserProfile() async {
-    if (!mounted) return;
-
-    setState(() {
-      _isLoading = true;
-      _hasError = false;
-      _errorMessage = '';
-    });
+    _isLoadingNotifier.value = true;
+    _hasErrorNotifier.value = false;
+    _errorMessageNotifier.value = '';
 
     try {
+      _log('Starting profile load...');
+
       // Check authentication first
       final isAuthenticated = await AuthService.isAuthenticated();
       if (!isAuthenticated) {
@@ -88,65 +212,79 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
         return;
       }
 
-      // Get profile using AuthService
-      final profileData = await AuthService.getProfile();
+      // Try cache first for instant loading
+      final cachedProfile = _ProfileCacheManager.getCachedProfile();
+      if (cachedProfile != null && !_initialLoadComplete) {
+        _log('Using cached profile');
+        _userProfileNotifier.value = cachedProfile;
+        _startAnimationsOptimized();
+        _isLoadingNotifier.value = false;
+        _initialLoadComplete = true;
+
+        // Load fresh data in background
+        _refreshProfileInBackground();
+        return;
+      }
+
+      // Load profile in background
+      final profileData = await _ProfileBackgroundProcessor.loadProfileInBackground();
 
       if (profileData != null && profileData.isNotEmpty) {
-        if (mounted) {
-          setState(() {
-            _userProfile = profileData;
-          });
-          _fadeController.forward();
-          _slideController.forward();
+        if (!_disposed) {
+          _userProfileNotifier.value = profileData;
+          _startAnimationsOptimized();
+          _initialLoadComplete = true;
         }
       } else {
         throw Exception('Profile data is empty');
       }
-    } catch (e) {
-      print('Error loading user profile: $e');
 
-      // Try to get cached user data as fallback
-      try {
-        final cachedData = await AuthService.getUserData();
-        if (cachedData != null && cachedData['user'] != null) {
-          if (mounted) {
-            setState(() {
-              _userProfile = cachedData['user'];
-            });
-            _fadeController.forward();
-            _slideController.forward();
-          }
-        } else {
-          throw Exception('No cached profile data available');
-        }
-      } catch (fallbackError) {
-        print('Fallback also failed: $fallbackError');
-        if (mounted) {
-          setState(() {
-            _hasError = true;
-            _errorMessage = e.toString();
-          });
-        }
+    } catch (e) {
+      _log('Profile loading error: $e');
+
+      // Try cached data as final fallback
+      final cachedProfile = _ProfileCacheManager.getCachedProfile();
+      if (cachedProfile != null) {
+        _userProfileNotifier.value = cachedProfile;
+        _startAnimationsOptimized();
+      } else {
+        _hasErrorNotifier.value = true;
+        _errorMessageNotifier.value = e.toString();
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+      if (!_disposed) {
+        _isLoadingNotifier.value = false;
       }
     }
   }
 
-  /// Update profile image using ImageService and AuthService
-  Future<void> _updateProfileImage() async {
-    if (_userProfile == null) return;
+  // Background Profile Refresh
+  Future<void> _refreshProfileInBackground() async {
+    try {
+      _log('Refreshing profile in background...');
+      final freshProfile = await AuthService.getProfile();
 
-    setState(() {
-      _isUpdatingImage = true;
-    });
+      if (freshProfile != null && freshProfile.isNotEmpty && !_disposed) {
+        _ProfileCacheManager.cacheProfile(freshProfile);
+        _userProfileNotifier.value = freshProfile;
+        _log('Profile refreshed successfully');
+      }
+    } catch (e) {
+      _log('Background refresh failed: $e');
+      // Silent fail for background refresh
+    }
+  }
+
+  // Ultra-Optimized Image Update
+  Future<void> _updateProfileImageOptimized() async {
+    if (_userProfileNotifier.value == null || _isUpdatingImageNotifier.value) return;
+
+    _isUpdatingImageNotifier.value = true;
 
     try {
-      // Show image picker bottom sheet
+      _log('Starting image update...');
+
+      // Show image picker
       final imageFile = await ImageService.showImagePickerBottomSheet(
         context,
         allowCamera: true,
@@ -154,199 +292,233 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
       );
 
       if (imageFile == null) {
-        setState(() {
-          _isUpdatingImage = false;
-        });
+        _isUpdatingImageNotifier.value = false;
         return;
       }
 
-      // Validate image file
-      if (!ImageService.isValidImageFile(imageFile)) {
-        _showErrorSnackBar('Please select a valid image file');
-        setState(() {
-          _isUpdatingImage = false;
-        });
-        return;
-      }
+      // Process image in background
+      final base64Image = await _ProfileBackgroundProcessor.processImageInBackground(imageFile);
 
-      // Check image size (optional - limit to 5MB)
-      final imageSizeMB = await ImageService.getImageSizeInMB(imageFile);
-      if (imageSizeMB > 5) {
-        _showErrorSnackBar('Image size should be less than 5MB');
-        setState(() {
-          _isUpdatingImage = false;
-        });
-        return;
-      }
-
-      // Convert image to base64
-      final base64Image = await ImageService.imageToBase64(imageFile);
       if (base64Image == null) {
         _showErrorSnackBar('Failed to process image');
-        setState(() {
-          _isUpdatingImage = false;
-        });
+        _isUpdatingImageNotifier.value = false;
         return;
       }
 
-      // Update profile using AuthService
-      final updateData = {
-        'avatar': base64Image,
-      };
+      // Update profile optimistically in UI first
+      final currentProfile = Map<String, dynamic>.from(_userProfileNotifier.value!);
+      currentProfile['avatar'] = base64Image;
+      _userProfileNotifier.value = currentProfile;
+      _ProfileCacheManager.updateProfileField('avatar', base64Image);
 
-      final updatedProfile = await AuthService.updateProfile(
+      // Update on server in background
+      final updateData = {'avatar': base64Image};
+      final updatedProfile = await _ProfileBackgroundProcessor.updateProfileInBackground(
         updateData: updateData,
       );
 
-      if (updatedProfile.isNotEmpty) {
-        // Reload profile to get updated data
-        await _loadUserProfile();
-
-        if (!mounted) return;
+      if (updatedProfile != null) {
+        _log('Profile image updated successfully');
         _showSuccessSnackBar('Profile image updated successfully');
       } else {
+        // Revert optimistic update on failure
+        final originalProfile = _ProfileCacheManager.getCachedProfile();
+        if (originalProfile != null) {
+          _userProfileNotifier.value = originalProfile;
+        }
         _showErrorSnackBar('Failed to update profile image');
       }
+
     } catch (e) {
-      print('Error updating profile image: $e');
+      _log('Error updating profile image: $e');
       _showErrorSnackBar('Error updating profile image: ${e.toString()}');
+
+      // Revert optimistic update
+      final originalProfile = _ProfileCacheManager.getCachedProfile();
+      if (originalProfile != null) {
+        _userProfileNotifier.value = originalProfile;
+      }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isUpdatingImage = false;
-        });
+      if (!_disposed) {
+        _isUpdatingImageNotifier.value = false;
       }
     }
   }
 
-  /// Refresh profile data
-  Future<void> _refreshProfile() async {
+  // Optimized Profile Refresh
+  Future<void> _refreshProfileOptimized() async {
     try {
       final refreshedProfile = await AuthService.refreshUserData();
-      if (refreshedProfile != null && mounted) {
-        setState(() {
-          _userProfile = refreshedProfile;
-        });
+      if (refreshedProfile != null && !_disposed) {
+        _ProfileCacheManager.cacheProfile(refreshedProfile);
+        _userProfileNotifier.value = refreshedProfile;
       }
     } catch (e) {
-      print('Error refreshing profile: $e');
+      _log('Error refreshing profile: $e');
     }
   }
 
-  /// Handle logout using AuthService
-  void _handleLogout() async {
+  // Optimized Logout
+  void _handleLogoutOptimized() async {
     _showLoadingDialog('Logging out...');
 
     try {
-      final success = await AuthService.logout();
-      if (success) {
-        _navigateToLogin();
-      } else {
-        // Even if logout fails on server, clear local data and navigate
-        await TokenService.clearAll();
-        _navigateToLogin();
-      }
+      // Clear cache immediately for instant feedback
+      _ProfileCacheManager.clearCache();
+
+      // Parallel logout operations
+      final logoutFuture = AuthService.logout();
+      final clearTokensFuture = TokenService.clearAll();
+
+      await Future.wait([logoutFuture, clearTokensFuture]);
+
+      _navigateToLogin();
     } catch (e) {
-      print('Logout error: $e');
-      // Force logout by clearing local data
+      _log('Logout error: $e');
+      // Force logout even on error
       await TokenService.clearAll();
       _navigateToLogin();
     }
   }
 
-  /// Navigate to login page
   void _navigateToLogin() {
-    if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
-          (route) => false,
-    );
+    if (!_disposed && mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+            (route) => false,
+      );
+    }
   }
 
-  /// View profile image in full screen
-  void _viewProfileImage() {
-    final avatar = _userProfile?['avatar'];
+  // Optimized Image Viewer
+  void _viewProfileImageOptimized() {
+    final profile = _userProfileNotifier.value;
+    final avatar = profile?['avatar'];
+
     if (avatar == null || avatar.toString().isEmpty) return;
 
-    final imageUrl = ImageService.getImageUrl(avatar);
+    // Use cached URL if available
+    String imageUrl = _ProfileCacheManager.getCachedAvatarUrl() ??
+        ImageService.getImageUrl(avatar);
+
     if (imageUrl.isEmpty) return;
+
+    // Cache the URL for future use
+    _ProfileCacheManager.cacheAvatarUrl(imageUrl);
 
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(12),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.8,
-                  maxWidth: MediaQuery.of(context).size.width * 0.9,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: ImageService.displayImage(
-                    imageSource: imageUrl,
-                    width: double.infinity,
-                    height: double.infinity,
-                    fit: BoxFit.contain,
-                    placeholder: const Center(
-                      child: CircularProgressIndicator(color: Colors.white),
-                    ),
-                    errorWidget: Container(
-                      color: Colors.grey[900],
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.broken_image, size: 80, color: Colors.white54),
-                          SizedBox(height: 16),
-                          Text(
-                            'Failed to load image',
-                            style: TextStyle(color: Colors.white54, fontSize: 16),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                right: 0,
-                child: GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    margin: const EdgeInsets.all(8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.close, color: Colors.white, size: 24),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+      builder: (BuildContext context) => _buildImageViewerDialog(imageUrl),
     );
   }
 
-  // Helper methods
+  Widget _buildImageViewerDialog(String imageUrl) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(12),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.8,
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: ImageService.displayImage(
+                imageSource: imageUrl,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.contain,
+                placeholder: const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+                errorWidget: Container(
+                  color: Colors.grey[900],
+                  child: const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.broken_image, size: 80, color: Colors.white54),
+                      SizedBox(height: 16),
+                      Text(
+                        'Failed to load image',
+                        style: TextStyle(color: Colors.white54, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                margin: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 24),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Optimized Animation Start
+  void _startAnimationsOptimized() {
+    if (_disposed) return;
+
+    // Start animations immediately without delay
+    _fadeController.forward();
+    _slideController.forward();
+  }
+
+  // Optimized Getters with Null Safety
+  String get userName => _userProfileNotifier.value?['name'] ?? 'User';
+  String get userEmail => _userProfileNotifier.value?['email'] ?? '';
+  String get userPhone => _userProfileNotifier.value?['phone'] ?? '';
+  String get userId => _userProfileNotifier.value?['id']?.toString() ?? '';
+  String get userRole => _userProfileNotifier.value?['role'] ?? 'customer';
+  String? get userAvatar => _userProfileNotifier.value?['avatar'];
+
+  @override
+  void dispose() {
+    _disposed = true;
+
+    // Dispose controllers
+    _fadeController.dispose();
+    _slideController.dispose();
+
+    // Dispose ValueNotifiers
+    _userProfileNotifier.dispose();
+    _isLoadingNotifier.dispose();
+    _isUpdatingImageNotifier.dispose();
+    _hasErrorNotifier.dispose();
+    _errorMessageNotifier.dispose();
+
+    super.dispose();
+  }
+
+  // Helper methods optimized
   void _showLoadingDialog(String message) {
     showDialog(
       context: context,
@@ -390,44 +562,43 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
   }
 
   void _showSuccessSnackBar(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.green,
         behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
       ),
     );
   }
 
   void _showErrorSnackBar(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
 
-  // Getters for user data
-  String get userName => _userProfile?['name'] ?? 'User';
-  String get userEmail => _userProfile?['email'] ?? '';
-  String get userPhone => _userProfile?['phone'] ?? '';
-  String get userId => _userProfile?['id']?.toString() ?? '';
-  String get userRole => _userProfile?['role'] ?? 'customer';
-  String? get userAvatar => _userProfile?['avatar'];
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: _isLoading
-          ? _buildLoadingWidget()
-          : _hasError
-          ? _buildErrorWidget()
-          : _userProfile == null
-          ? _buildNoDataWidget()
-          : _buildProfileContent(),
+    super.build(context);
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: _isLoadingNotifier,
+      builder: (context, isLoading, _) {
+        return Scaffold(
+          backgroundColor: Colors.grey[50],
+          body: isLoading
+              ? _buildLoadingWidget()
+              : _buildMainContent(),
+        );
+      },
     );
   }
 
@@ -453,6 +624,28 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     );
   }
 
+  Widget _buildMainContent() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: _hasErrorNotifier,
+      builder: (context, hasError, _) {
+        if (hasError) {
+          return _buildErrorWidget();
+        }
+
+        return ValueListenableBuilder<Map<String, dynamic>?>(
+          valueListenable: _userProfileNotifier,
+          builder: (context, userProfile, _) {
+            if (userProfile == null) {
+              return _buildNoDataWidget();
+            }
+
+            return _buildProfileContent();
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildErrorWidget() {
     return Center(
       child: Column(
@@ -469,18 +662,23 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
             ),
           ),
           const SizedBox(height: 12),
-          Text(
-            _errorMessage.isNotEmpty ? _errorMessage : 'Please check your connection',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-            textAlign: TextAlign.center,
+          ValueListenableBuilder<String>(
+            valueListenable: _errorMessageNotifier,
+            builder: (context, errorMessage, _) {
+              return Text(
+                errorMessage.isNotEmpty ? errorMessage : 'Please check your connection',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+                textAlign: TextAlign.center,
+              );
+            },
           ),
           const SizedBox(height: 32),
           ElevatedButton.icon(
-            onPressed: _loadUserProfile,
+            onPressed: _loadUserProfileOptimized,
             icon: const Icon(Icons.refresh),
             label: const Text('Try Again'),
             style: ElevatedButton.styleFrom(
@@ -513,7 +711,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
           ),
           const SizedBox(height: 32),
           ElevatedButton.icon(
-            onPressed: _loadUserProfile,
+            onPressed: _loadUserProfileOptimized,
             icon: const Icon(Icons.refresh),
             label: const Text('Reload'),
             style: ElevatedButton.styleFrom(
@@ -531,74 +729,11 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
 
   Widget _buildProfileContent() {
     return RefreshIndicator(
-      onRefresh: _refreshProfile,
+      onRefresh: _refreshProfileOptimized,
       color: GlobalStyle.primaryColor,
       child: CustomScrollView(
         slivers: [
-          // Modern App Bar with Gradient
-          SliverAppBar(
-            expandedHeight: 280,
-            floating: false,
-            pinned: true,
-            backgroundColor: Colors.transparent,
-            flexibleSpace: LayoutBuilder(
-              builder: (BuildContext context, BoxConstraints constraints) {
-                final double top = constraints.biggest.height;
-                final bool isCollapsed = top <= kToolbarHeight + 50;
-
-                return Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        GlobalStyle.primaryColor,
-                        GlobalStyle.primaryColor.withOpacity(0.8),
-                      ],
-                    ),
-                    borderRadius: const BorderRadius.only(
-                      bottomLeft: Radius.circular(30),
-                      bottomRight: Radius.circular(30),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: GlobalStyle.primaryColor.withOpacity(0.3),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: FlexibleSpaceBar(
-                    title: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 200),
-                      opacity: isCollapsed ? 1.0 : 0.0,
-                      child: Text(
-                        userName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    background: _buildProfileHeader(),
-                  ),
-                );
-              },
-            ),
-            leading: Container(
-              margin: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-          ),
-
-          // Profile Content
+          _buildModernAppBar(),
           SliverToBoxAdapter(
             child: FadeTransition(
               opacity: _fadeAnimation,
@@ -621,11 +756,75 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     );
   }
 
+  Widget _buildModernAppBar() {
+    return SliverAppBar(
+      expandedHeight: 280,
+      floating: false,
+      pinned: true,
+      backgroundColor: Colors.transparent,
+      flexibleSpace: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final double top = constraints.biggest.height;
+          final bool isCollapsed = top <= kToolbarHeight + 50;
+
+          return Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  GlobalStyle.primaryColor,
+                  GlobalStyle.primaryColor.withOpacity(0.8),
+                ],
+              ),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(30),
+                bottomRight: Radius.circular(30),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: GlobalStyle.primaryColor.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: FlexibleSpaceBar(
+              title: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: isCollapsed ? 1.0 : 0.0,
+                child: Text(
+                  userName,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              background: _buildProfileHeader(),
+            ),
+          );
+        },
+      ),
+      leading: Container(
+        margin: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          shape: BoxShape.circle,
+        ),
+        child: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+    );
+  }
+
   Widget _buildProfileHeader() {
     return Stack(
       alignment: Alignment.center,
       children: [
-        // Background Pattern
+        // Background Pattern (Simplified for performance)
         Positioned(
           right: -50,
           top: -50,
@@ -660,7 +859,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox(height: 40),
-                _buildProfileImage(),
+                _buildProfileImageOptimized(),
                 const SizedBox(height: 20),
                 Text(
                   userName,
@@ -681,7 +880,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     );
   }
 
-  Widget _buildProfileImage() {
+  Widget _buildProfileImageOptimized() {
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -699,7 +898,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
           ),
         ),
         GestureDetector(
-          onTap: _viewProfileImage,
+          onTap: _viewProfileImageOptimized,
           child: Hero(
             tag: 'profileImage',
             child: Container(
@@ -717,39 +916,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                 ],
               ),
               child: ClipOval(
-                child: userAvatar != null && userAvatar!.isNotEmpty
-                    ? ImageService.displayImage(
-                  imageSource: userAvatar!,
-                  width: 120,
-                  height: 120,
-                  fit: BoxFit.cover,
-                  placeholder: Container(
-                    color: Colors.white,
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          GlobalStyle.primaryColor,
-                        ),
-                      ),
-                    ),
-                  ),
-                  errorWidget: Container(
-                    color: Colors.white,
-                    child: Icon(
-                      Icons.person,
-                      size: 60,
-                      color: GlobalStyle.primaryColor,
-                    ),
-                  ),
-                )
-                    : Container(
-                  color: Colors.white,
-                  child: Icon(
-                    Icons.person,
-                    size: 60,
-                    color: GlobalStyle.primaryColor,
-                  ),
-                ),
+                child: _buildAvatarImage(),
               ),
             ),
           ),
@@ -757,43 +924,85 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
         Positioned(
           bottom: 0,
           right: 0,
-          child: GestureDetector(
-            onTap: _isUpdatingImage ? null : _updateProfileImage,
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.white, Colors.grey[100]!],
-                ),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: _isUpdatingImage
-                  ? SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    GlobalStyle.primaryColor,
-                  ),
-                ),
-              )
-                  : Icon(
-                Icons.camera_alt,
-                color: GlobalStyle.primaryColor,
-                size: 22,
-              ),
+          child: _buildCameraButton(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAvatarImage() {
+    final avatar = userAvatar;
+
+    if (avatar != null && avatar.isNotEmpty) {
+      // Use cached URL if available
+      final cachedUrl = _ProfileCacheManager.getCachedAvatarUrl();
+      final imageUrl = cachedUrl ?? ImageService.getImageUrl(avatar);
+
+      // Cache the URL for future use
+      if (cachedUrl == null) {
+        _ProfileCacheManager.cacheAvatarUrl(imageUrl);
+      }
+
+      return ImageService.displayImage(
+        imageSource: imageUrl,
+        width: 120,
+        height: 120,
+        fit: BoxFit.cover,
+        placeholder: Container(
+          color: Colors.white,
+          child: Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(GlobalStyle.primaryColor),
             ),
           ),
         ),
-      ],
+        errorWidget: Container(
+          color: Colors.white,
+          child: Icon(Icons.person, size: 60, color: GlobalStyle.primaryColor),
+        ),
+      );
+    }
+
+    return Container(
+      color: Colors.white,
+      child: Icon(Icons.person, size: 60, color: GlobalStyle.primaryColor),
+    );
+  }
+
+  Widget _buildCameraButton() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: _isUpdatingImageNotifier,
+      builder: (context, isUpdating, _) {
+        return GestureDetector(
+          onTap: isUpdating ? null : _updateProfileImageOptimized,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.white, Colors.grey[100]!],
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: isUpdating
+                ? SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(GlobalStyle.primaryColor),
+              ),
+            )
+                : Icon(Icons.camera_alt, color: GlobalStyle.primaryColor, size: 22),
+          ),
+        );
+      },
     );
   }
 
@@ -887,7 +1096,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: _handleLogout,
+          onTap: _handleLogoutOptimized,
           borderRadius: BorderRadius.circular(16),
           child: const Center(
             child: Row(
