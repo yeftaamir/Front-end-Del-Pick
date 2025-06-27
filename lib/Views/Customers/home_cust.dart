@@ -175,7 +175,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         if (tokenUserData != null) {
           setState(() {
             _userData = tokenUserData;
-            _userName = tokenUserData['user']?['name'] ?? tokenUserData['name'] ?? '';
+            _userName =
+                tokenUserData['user']?['name'] ?? tokenUserData['name'] ?? '';
           });
         }
       }
@@ -187,7 +188,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         if (tokenUserData != null) {
           setState(() {
             _userData = tokenUserData;
-            _userName = tokenUserData['user']?['name'] ?? tokenUserData['name'] ?? '';
+            _userName =
+                tokenUserData['user']?['name'] ?? tokenUserData['name'] ?? '';
           });
         }
       } catch (tokenError) {
@@ -290,7 +292,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         for (var storeJson in storesData) {
           try {
             // Create StoreModel with proper error handling
-            final store = _createSafeStoreModel(storeJson as Map<String, dynamic>);
+            final store =
+                _createSafeStoreModel(storeJson as Map<String, dynamic>);
             if (store != null) {
               allStores.add(store);
             }
@@ -358,24 +361,31 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         processedData['distance'] = _safeToDouble(processedData['distance']);
       }
       if (processedData['review_count'] != null) {
-        processedData['review_count'] = _safeToInt(processedData['review_count']);
+        processedData['review_count'] =
+            _safeToInt(processedData['review_count']);
       }
       if (processedData['total_products'] != null) {
-        processedData['total_products'] = _safeToInt(processedData['total_products']);
+        processedData['total_products'] =
+            _safeToInt(processedData['total_products']);
       }
 
       // Ensure required string fields are present
       processedData['name'] = processedData['name']?.toString() ?? '';
       processedData['address'] = processedData['address']?.toString() ?? '';
-      processedData['description'] = processedData['description']?.toString() ?? '';
+      processedData['description'] =
+          processedData['description']?.toString() ?? '';
       processedData['phone'] = processedData['phone']?.toString() ?? '';
-      processedData['open_time'] = processedData['open_time']?.toString() ?? '08:00';
-      processedData['close_time'] = processedData['close_time']?.toString() ?? '22:00';
+      processedData['open_time'] =
+          processedData['open_time']?.toString() ?? '08:00';
+      processedData['close_time'] =
+          processedData['close_time']?.toString() ?? '22:00';
       processedData['status'] = processedData['status']?.toString() ?? 'active';
 
       // Handle image URL
-      if (processedData['image_url'] != null && processedData['image_url'].toString().isNotEmpty) {
-        processedData['image_url'] = ImageService.getImageUrl(processedData['image_url'].toString());
+      if (processedData['image_url'] != null &&
+          processedData['image_url'].toString().isNotEmpty) {
+        processedData['image_url'] =
+            ImageService.getImageUrl(processedData['image_url'].toString());
       }
 
       // Create owner data if not present
@@ -423,11 +433,12 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       if (store.latitude != null && store.longitude != null) {
         try {
           double distance = Geolocator.distanceBetween(
-            _currentPosition!.latitude,
-            _currentPosition!.longitude,
-            store.latitude!,
-            store.longitude!,
-          ) / 1000; // Convert to kilometers
+                _currentPosition!.latitude,
+                _currentPosition!.longitude,
+                store.latitude!,
+                store.longitude!,
+              ) /
+              1000; // Convert to kilometers
 
           // Create a new store with distance
           final storeWithDistance = store.copyWith(distance: distance);
@@ -638,18 +649,45 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       _buildSearchResults(),
                     ] else ...[
                       if (_nearbyStores.isNotEmpty) ...[
-                        _buildSectionTitle('Toko Terdekat'),
+                        _buildSectionTitleWithSeeAll(
+                          'Toko Terdekat',
+                          onSeeAll: () {
+                            Navigator.pushNamed(context, '/nearby-stores',
+                                arguments: {
+                                  'stores': _nearbyStores,
+                                  'title': 'Toko Terdekat'
+                                });
+                          },
+                        ),
                         const SizedBox(height: 16),
                         _buildHorizontalStoreList(_nearbyStores),
                         const SizedBox(height: 24),
                       ],
                       if (_topRatedStores.isNotEmpty) ...[
-                        _buildSectionTitle('Toko Terpopuler'),
+                        _buildSectionTitleWithSeeAll(
+                          'Toko Terpopuler',
+                          onSeeAll: () {
+                            Navigator.pushNamed(context, '/top-rated-stores',
+                                arguments: {
+                                  'stores': _topRatedStores,
+                                  'title': 'Toko Terpopuler'
+                                });
+                          },
+                        ),
                         const SizedBox(height: 16),
                         _buildHorizontalStoreList(_topRatedStores),
                         const SizedBox(height: 24),
                       ],
-                      _buildSectionTitle('Semua Toko (${_allStores.length})'),
+                      _buildSectionTitleWithSeeAll(
+                        'Semua Toko (${_allStores.length})',
+                        onSeeAll: () {
+                          Navigator.pushNamed(context, '/all-stores',
+                              arguments: {
+                                'stores': _allStores,
+                                'title': 'Semua Toko'
+                              });
+                        },
+                      ),
                       const SizedBox(height: 16),
                       _buildAllStoresList(),
                     ],
@@ -867,7 +905,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   const SizedBox(height: 4),
                 ],
                 Text(
-                  _promotionalPhrases[math.Random().nextInt(_promotionalPhrases.length)],
+                  _promotionalPhrases[
+                      math.Random().nextInt(_promotionalPhrases.length)],
                   style: const TextStyle(
                     fontSize: 14,
                     color: Colors.white,
@@ -879,7 +918,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: GlobalStyle.primaryColor,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 10),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -937,21 +977,22 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
           suffixIcon: _isSearching
               ? IconButton(
-            icon: Icon(
-              LucideIcons.x,
-              color: Colors.grey[400],
-            ),
-            onPressed: () {
-              _searchController.clear();
-              setState(() {
-                _searchQuery = '';
-                _isSearching = false;
-              });
-            },
-          )
+                  icon: Icon(
+                    LucideIcons.x,
+                    color: Colors.grey[400],
+                  ),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {
+                      _searchQuery = '';
+                      _isSearching = false;
+                    });
+                  },
+                )
               : null,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         ),
       ),
     );
@@ -1037,17 +1078,62 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildSectionTitleWithSeeAll(String title, {VoidCallback? onSeeAll}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+        if (onSeeAll != null)
+          TextButton(
+            onPressed: onSeeAll,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Lihat Semua',
+                  style: TextStyle(
+                    color: GlobalStyle.primaryColor,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  LucideIcons.arrowRight,
+                  color: GlobalStyle.primaryColor,
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildHorizontalStoreList(List<StoreModel> stores) {
     return SizedBox(
-      height: 280,
+      height: 220, // Dikurangi dari 280 ke 220
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: stores.length,
         itemBuilder: (context, index) {
           final store = stores[index];
           return Container(
-            width: 200,
-            margin: EdgeInsets.only(right: index == stores.length - 1 ? 0 : 16),
+            width: 160, // Dikurangi dari 200 ke 160
+            margin: EdgeInsets.only(
+                right: index == stores.length - 1 ? 0 : 12), // Dikurangi margin
             child: _buildHorizontalStoreCard(store),
           );
         },
@@ -1059,13 +1145,398 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return GestureDetector(
       onTap: () {
         print('🔍 HomePage: Navigating to store with ID: ${store.storeId}');
+        Navigator.pushNamed(context, StoreDetail.route, arguments: {
+          'storeId': store.storeId,
+          'storeName': store.name,
+        });
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 110, // Dikurangi dari 120 ke 100
+              decoration: BoxDecoration(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(12)),
+                color: Colors.grey[300],
+              ),
+              child: Stack(
+                children: [
+                  if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
+                    ClipRRect(
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(12)),
+                      child: Image.network(
+                        store.imageUrl!,
+                        width: double.infinity,
+                        height: 100,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: double.infinity,
+                            height: 100,
+                            color: Colors.grey[300],
+                            child: Icon(
+                              LucideIcons.imageOff,
+                              color: Colors.grey[600],
+                              size: 30, // Dikurangi dari 40
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      height: 100,
+                      color: Colors.grey[300],
+                      child: Icon(
+                        LucideIcons.store,
+                        color: Colors.grey[600],
+                        size: 30,
+                      ),
+                    ),
+                  if (store.rating > 0)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.star,
+                              color: Colors.yellow,
+                              size: 12,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              store.rating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (store.distance != null)
+                    Positioned(
+                      bottom: 6,
+                      left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: GlobalStyle.primaryColor,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${store.distance!.toStringAsFixed(1)} km',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(8.0), // Dikurangi dari 12
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      store.name,
+                      style: TextStyle(
+                        fontSize: 14, // Dikurangi dari 16
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      store.address,
+                      style: TextStyle(
+                        fontSize: 11, // Dikurangi dari 12
+                        color: Colors.grey[600],
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        Icon(
+                          LucideIcons.clock,
+                          size: 10,
+                          color: Colors.grey[600],
+                        ),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            '${store.openTime} - ${store.closeTime}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: Colors.grey[600],
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Widget _buildHorizontalStoreCard(StoreModel store) {
+  //   return GestureDetector(
+  //     onTap: () {
+  //       print('🔍 HomePage: Navigating to store with ID: ${store.storeId}');
+  //       Navigator.pushNamed(context, StoreDetail.route, arguments: {
+  //         'storeId': store.storeId,
+  //         'storeName': store.name, // Optional: untuk debugging
+  //       });
+  //     },
+  //     child: Container(
+  //       decoration: BoxDecoration(
+  //         color: Colors.white,
+  //         borderRadius: BorderRadius.circular(12),
+  //         boxShadow: [
+  //           BoxShadow(
+  //             color: Colors.grey.withOpacity(0.1),
+  //             blurRadius: 8,
+  //             offset: const Offset(0, 2),
+  //           ),
+  //         ],
+  //       ),
+  //       child: Column(
+  //         crossAxisAlignment: CrossAxisAlignment.start,
+  //         children: [
+  //           Container(
+  //             height: 120,
+  //             decoration: BoxDecoration(
+  //               borderRadius:
+  //                   const BorderRadius.vertical(top: Radius.circular(12)),
+  //               color: Colors.grey[300],
+  //             ),
+  //             child: Stack(
+  //               children: [
+  //                 if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
+  //                   ClipRRect(
+  //                     borderRadius:
+  //                         const BorderRadius.vertical(top: Radius.circular(12)),
+  //                     child: Image.network(
+  //                       store.imageUrl!,
+  //                       width: double.infinity,
+  //                       height: 120,
+  //                       fit: BoxFit.cover,
+  //                       errorBuilder: (context, error, stackTrace) {
+  //                         return Container(
+  //                           width: double.infinity,
+  //                           height: 120,
+  //                           color: Colors.grey[300],
+  //                           child: Icon(
+  //                             LucideIcons.imageOff,
+  //                             color: Colors.grey[600],
+  //                             size: 40,
+  //                           ),
+  //                         );
+  //                       },
+  //                       loadingBuilder: (context, child, loadingProgress) {
+  //                         if (loadingProgress == null) return child;
+  //                         return Container(
+  //                           width: double.infinity,
+  //                           height: 120,
+  //                           color: Colors.grey[300],
+  //                           child: const Center(
+  //                             child: CircularProgressIndicator(),
+  //                           ),
+  //                         );
+  //                       },
+  //                     ),
+  //                   )
+  //                 else
+  //                   Container(
+  //                     width: double.infinity,
+  //                     height: 120,
+  //                     color: Colors.grey[300],
+  //                     child: Icon(
+  //                       LucideIcons.store,
+  //                       color: Colors.grey[600],
+  //                       size: 40,
+  //                     ),
+  //                   ),
+  //                 if (store.rating > 0)
+  //                   Positioned(
+  //                     top: 8,
+  //                     right: 8,
+  //                     child: Container(
+  //                       padding: const EdgeInsets.symmetric(
+  //                           horizontal: 8, vertical: 4),
+  //                       decoration: BoxDecoration(
+  //                         color: Colors.black.withOpacity(0.7),
+  //                         borderRadius: BorderRadius.circular(12),
+  //                       ),
+  //                       child: Row(
+  //                         mainAxisSize: MainAxisSize.min,
+  //                         children: [
+  //                           const Icon(
+  //                             Icons.star,
+  //                             color: Colors.yellow,
+  //                             size: 14,
+  //                           ),
+  //                           const SizedBox(width: 4),
+  //                           Text(
+  //                             store.rating.toStringAsFixed(1),
+  //                             style: const TextStyle(
+  //                               color: Colors.white,
+  //                               fontSize: 12,
+  //                               fontWeight: FontWeight.bold,
+  //                             ),
+  //                           ),
+  //                         ],
+  //                       ),
+  //                     ),
+  //                   ),
+  //                 if (store.distance != null)
+  //                   Positioned(
+  //                     bottom: 8,
+  //                     left: 8,
+  //                     child: Container(
+  //                       padding: const EdgeInsets.symmetric(
+  //                           horizontal: 8, vertical: 4),
+  //                       decoration: BoxDecoration(
+  //                         color: GlobalStyle.primaryColor,
+  //                         borderRadius: BorderRadius.circular(12),
+  //                       ),
+  //                       child: Text(
+  //                         '${store.distance!.toStringAsFixed(1)} km',
+  //                         style: const TextStyle(
+  //                           color: Colors.white,
+  //                           fontSize: 12,
+  //                           fontWeight: FontWeight.bold,
+  //                         ),
+  //                       ),
+  //                     ),
+  //                   ),
+  //               ],
+  //             ),
+  //           ),
+  //           Expanded(
+  //             child: Padding(
+  //               padding: const EdgeInsets.all(12.0),
+  //               child: Column(
+  //                 crossAxisAlignment: CrossAxisAlignment.start,
+  //                 children: [
+  //                   Text(
+  //                     store.name,
+  //                     style: TextStyle(
+  //                       fontSize: 16,
+  //                       fontWeight: FontWeight.bold,
+  //                       color: Colors.black87,
+  //                       fontFamily: GlobalStyle.fontFamily,
+  //                     ),
+  //                     maxLines: 1,
+  //                     overflow: TextOverflow.ellipsis,
+  //                   ),
+  //                   const SizedBox(height: 4),
+  //                   Text(
+  //                     store.address,
+  //                     style: TextStyle(
+  //                       fontSize: 12,
+  //                       color: Colors.grey[600],
+  //                       fontFamily: GlobalStyle.fontFamily,
+  //                     ),
+  //                     maxLines: 2,
+  //                     overflow: TextOverflow.ellipsis,
+  //                   ),
+  //                   const SizedBox(height: 8),
+  //                   if (store.description.isNotEmpty)
+  //                     Text(
+  //                       store.description,
+  //                       style: TextStyle(
+  //                         fontSize: 12,
+  //                         color: Colors.grey[500],
+  //                         fontFamily: GlobalStyle.fontFamily,
+  //                       ),
+  //                       maxLines: 2,
+  //                       overflow: TextOverflow.ellipsis,
+  //                     ),
+  //                   const Spacer(),
+  //                   Row(
+  //                     children: [
+  //                       Icon(
+  //                         LucideIcons.clock,
+  //                         size: 12,
+  //                         color: Colors.grey[600],
+  //                       ),
+  //                       const SizedBox(width: 4),
+  //                       Text(
+  //                         '${store.openTime} - ${store.closeTime}',
+  //                         style: TextStyle(
+  //                           fontSize: 10,
+  //                           color: Colors.grey[600],
+  //                           fontFamily: GlobalStyle.fontFamily,
+  //                         ),
+  //                       ),
+  //                     ],
+  //                   ),
+  //                 ],
+  //               ),
+  //             ),
+  //           ),
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
+  Widget _buildSliderStoreCard(StoreModel store) {
+    return GestureDetector(
+      onTap: () {
+        print('🔍 HomePage: Navigating to store with ID: ${store.storeId}');
         Navigator.pushNamed(
-            context,
-            StoreDetail.route,
-            arguments: {
-              'storeId': store.storeId,
-              'storeName': store.name, // Optional: untuk debugging
-            }
+          context,
+          StoreDetail.route,
+          arguments: {
+            'storeId': store.storeId,
+            'storeName': store.name,
+          },
         );
       },
       child: Container(
@@ -1084,25 +1555,27 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              height: 120,
+              height: 140,
               decoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(12)),
                 color: Colors.grey[300],
               ),
               child: Stack(
                 children: [
                   if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
                     ClipRRect(
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(12)),
                       child: Image.network(
                         store.imageUrl!,
                         width: double.infinity,
-                        height: 120,
+                        height: 140,
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
                             width: double.infinity,
-                            height: 120,
+                            height: 140,
                             color: Colors.grey[300],
                             child: Icon(
                               LucideIcons.imageOff,
@@ -1111,23 +1584,12 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             ),
                           );
                         },
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
-                            width: double.infinity,
-                            height: 120,
-                            color: Colors.grey[300],
-                            child: const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
-                        },
                       ),
                     )
                   else
                     Container(
                       width: double.infinity,
-                      height: 120,
+                      height: 140,
                       color: Colors.grey[300],
                       child: Icon(
                         LucideIcons.store,
@@ -1140,7 +1602,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       top: 8,
                       right: 8,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.7),
                           borderRadius: BorderRadius.circular(12),
@@ -1171,7 +1634,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       bottom: 8,
                       left: 8,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: GlobalStyle.primaryColor,
                           borderRadius: BorderRadius.circular(12),
@@ -1214,21 +1678,28 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         color: Colors.grey[600],
                         fontFamily: GlobalStyle.fontFamily,
                       ),
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 8),
-                    if (store.description.isNotEmpty)
-                      Text(
-                        store.description,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[500],
-                          fontFamily: GlobalStyle.fontFamily,
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.store,
+                          size: 14,
+                          color: Colors.grey[600],
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${store.reviewCount} ulasan • ${store.totalProducts} menu',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
                     const Spacer(),
                     Row(
                       children: [
@@ -1241,9 +1712,30 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         Text(
                           '${store.openTime} - ${store.closeTime}',
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 11,
                             color: Colors.grey[600],
                             fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: store.status.name == 'active'
+                                ? Colors.green.withOpacity(0.1)
+                                : Colors.red.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            store.status.name == 'active' ? 'Buka' : 'Tutup',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: store.status.name == 'active'
+                                  ? Colors.green[700]
+                                  : Colors.red[700],
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
@@ -1304,7 +1796,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -1350,13 +1843,24 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       );
     }
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _allStores.length,
-      itemBuilder: (context, index) {
-        return _buildStoreCard(_allStores[index]);
-      },
+    // Tampilkan maksimal 5 toko dalam sliding view
+    final displayStores = _allStores.take(5).toList();
+
+    return SizedBox(
+      height: 270, // Naikkan dari 250 ke 270
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: displayStores.length,
+        itemBuilder: (context, index) {
+          final store = displayStores[index];
+          return Container(
+            width: 300, // Naikkan dari 280 ke 300
+            margin: EdgeInsets.only(
+                right: index == displayStores.length - 1 ? 0 : 16),
+            child: _buildSliderStoreCard(store),
+          );
+        },
+      ),
     );
   }
 
@@ -1382,8 +1886,9 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             context,
             StoreDetail.route,
             arguments: {
-              'storeId': store.storeId,  // Ubah dari {'store': store} ke format ini
-              'storeName': store.name,  // Optional: untuk debugging
+              'storeId':
+                  store.storeId, // Ubah dari {'store': store} ke format ini
+              'storeName': store.name, // Optional: untuk debugging
             },
           );
         },
@@ -1394,14 +1899,16 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             Container(
               height: 180,
               decoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(12)),
                 color: Colors.grey[300],
               ),
               child: Stack(
                 children: [
                   if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
                     ClipRRect(
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(12)),
                       child: Image.network(
                         store.imageUrl!,
                         width: double.infinity,
@@ -1448,7 +1955,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       top: 12,
                       right: 12,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.7),
                           borderRadius: BorderRadius.circular(12),
@@ -1479,7 +1987,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       bottom: 12,
                       left: 12,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: GlobalStyle.primaryColor,
                           borderRadius: BorderRadius.circular(12),
@@ -1584,7 +2093,8 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ),
                       const Spacer(),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: store.status.name == 'active'
                               ? Colors.green.withOpacity(0.1)

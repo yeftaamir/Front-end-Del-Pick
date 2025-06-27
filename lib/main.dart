@@ -1,3 +1,4 @@
+import 'package:del_pick/Views/Customers/all_stores_view.dart';
 import 'package:del_pick/Views/Store/order_detail_store_page.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -309,6 +310,19 @@ class MyApp extends StatelessWidget {
                 ? arguments['itemQuantities'] as Map<int, int>?
                 : null,
           ),
+        );
+      },
+
+      AllStoresView.route: (context) {
+        final arguments = ModalRoute.of(context)?.settings.arguments;
+        List<StoreModel> stores = [];
+
+        if (arguments is Map<String, dynamic> && arguments['stores'] != null) {
+          stores = arguments['stores'] as List<StoreModel>;
+        }
+
+        return InternetConnectivityWrapper(
+          child: AllStoresView(stores: stores),
         );
       },
 
@@ -721,6 +735,26 @@ class MyApp extends StatelessWidget {
             '🛣️ Arguments: ${settings.arguments} (${settings.arguments.runtimeType})');
 
         switch (settings.name) {
+          case AllStoresView.route:
+            final args = settings.arguments;
+            List<StoreModel> stores = [];
+
+            if (args is Map<String, dynamic> && args['stores'] != null) {
+              final storesData = args['stores'];
+              if (storesData is List<StoreModel>) {
+                stores = storesData;
+              } else if (storesData is List) {
+                // Convert List<dynamic> to List<StoreModel> if needed
+                stores = storesData.whereType<StoreModel>().toList();
+              }
+            }
+
+            return MaterialPageRoute(
+              builder: (context) => InternetConnectivityWrapper(
+                child: AllStoresView(stores: stores),
+              ),
+              settings: settings,
+            );
           // ✅ Enhanced HistoryDetailPage handling
           case HistoryDetailPage.route:
             final args = settings.arguments;
