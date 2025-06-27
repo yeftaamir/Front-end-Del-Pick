@@ -4,15 +4,47 @@
 
 import 'package:flutter/material.dart';
 
+// ✅ PERBAIKAN OrderEnum untuk match dengan backend
 enum OrderStatus {
-  pending,
-  confirmed,
-  preparing,
-  readyForPickup,
-  onDelivery,
-  delivered,
-  cancelled,
-  rejected,
+  pending('pending'),
+  confirmed('confirmed'),
+  preparing('preparing'), // ✅ Backend menggunakan 'preparing' bukan 'confirmed'
+  readyForPickup(
+      'ready_for_pickup'), // ✅ Backend menggunakan 'ready_for_pickup'
+  onDelivery('on_delivery'),
+  delivered('delivered'),
+  cancelled('cancelled'),
+  rejected('rejected');
+
+  const OrderStatus(this.value);
+  final String value;
+
+  // ✅ Factory constructor untuk parsing dari backend
+  factory OrderStatus.fromString(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return OrderStatus.pending;
+      case 'preparing':
+        return OrderStatus.preparing;
+      case 'ready_for_pickup':
+        return OrderStatus.readyForPickup;
+      case 'on_delivery':
+        return OrderStatus.onDelivery;
+      case 'delivered':
+        return OrderStatus.delivered;
+      case 'cancelled':
+        return OrderStatus.cancelled;
+      case 'rejected':
+        return OrderStatus.rejected;
+      default:
+        return OrderStatus.pending;
+    }
+  }
+
+  String get name => value;
+
+  bool get isCompleted => [delivered, cancelled, rejected].contains(this);
+  bool get isActive => ![delivered, cancelled, rejected].contains(this);
 }
 
 enum DeliveryStatus {

@@ -119,7 +119,7 @@ class _DriverBottomNavigationState extends State<DriverBottomNavigation>
         await Navigator.pushNamedAndRemoveUntil(
           context,
           HomeDriverPage.route,
-              (route) => false,
+          (route) => false,
           arguments: RouteSettings(name: HomeDriverPage.route),
         );
         break;
@@ -128,7 +128,7 @@ class _DriverBottomNavigationState extends State<DriverBottomNavigation>
           await Navigator.pushNamedAndRemoveUntil(
             context,
             HistoryDriverPage.route,
-                (route) => false,
+            (route) => false,
             arguments: RouteSettings(name: HistoryDriverPage.route),
           );
         }
@@ -138,10 +138,10 @@ class _DriverBottomNavigationState extends State<DriverBottomNavigation>
 
   /// Build an animated navigation item
   BottomNavigationBarItem _buildAnimatedNavItem(
-      int index,
-      IconData icon,
-      String label,
-      ) {
+    int index,
+    IconData icon,
+    String label,
+  ) {
     return BottomNavigationBarItem(
       icon: AnimatedBuilder(
         animation: _animations[index],
@@ -152,9 +152,8 @@ class _DriverBottomNavigationState extends State<DriverBottomNavigation>
               scale: 1.0 + (_animations[index].value * 0.2),
               child: Icon(
                 icon,
-                color: _animations[index].value > 0.5
-                    ? Colors.blue
-                    : Colors.grey,
+                color:
+                    _animations[index].value > 0.5 ? Colors.blue : Colors.grey,
               ),
             ),
           );
@@ -208,12 +207,12 @@ class _DriverBottomNavigationState extends State<DriverBottomNavigation>
 class FadePageTransition extends PageTransitionsBuilder {
   @override
   Widget buildTransitions<T>(
-      PageRoute<T> route,
-      BuildContext context,
-      Animation<double> animation,
-      Animation<double> secondaryAnimation,
-      Widget child,
-      ) {
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
     return FadeTransition(
       opacity: animation.drive(
         CurveTween(curve: Curves.easeInOut),

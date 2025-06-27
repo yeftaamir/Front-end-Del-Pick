@@ -1,3 +1,4 @@
+import 'package:del_pick/Models/driver_request_model.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lottie/lottie.dart';
@@ -9,8 +10,6 @@ import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Models/driver_request.dart';
 import 'package:del_pick/Models/order_enum.dart';
-
-import '../../Models/driver_request_model.dart';
 
 class HistoryDriverPage extends StatefulWidget {
   static const String route = '/Driver/HistoryDriver';

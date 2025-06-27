@@ -1,3 +1,4 @@
+import 'package:del_pick/Views/Store/order_detail_store_page.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -54,6 +55,7 @@ import 'package:del_pick/Services/menu_service.dart';
 import 'package:del_pick/Services/customer_service.dart';
 
 import 'Views/Driver/driver_request_detail.dart';
+import 'Views/Store/history_store.dart' as StoreHistory;
 
 Future<void> main() async {
   try {
@@ -617,7 +619,9 @@ class MyApp extends StatelessWidget {
           ),
       ProfileDriverPage.route: (context) =>
           const InternetConnectivityWrapper(child: ProfileDriverPage()),
-
+      StoreHistory.HistoryStorePage.route: (context) =>
+          const InternetConnectivityWrapper(
+              child: StoreHistory.HistoryStorePage()),
       // Store routes
       HomeStore.route: (context) =>
           const InternetConnectivityWrapper(child: HomeStore()),
@@ -627,6 +631,8 @@ class MyApp extends StatelessWidget {
           const InternetConnectivityWrapper(child: AddEditItemForm()),
 
       // Store History Detail Page with OrderService
+      // OrderDetailStorePage.route: (context) =>
+      //     const InternetConnectivityWrapper(child: OrderDetailStorePage(orderId: String orderId,)),
       HistoryStoreDetailPage.route: (context) => InternetConnectivityWrapper(
             child: FutureBuilder<Map<String, dynamic>>(
               future: _getOrderData(

@@ -22,7 +22,8 @@ class HistoryStorePage extends StatefulWidget {
   State<HistoryStorePage> createState() => _HistoryStorePageState();
 }
 
-class _HistoryStorePageState extends State<HistoryStorePage> with TickerProviderStateMixin {
+class _HistoryStorePageState extends State<HistoryStorePage>
+    with TickerProviderStateMixin {
   int _currentIndex = 2; // History tab selected
   late TabController _tabController;
 
@@ -47,7 +48,15 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
   Map<String, dynamic>? _storeData;
 
   // Updated tab categories based on new status mapping
-  final List<String> _tabs = ['Semua', 'Menunggu', 'Dikonfirmasi', 'Disiapkan', 'Diantar', 'Selesai', 'Dibatalkan'];
+  final List<String> _tabs = [
+    'Semua',
+    'Menunggu',
+    'Dikonfirmasi',
+    'Disiapkan',
+    'Diantar',
+    'Selesai',
+    'Dibatalkan'
+  ];
 
   @override
   void initState() {
@@ -104,7 +113,6 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
 
       // Fetch order history
       await _fetchOrderHistory();
-
     } catch (e) {
       print('❌ HistoryStore: Initialization error: $e');
       setState(() {
@@ -115,7 +123,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     }
   }
 
-  // ✅ FIXED: Enhanced order history fetching dengan OrderService.getOrdersByStore
+  // ✅ ENHANCED: Simplified order history fetching - focus on displaying all orders
   Future<void> _fetchOrderHistory({bool isRefresh = false}) async {
     try {
       if (isRefresh) {
@@ -123,6 +131,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
           _currentPage = 1;
           _hasMoreData = true;
           _isLoading = true;
+          _orders.clear(); // ✅ Clear existing orders on refresh
         });
       } else if (!_hasMoreData) {
         return;
@@ -134,7 +143,8 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         });
       }
 
-      print('📋 HistoryStore: Loading order history (page: $_currentPage, refresh: $isRefresh)...');
+      print(
+          '📋 HistoryStore: Loading order history (page: $_currentPage, refresh: $isRefresh)...');
 
       // ✅ FIXED: Validate store access before loading orders
       final hasStoreAccess = await AuthService.hasRole('store');
@@ -150,26 +160,53 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         sortOrder: 'desc',
       );
 
-      // ✅ FIXED: Process response sesuai struktur backend baru
-      final ordersList = List<Map<String, dynamic>>.from(response['orders'] ?? []);
+      print('🔍 HistoryStore: Raw response received:');
+      print('   - Response type: ${response.runtimeType}');
+      print('   - Response keys: ${response.keys.toList()}');
+
+      // ✅ SIMPLIFIED: Process response sesuai struktur backend baru
+      final ordersList =
+          List<Map<String, dynamic>>.from(response['orders'] ?? []);
       final totalPages = response['totalPages'] ?? 1;
       final totalItems = response['totalItems'] ?? 0;
 
       print('📋 HistoryStore: Retrieved ${ordersList.length} orders');
       print('   - Total Pages: $totalPages');
       print('   - Total Items: $totalItems');
+      print('   - Orders IDs: ${ordersList.map((o) => o['id']).toList()}');
 
-      // ✅ FIXED: Process orders data dengan enhancement customer dan driver info
+      // ✅ SIMPLIFIED: Process orders data dengan minimal processing untuk avoid error
       List<Map<String, dynamic>> processedOrders = [];
 
       for (var orderJson in ordersList) {
         try {
-          // Process the order data with additional customer and driver info
-          Map<String, dynamic> processedOrder = await _processOrderData(orderJson);
+          // ✅ SIMPLIFIED: Minimal processing to avoid data loss
+          Map<String, dynamic> processedOrder =
+              _processOrderDataSimplified(orderJson);
           processedOrders.add(processedOrder);
+          print(
+              '✅ Processed order: ${processedOrder['id']} - ${processedOrder['order_status']}');
         } catch (e) {
-          print('⚠️ HistoryStore: Error processing order: $e');
-          // Continue with next order if one fails to process
+          print(
+              '⚠️ HistoryStore: Error processing order ${orderJson['id']}: $e');
+          // ✅ Add with minimal data if processing fails
+          processedOrders.add({
+            'id': orderJson['id']?.toString() ?? '',
+            'order_status': orderJson['order_status'] ?? 'pending',
+            'delivery_status': orderJson['delivery_status'] ?? 'pending',
+            'total_amount': _parseDouble(orderJson['total_amount']) ?? 0.0,
+            'delivery_fee': _parseDouble(orderJson['delivery_fee']) ?? 0.0,
+            'created_at': DateTime.now(),
+            'customer': {
+              'id': orderJson['customer_id']?.toString() ?? '',
+              'name': 'Unknown Customer',
+              'phone': '',
+              'avatar': '',
+            },
+            'driver': null,
+            'tracking_updates': [],
+            'notes': '',
+          });
         }
       }
 
@@ -192,7 +229,8 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
       });
 
       print('✅ HistoryStore: Order history loaded successfully');
-
+      print('   - Total orders in state: ${_orders.length}');
+      print('   - Order IDs in state: ${_orders.map((o) => o['id']).toList()}');
     } catch (e) {
       print('❌ HistoryStore: Error loading order history: $e');
       setState(() {
@@ -204,23 +242,25 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     }
   }
 
-  // ✅ FIXED: Enhanced order data processing dengan customer dan driver info
-  Future<Map<String, dynamic>> _processOrderData(Map<String, dynamic> orderJson) async {
+  // ✅ SIMPLIFIED: Minimal order data processing to ensure all orders are displayed
+  Map<String, dynamic> _processOrderDataSimplified(
+      Map<String, dynamic> orderJson) {
     try {
-      print('🔄 HistoryStore: Processing order ${orderJson['id']}...');
+      print(
+          '🔄 HistoryStore: Processing order ${orderJson['id']} (simplified)...');
 
-      // ✅ FIXED: Parse data sesuai response structure backend
+      // ✅ Basic data extraction without external API calls
       final orderId = orderJson['id']?.toString() ?? '';
       final customerId = orderJson['customer_id']?.toString();
       final driverId = orderJson['driver_id']?.toString();
       final orderStatus = orderJson['order_status'] ?? 'pending';
       final deliveryStatus = orderJson['delivery_status'] ?? 'pending';
 
-      // ✅ FIXED: Safe parsing of numeric values
+      // ✅ Safe parsing of numeric values
       final totalAmount = _parseDouble(orderJson['total_amount']) ?? 0.0;
       final deliveryFee = _parseDouble(orderJson['delivery_fee']) ?? 0.0;
 
-      // Parse dates
+      // Parse dates safely
       DateTime orderDate = DateTime.now();
       if (orderJson['created_at'] != null) {
         try {
@@ -230,61 +270,45 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         }
       }
 
-      // ✅ BARU: Fetch customer details menggunakan CustomerService
-      Map<String, dynamic> customerData = {};
-      if (customerId != null && customerId.isNotEmpty) {
-        try {
-          customerData = await CustomerService.getCustomerById(customerId);
-          print('✅ Customer data fetched for ID: $customerId');
-        } catch (e) {
-          print('⚠️ Error fetching customer data: $e');
-          customerData = {
-            'id': customerId,
-            'name': 'Unknown Customer',
-            'phone': '',
-            'avatar': '',
-          };
-        }
-      }
+      // ✅ SIMPLIFIED: Use placeholder customer data without API call
+      Map<String, dynamic> customerData = {
+        'id': customerId ?? '',
+        'name': 'Customer #$customerId',
+        'phone': '-',
+        'avatar': '',
+      };
 
-      // ✅ BARU: Fetch driver details menggunakan DriverService
-      Map<String, dynamic> driverData = {};
+      // ✅ SIMPLIFIED: Use placeholder driver data without API call
+      Map<String, dynamic>? driverData;
       if (driverId != null && driverId.isNotEmpty && driverId != 'null') {
-        try {
-          driverData = await DriverService.getDriverById(driverId);
-          print('✅ Driver data fetched for ID: $driverId');
-        } catch (e) {
-          print('⚠️ Error fetching driver data: $e');
-          driverData = {
-            'id': driverId,
-            'user': {
-              'name': 'Unknown Driver',
-              'phone': '',
-              'avatar': '',
-            },
-          };
-        }
+        driverData = {
+          'id': driverId,
+          'name': 'Driver #$driverId',
+          'phone': '-',
+          'avatar': '',
+          'status': 'active',
+        };
       }
 
-      // ✅ FIXED: Process tracking updates (dari JSON string ke List)
+      // ✅ Process tracking updates (dari JSON string ke List)
       List<Map<String, dynamic>> trackingUpdates = [];
       if (orderJson['tracking_updates'] != null) {
         try {
           if (orderJson['tracking_updates'] is String) {
-            // Parse JSON string
             final decoded = jsonDecode(orderJson['tracking_updates']);
             if (decoded is List) {
               trackingUpdates = List<Map<String, dynamic>>.from(decoded);
             }
           } else if (orderJson['tracking_updates'] is List) {
-            trackingUpdates = List<Map<String, dynamic>>.from(orderJson['tracking_updates']);
+            trackingUpdates =
+                List<Map<String, dynamic>>.from(orderJson['tracking_updates']);
           }
         } catch (e) {
           print('⚠️ Error parsing tracking updates: $e');
         }
       }
 
-      // ✅ FIXED: Return processed order dengan struktur yang konsisten
+      // ✅ Return processed order dengan struktur yang konsisten
       final processedOrder = {
         'id': orderId,
         'order_status': orderStatus,
@@ -301,30 +325,17 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
             : orderDate,
 
         // Customer information
-        'customer': {
-          'id': customerData['id'] ?? customerId,
-          'name': customerData['name'] ?? 'Unknown Customer',
-          'phone': customerData['phone'] ?? '',
-          'avatar': customerData['avatar'] ?? '',
-        },
+        'customer': customerData,
 
         // Driver information
-        'driver': driverData.isNotEmpty ? {
-          'id': driverData['id'] ?? driverId,
-          'name': driverData['user']?['name'] ?? driverData['name'] ?? 'Unknown Driver',
-          'phone': driverData['user']?['phone'] ?? driverData['phone'] ?? '',
-          'avatar': driverData['user']?['avatar'] ?? driverData['avatar'] ?? '',
-          'status': driverData['status'] ?? 'inactive',
-        } : null,
+        'driver': driverData,
 
         // Additional data
         'tracking_updates': trackingUpdates,
         'notes': orderJson['notes'] ?? '',
       };
 
-      print('✅ Order processed: ${processedOrder['id']} - ${processedOrder['order_status']}');
       return processedOrder;
-
     } catch (e) {
       print('❌ Error processing order data: $e');
       // Return minimal order data on error
@@ -371,7 +382,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     // Initialize new controllers for each card
     _cardControllers = List.generate(
       _orders.length,
-          (index) => AnimationController(
+      (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 100)),
       ),
@@ -407,42 +418,60 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
 
   // ✅ FIXED: Get filtered orders based on tab index dengan status mapping yang benar
   List<Map<String, dynamic>> getFilteredOrders(int tabIndex) {
+    print('🔍 Filtering orders for tab $tabIndex (${_tabs[tabIndex]})');
+    print('   - Total orders available: ${_orders.length}');
+
+    List<Map<String, dynamic>> filteredResult;
+
     switch (tabIndex) {
       case 0: // Semua - All orders
-        return _orders;
+        filteredResult = _orders;
+        break;
       case 1: // Menunggu - Waiting (pending)
-        return _orders.where((order) {
+        filteredResult = _orders.where((order) {
           final status = order['order_status']?.toString().toLowerCase() ?? '';
           return status == 'pending';
         }).toList();
+        break;
       case 2: // Dikonfirmasi - Confirmed
-        return _orders.where((order) {
+        filteredResult = _orders.where((order) {
           final status = order['order_status']?.toString().toLowerCase() ?? '';
           return status == 'confirmed';
         }).toList();
+        break;
       case 3: // Disiapkan - Being prepared (preparing, ready_for_pickup)
-        return _orders.where((order) {
+        filteredResult = _orders.where((order) {
           final status = order['order_status']?.toString().toLowerCase() ?? '';
           return ['preparing', 'ready_for_pickup'].contains(status);
         }).toList();
+        break;
       case 4: // Diantar - On delivery (on_delivery)
-        return _orders.where((order) {
+        filteredResult = _orders.where((order) {
           final status = order['order_status']?.toString().toLowerCase() ?? '';
           return status == 'on_delivery';
         }).toList();
+        break;
       case 5: // Selesai - Completed (delivered)
-        return _orders.where((order) {
+        filteredResult = _orders.where((order) {
           final status = order['order_status']?.toString().toLowerCase() ?? '';
           return status == 'delivered';
         }).toList();
+        break;
       case 6: // Dibatalkan - Cancelled (cancelled, rejected)
-        return _orders.where((order) {
+        filteredResult = _orders.where((order) {
           final status = order['order_status']?.toString().toLowerCase() ?? '';
           return ['cancelled', 'rejected'].contains(status);
         }).toList();
+        break;
       default:
-        return _orders;
+        filteredResult = _orders;
     }
+
+    print('   - Filtered result: ${filteredResult.length} orders');
+    print(
+        '   - Filtered IDs: ${filteredResult.map((o) => '${o['id']}(${o['order_status']})').toList()}');
+
+    return filteredResult;
   }
 
   // ✅ FIXED: Updated status text mapping sesuai backend
@@ -537,7 +566,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
     });
   }
 
-  // ✅ FIXED: Enhanced order card dengan customer dan driver info
+  // ✅ ENHANCED: Enhanced order card dengan customer dan driver info
   Widget _buildOrderCard(Map<String, dynamic> order, int index) {
     final orderDate = order['created_at'] as DateTime;
     final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(orderDate);
@@ -595,22 +624,23 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                       ),
                       child: customerAvatar.isNotEmpty
                           ? ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.network(
-                          customerAvatar,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Icon(
-                            Icons.person,
-                            color: GlobalStyle.primaryColor,
-                            size: 32,
-                          ),
-                        ),
-                      )
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.network(
+                                customerAvatar,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    Icon(
+                                  Icons.person,
+                                  color: GlobalStyle.primaryColor,
+                                  size: 32,
+                                ),
+                              ),
+                            )
                           : Icon(
-                        Icons.person,
-                        color: GlobalStyle.primaryColor,
-                        size: 32,
-                      ),
+                              Icons.person,
+                              color: GlobalStyle.primaryColor,
+                              size: 32,
+                            ),
                     ),
                     const SizedBox(width: 16),
 
@@ -764,7 +794,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
 
                 const SizedBox(height: 16),
 
-                // ✅ REMOVED: Approve/Reject buttons - replaced with view detail only
+                // View Detail Button
                 Center(
                   child: Container(
                     width: double.infinity,
@@ -970,7 +1000,7 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         Navigator.pushNamedAndRemoveUntil(
           context,
           HomeStore.route,
-              (route) => false,
+          (route) => false,
         );
         return false;
       },
@@ -995,13 +1025,14 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
                 shape: BoxShape.circle,
                 border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
               ),
-              child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+              child: Icon(Icons.arrow_back_ios_new,
+                  color: GlobalStyle.primaryColor, size: 18),
             ),
             onPressed: () {
               Navigator.pushNamedAndRemoveUntil(
                 context,
                 HomeStore.route,
-                    (route) => false,
+                (route) => false,
               );
             },
           ),
@@ -1010,6 +1041,29 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
             IconButton(
               icon: Icon(Icons.refresh, color: GlobalStyle.primaryColor),
               onPressed: () => _fetchOrderHistory(isRefresh: true),
+            ),
+            // ✅ NEW: Debug info button
+            IconButton(
+              icon: Icon(Icons.info_outline, color: Colors.grey[600]),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: Text('Debug Info'),
+                    content: Text('Total Orders: ${_orders.length}\n'
+                        'Page: $_currentPage\n'
+                        'Has More: $_hasMoreData\n'
+                        'Loading: $_isLoading\n'
+                        'Error: $_hasError'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ],
           bottom: TabBar(
@@ -1029,47 +1083,51 @@ class _HistoryStorePageState extends State<HistoryStorePage> with TickerProvider
         body: _isLoading
             ? _buildLoadingState()
             : _hasError
-            ? _buildErrorState()
-            : TabBarView(
-          controller: _tabController,
-          children: List.generate(_tabs.length, (tabIndex) {
-            final filteredOrders = getFilteredOrders(tabIndex);
+                ? _buildErrorState()
+                : TabBarView(
+                    controller: _tabController,
+                    children: List.generate(_tabs.length, (tabIndex) {
+                      final filteredOrders = getFilteredOrders(tabIndex);
 
-            if (filteredOrders.isEmpty) {
-              return _buildEmptyState('Tidak ada pesanan ${_tabs[tabIndex].toLowerCase()}');
-            }
+                      if (filteredOrders.isEmpty) {
+                        return _buildEmptyState(
+                            'Tidak ada pesanan ${_tabs[tabIndex].toLowerCase()}');
+                      }
 
-            return RefreshIndicator(
-              onRefresh: () => _fetchOrderHistory(isRefresh: true),
-              color: GlobalStyle.primaryColor,
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (ScrollNotification scrollInfo) {
-                  if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
-                    _loadMoreOrders();
-                  }
-                  return false;
-                },
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: filteredOrders.length + (_isLoadingMore ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (index == filteredOrders.length) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: CircularProgressIndicator(
-                            color: GlobalStyle.primaryColor,
+                      return RefreshIndicator(
+                        onRefresh: () => _fetchOrderHistory(isRefresh: true),
+                        color: GlobalStyle.primaryColor,
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: (ScrollNotification scrollInfo) {
+                            if (scrollInfo.metrics.pixels >=
+                                scrollInfo.metrics.maxScrollExtent - 200) {
+                              _loadMoreOrders();
+                            }
+                            return false;
+                          },
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filteredOrders.length +
+                                (_isLoadingMore ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              if (index == filteredOrders.length) {
+                                return Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: CircularProgressIndicator(
+                                      color: GlobalStyle.primaryColor,
+                                    ),
+                                  ),
+                                );
+                              }
+                              return _buildOrderCard(
+                                  filteredOrders[index], index);
+                            },
                           ),
                         ),
                       );
-                    }
-                    return _buildOrderCard(filteredOrders[index], index);
-                  },
-                ),
-              ),
-            );
-          }),
-        ),
+                    }),
+                  ),
         bottomNavigationBar: BottomNavigationComponent(
           currentIndex: _currentIndex,
           onTap: _onItemTapped,
