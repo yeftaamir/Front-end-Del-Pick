@@ -1209,13 +1209,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   }
 
   /// method filteredOrders di home_store.dart
-  // List<Map<String, dynamic>> get filteredOrders {
-  //   return _orders.where((order) {
-  //     final status = order['order_status']?.toString() ?? 'pending';
-  //     // Hanya tampilkan order dengan status pending yang memerlukan action dari store
-  //     return status == 'pending';
-  //   }).toList();
-  // }
   List<Map<String, dynamic>> get filteredOrders {
     return _orders.where((order) {
       final status = order['order_status']?.toString() ?? 'pending';
