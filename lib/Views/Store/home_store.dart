@@ -81,10 +81,18 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   //   'delivered'
   // ];
 
+// ✅ GANTI: Filter logic yang benar
   static bool _shouldShowOrder(Map<String, dynamic> order) {
     final orderStatus = order['order_status']?.toString() ?? '';
+    final deliveryStatus = order['delivery_status']?.toString() ?? '';
 
-    // Hanya tampilkan jika order_status = 'pending'
+    print(
+        '🔍 Checking order ${order['id']}: order_status=$orderStatus, delivery_status=$deliveryStatus');
+
+    // ✅ ATURAN BISNIS YANG BENAR:
+    // - order_status = 'pending' (apapun delivery_status) → TAMPILKAN
+    // - order_status selain 'pending' → JANGAN TAMPILKAN
+
     return orderStatus == 'pending';
   }
 
@@ -115,11 +123,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
   void _startOrderMonitoring() {
     print(
-        '🔄 HomeStore: Starting real-time order monitoring (10s interval)...');
+        '🔄 HomeStore: Starting real-time order monitoring (20s interval)...');
 
     _orderMonitorTimer =
-        Timer.periodic(const Duration(seconds: 10), (timer) async {
-      // ✅ UBAH: 20 → 10
+        Timer.periodic(const Duration(seconds: 20), (timer) async {
+      // ✅ FIXED: 20 detik
       if (!mounted) {
         timer.cancel();
         return;
@@ -144,27 +152,22 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         final allLatestOrders =
             List<Map<String, dynamic>>.from(response['orders'] ?? []);
 
-        // ✅ Filter berdasarkan order_status = 'pending' saja
+        // ✅ FIXED: Apply correct business logic filter
         final latestValidOrders = allLatestOrders.where((order) {
           final orderId = order['id']?.toString() ?? '';
-          final orderStatus = order['order_status']?.toString() ?? '';
 
-          print(
-              '🔍 Real-time check Order $orderId: order_status=$orderStatus'); // ✅ DEBUG
-
-          // ✅ Hanya tampilkan jika order_status = 'pending'
-          bool isPending = orderStatus == 'pending';
-
-          // ✅ Dan belum pernah diproses
-          bool notProcessed = !_globalProcessedOrderIds.contains(orderId) &&
-              !_processedOrderIds.contains(orderId);
-
-          if (!isPending) {
-            print(
-                '❌ Order $orderId excluded from real-time: not pending ($orderStatus)');
+          // ✅ Gunakan business logic yang benar
+          if (!_shouldShowOrder(order)) {
+            return false;
           }
 
-          return isPending && notProcessed;
+          // ✅ Exclude yang sudah diproses
+          if (_globalProcessedOrderIds.contains(orderId) ||
+              _processedOrderIds.contains(orderId)) {
+            return false;
+          }
+
+          return true;
         }).toList();
 
         // ✅ Compare dengan current orders
@@ -963,15 +966,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
       print('📋 HomeStore: Backend returned ${allOrders.length} orders');
 
-      // ✅ FILTER: Hanya tampilkan order dengan order_status = 'pending' dan belum diproses
+      // ✅ FIXED: Apply correct business logic filter
       final validOrders = allOrders.where((order) {
         final orderId = order['id']?.toString() ?? '';
-        final orderStatus = order['order_status']?.toString() ?? '';
 
-        // ✅ ATURAN UTAMA: Hanya pending orders
-        if (orderStatus != 'pending') {
-          print(
-              '🔍 Excluding order $orderId: status is $orderStatus (not pending)');
+        // ✅ Apply business logic filter
+        if (!_shouldShowOrder(order)) {
+          print('🔍 Excluding order $orderId: does not meet business rules');
           return false;
         }
 
@@ -985,13 +986,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           return false;
         }
 
-        print('✅ Including order $orderId: status=pending, not processed');
+        print('✅ Including order $orderId: valid for store processing');
         return true;
       }).toList();
 
       final totalPages = response['totalPages'] ?? 1;
 
-      print('📋 HomeStore: Showing ${validOrders.length} valid pending orders');
+      print('📋 HomeStore: Showing ${validOrders.length} valid orders');
 
       // Detect new orders for celebration
       if (!isRefresh && !forceRefresh && _existingOrderIds.isNotEmpty) {
@@ -1642,33 +1643,29 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
   /// method filteredOrders di home_store.dart
 
+// ✅ GANTI: Gunakan _shouldShowOrder method
   List<Map<String, dynamic>> get filteredOrders {
     return _orders.where((order) {
       final orderId = order['id']?.toString() ?? '';
-      final orderStatus = order['order_status']?.toString() ?? '';
 
-      print('🔍 Filtering Order $orderId: order_status=$orderStatus');
-
-      // ✅ ATURAN UTAMA: Hanya tampilkan order dengan status 'pending'
-      if (orderStatus != 'pending') {
-        print(
-            '❌ Order $orderId filtered out: order_status is not pending ($orderStatus)');
+      // ✅ Apply business logic filter
+      if (!_shouldShowOrder(order)) {
+        print('❌ Order $orderId filtered out: does not meet business rules');
         return false;
       }
 
-      // ✅ Exclude jika sudah diproses secara global
+      // Exclude processed orders
       if (_globalProcessedOrderIds.contains(orderId)) {
         print('❌ Order $orderId filtered out: globally processed');
         return false;
       }
 
-      // ✅ Exclude jika sudah diproses locally
       if (_processedOrderIds.contains(orderId)) {
         print('❌ Order $orderId filtered out: locally processed');
         return false;
       }
 
-      print('✅ Order $orderId included: valid pending order');
+      print('✅ Order $orderId included: valid for store processing');
       return true;
     }).toList();
   }
