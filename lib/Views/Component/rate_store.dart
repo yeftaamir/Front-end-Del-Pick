@@ -101,14 +101,15 @@ class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
     if (rating >= 3) return 'Cukup';
     if (rating >= 2) return 'Kurang';
     if (rating >= 1) return 'Sangat Kurang';
-    return 'Belum dinilai';
+    return 'Tap untuk memberi rating';
   }
 
   Color _getRatingColor(double rating) {
     if (rating >= 4) return Colors.green;
     if (rating >= 3) return Colors.orange;
     if (rating >= 2) return Colors.red;
-    return Colors.grey;
+    if (rating >= 1) return Colors.grey;
+    return Colors.grey[400]!;
   }
 
   Widget _buildInfoSection({
@@ -184,7 +185,7 @@ class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
         ),
         const SizedBox(height: 16),
 
-        // Rating Stars with Animation
+        // ✅ FIXED: Enhanced rating stars with better visual feedback
         AbsorbPointer(
           absorbing: widget.isLoading,
           child: Opacity(
@@ -194,13 +195,41 @@ class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
                 color: GlobalStyle.primaryColor.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: GlobalStyle.primaryColor.withOpacity(0.2),
-                  width: 1,
+                  color: rating > 0
+                      ? GlobalStyle.primaryColor.withOpacity(0.3)
+                      : Colors.grey.withOpacity(0.3),
+                  width: rating > 0 ? 2 : 1,
                 ),
               ),
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Column(
                 children: [
+                  // Instruction text for better UX
+                  if (rating <= 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.touch_app, color: Colors.blue[700], size: 16),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Tap bintang untuk memberi rating',
+                            style: TextStyle(
+                              color: Colors.blue[700],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(5, (index) {
@@ -209,14 +238,24 @@ class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
                         child: AnimatedBuilder(
                           animation: _starScaleAnimation,
                           builder: (context, child) {
+                            final isSelected = index < rating;
                             return Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 6),
                               child: Transform.scale(
-                                scale: index < rating ? _starScaleAnimation.value : 1.0,
-                                child: Icon(
-                                  index < rating ? Icons.star : Icons.star_border,
-                                  color: index < rating ? Colors.amber : Colors.grey[400],
-                                  size: 40,
+                                scale: isSelected ? _starScaleAnimation.value : 1.0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? Colors.amber.withOpacity(0.2)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    isSelected ? Icons.star : Icons.star_border,
+                                    color: isSelected ? Colors.amber : Colors.grey[400],
+                                    size: 40,
+                                  ),
                                 ),
                               ),
                             );
@@ -226,20 +265,36 @@ class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
                     }),
                   ),
                   const SizedBox(height: 12),
-                  // Rating Label
+
+                  // Rating Label with better styling
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       color: _getRatingColor(rating).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      _getRatingLabel(rating),
-                      style: TextStyle(
-                        color: _getRatingColor(rating),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                      border: Border.all(
+                        color: _getRatingColor(rating).withOpacity(0.3),
+                        width: 1,
                       ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          rating > 0 ? Icons.sentiment_satisfied : Icons.sentiment_neutral,
+                          color: _getRatingColor(rating),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _getRatingLabel(rating),
+                          style: TextStyle(
+                            color: _getRatingColor(rating),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -250,7 +305,7 @@ class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
 
         const SizedBox(height: 20),
 
-        // Review Text Field
+        // ✅ ENHANCED: Review Text Field with conditional styling
         AbsorbPointer(
           absorbing: widget.isLoading,
           child: Opacity(
@@ -269,8 +324,11 @@ class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
               child: TextField(
                 controller: controller,
                 maxLines: 3,
+                maxLength: 500,
                 decoration: InputDecoration(
-                  hintText: 'Tulis ulasan anda untuk toko disini...',
+                  hintText: rating > 0
+                      ? 'Tulis ulasan anda untuk toko disini...'
+                      : 'Berikan rating terlebih dahulu untuk menulis ulasan',
                   hintStyle: TextStyle(
                     color: Colors.grey[400],
                     fontSize: 14,
@@ -283,18 +341,32 @@ class _RateStoreState extends State<RateStore> with TickerProviderStateMixin {
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: GlobalStyle.borderColor.withOpacity(0.3)),
+                    borderSide: BorderSide(
+                      color: rating > 0
+                          ? GlobalStyle.primaryColor.withOpacity(0.3)
+                          : Colors.grey.withOpacity(0.3),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: GlobalStyle.primaryColor, width: 1.5),
+                    borderSide: BorderSide(
+                      color: GlobalStyle.primaryColor,
+                      width: 1.5,
+                    ),
                   ),
                   contentPadding: const EdgeInsets.all(16),
                   prefixIcon: Icon(
                     Icons.rate_review,
-                    color: GlobalStyle.primaryColor,
+                    color: rating > 0
+                        ? GlobalStyle.primaryColor
+                        : Colors.grey[400],
+                  ),
+                  counterStyle: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
                   ),
                 ),
+                enabled: rating > 0, // Only enable if rating is given
               ),
             ),
           ),

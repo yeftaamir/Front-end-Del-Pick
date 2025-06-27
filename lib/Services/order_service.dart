@@ -464,7 +464,7 @@ class OrderService {
     }
   }
 
-  /// Create review for completed order dengan customer validation
+  /// Create review for completed order dengan enhanced customer validation
   static Future<Map<String, dynamic>> createReview({
     required String orderId,
     required Map<String, dynamic> orderReview,
@@ -472,25 +472,88 @@ class OrderService {
   }) async {
     try {
       print('⭐ OrderService: Creating review for order: $orderId');
+      print('   - Order review: $orderReview');
+      print('   - Driver review: $driverReview');
 
-      // ✅ Enhanced validation using new auth methods
+      // ✅ FIXED: Enhanced validation using getUserData() and getRoleSpecificData()
       final userData = await AuthService.getUserData();
       final roleData = await AuthService.getRoleSpecificData();
 
-      if (userData == null || roleData == null) {
+      if (userData == null) {
         throw Exception('Authentication required: Please login');
       }
 
-      // Validate customer access
+      if (roleData == null) {
+        throw Exception('Role data not found: Please login as customer');
+      }
+
+      // Validate customer access with specific role check
+      final userRole = await AuthService.getUserRole();
+      if (userRole?.toLowerCase() != 'customer') {
+        throw Exception('Access denied: Only customers can create reviews');
+      }
+
       final hasAccess = await AuthService.validateCustomerAccess();
       if (!hasAccess) {
         throw Exception('Access denied: Customer authentication required');
       }
 
-      final body = {
-        'order_review': orderReview,
-        'driver_review': driverReview,
-      };
+      // ✅ FIXED: Validate review data before sending
+      final orderRating = orderReview['rating'];
+      final driverRating = driverReview['rating'];
+
+      if (orderRating != null && (orderRating < 1 || orderRating > 5)) {
+        throw Exception('Order rating must be between 1 and 5');
+      }
+
+      if (driverRating != null && (driverRating < 1 || driverRating > 5)) {
+        throw Exception('Driver rating must be between 1 and 5');
+      }
+
+      // ✅ FIXED: Ensure at least one rating is provided and > 0
+      if ((orderRating == null || orderRating <= 0) &&
+          (driverRating == null || driverRating <= 0)) {
+        throw Exception('At least one rating (store or driver) must be provided');
+      }
+
+      // ✅ FIXED: Clean the review data - remove null/empty ratings
+      final cleanOrderReview = <String, dynamic>{};
+      final cleanDriverReview = <String, dynamic>{};
+
+      // Only include order review if rating is provided and > 0
+      if (orderRating != null && orderRating > 0) {
+        cleanOrderReview['rating'] = orderRating;
+        final orderComment = orderReview['comment']?.toString().trim();
+        if (orderComment != null && orderComment.isNotEmpty) {
+          cleanOrderReview['comment'] = orderComment;
+        }
+      }
+
+      // Only include driver review if rating is provided and > 0
+      if (driverRating != null && driverRating > 0) {
+        cleanDriverReview['rating'] = driverRating;
+        final driverComment = driverReview['comment']?.toString().trim();
+        if (driverComment != null && driverComment.isNotEmpty) {
+          cleanDriverReview['comment'] = driverComment;
+        }
+      }
+
+      final body = <String, dynamic>{};
+
+      // Only include reviews that have valid ratings
+      if (cleanOrderReview.isNotEmpty) {
+        body['order_review'] = cleanOrderReview;
+      }
+
+      if (cleanDriverReview.isNotEmpty) {
+        body['driver_review'] = cleanDriverReview;
+      }
+
+      if (body.isEmpty) {
+        throw Exception('No valid reviews to submit');
+      }
+
+      print('📋 OrderService: Sending review body: $body');
 
       final response = await BaseService.apiCall(
         method: 'POST',
@@ -499,11 +562,34 @@ class OrderService {
         requiresAuth: true,
       );
 
-      print('✅ OrderService: Review created successfully');
-      return response['data'] ?? {};
+      if (response['data'] != null) {
+        _processOrderData(response['data']);
+        print('✅ OrderService: Review created successfully');
+        return response['data'];
+      }
+
+      print('✅ OrderService: Review submitted successfully (no data returned)');
+      return {'success': true, 'message': 'Review submitted successfully'};
+
     } catch (e) {
       print('❌ OrderService: Create review error: $e');
-      throw Exception('Failed to create review: $e');
+
+      // Enhanced error handling with specific messages
+      String errorMessage = 'Failed to submit review';
+
+      if (e.toString().contains('authentication') || e.toString().contains('Access denied')) {
+        errorMessage = 'Authentication required. Please login as customer.';
+      } else if (e.toString().contains('rating must be between')) {
+        errorMessage = 'Invalid rating. Please provide ratings between 1-5 stars.';
+      } else if (e.toString().contains('At least one rating')) {
+        errorMessage = 'Please provide at least one rating (store or driver).';
+      } else if (e.toString().contains('Bad request')) {
+        errorMessage = 'Invalid review data. Please check your ratings and try again.';
+      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
+        errorMessage = 'Network error. Please check your internet connection.';
+      }
+
+      throw Exception(errorMessage);
     }
   }
 

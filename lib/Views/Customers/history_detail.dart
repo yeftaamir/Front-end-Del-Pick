@@ -56,6 +56,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
   bool _isLoading = false;
   bool _isLoadingOrderDetail = false;
   bool _isCancelling = false;
+  bool _isSubmittingRating = false; // ✅ NEW: Add rating submission state
   String? _errorMessage;
 
   // Data objects - Updated structure
@@ -586,21 +587,81 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     }
   }
 
-  // ✅ UPDATED: Enhanced rating submission using updated OrderService
+  // ✅ FIXED: Enhanced rating submission with comprehensive validation and error handling
   Future<void> _handleRatingSubmission() async {
-    if (_orderDetail == null) return;
+    if (_orderDetail == null || _isSubmittingRating) return;
+
+    setState(() {
+      _isSubmittingRating = true;
+    });
 
     try {
-      print(
-          '⭐ HistoryDetailPage: Opening rating page for order: ${_orderDetail!.id}');
+      print('⭐ HistoryDetailPage: Starting rating submission for order: ${_orderDetail!.id}');
 
-      // ✅ Validate customer access before rating using updated method
-      final hasAccess = await AuthService.validateCustomerAccess();
-      if (!hasAccess) {
-        throw Exception(
-            'Access denied: Customer authentication required for rating');
+      // ✅ STEP 1: Comprehensive authentication validation using updated methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null) {
+        throw Exception('Authentication required: Please login');
       }
 
+      if (roleData == null) {
+        throw Exception('Role data not found: Please login as customer');
+      }
+
+      // ✅ STEP 2: Validate customer role
+      final userRole = await AuthService.getUserRole();
+      if (userRole?.toLowerCase() != 'customer') {
+        throw Exception('Access denied: Only customers can rate orders');
+      }
+
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required');
+      }
+
+      print('✅ HistoryDetailPage: Authentication validated for rating submission');
+      print('   - User ID: ${userData['id']}');
+      print('   - User Name: ${userData['name']}');
+      print('   - Role: $userRole');
+      print('   - Customer Data: ${_customerData != null}');
+
+      // ✅ STEP 3: Validate order status
+      if (_orderDetail!.orderStatus != OrderStatus.delivered) {
+        throw Exception('Rating can only be given for delivered orders');
+      }
+
+      if (_hasGivenRating) {
+        throw Exception('Rating has already been submitted for this order');
+      }
+
+      // ✅ STEP 4: Show loading state
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    strokeWidth: 2,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text('Membuka halaman rating...'),
+              ],
+            ),
+            backgroundColor: GlobalStyle.primaryColor,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // ✅ STEP 5: Navigate to rating page with proper error handling
       final result = await Navigator.push(
         context,
         MaterialPageRoute(
@@ -610,56 +671,153 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
         ),
       );
 
-      if (result != null && result is Map<String, dynamic>) {
-        print('📝 HistoryDetailPage: Rating received, submitting review...');
+      print('📝 HistoryDetailPage: Rating page returned result: $result');
 
-        // ✅ Submit review using updated OrderService.createReview()
-        await OrderService.createReview(
+      // ✅ STEP 6: Process rating result with enhanced validation
+      if (result != null && result is Map<String, dynamic>) {
+        // Validate rating data before submission
+        final storeRating = result['storeRating'];
+        final driverRating = result['driverRating'];
+        final storeComment = result['storeComment']?.toString().trim() ?? '';
+        final driverComment = result['driverComment']?.toString().trim() ?? '';
+
+        print('📋 HistoryDetailPage: Processing rating data:');
+        print('   - Store Rating: $storeRating');
+        print('   - Driver Rating: $driverRating');
+        print('   - Store Comment Length: ${storeComment.length}');
+        print('   - Driver Comment Length: ${driverComment.length}');
+
+        // ✅ STEP 7: Validate that at least one rating is provided
+        if ((storeRating == null || storeRating <= 0) &&
+            (driverRating == null || driverRating <= 0)) {
+          throw Exception('At least one rating (store or driver) must be provided');
+        }
+
+        // ✅ STEP 8: Prepare clean review data
+        final Map<String, dynamic> orderReview = {};
+        final Map<String, dynamic> driverReview = {};
+
+        // Only include store review if rating is valid
+        if (storeRating != null && storeRating > 0 && storeRating <= 5) {
+          orderReview['rating'] = storeRating;
+          if (storeComment.isNotEmpty) {
+            orderReview['comment'] = storeComment;
+          }
+        }
+
+        // Only include driver review if rating is valid
+        if (driverRating != null && driverRating > 0 && driverRating <= 5) {
+          driverReview['rating'] = driverRating;
+          if (driverComment.isNotEmpty) {
+            driverReview['comment'] = driverComment;
+          }
+        }
+
+        // ✅ STEP 9: Ensure at least one valid review exists
+        if (orderReview.isEmpty && driverReview.isEmpty) {
+          throw Exception('No valid ratings to submit');
+        }
+
+        print('📤 HistoryDetailPage: Submitting review to OrderService:');
+        print('   - Order Review: $orderReview');
+        print('   - Driver Review: $driverReview');
+
+        // ✅ STEP 10: Submit review using updated OrderService.createReview()
+        final reviewResult = await OrderService.createReview(
           orderId: _orderDetail!.id.toString(),
-          orderReview: {
-            'rating': result['storeRating'] ?? 5,
-            'comment': result['storeComment'] ?? '',
-          },
-          driverReview: {
-            'rating': result['driverRating'] ?? 5,
-            'comment': result['driverComment'] ?? '',
-          },
+          orderReview: orderReview,
+          driverReview: driverReview,
         );
 
         print('✅ HistoryDetailPage: Review submitted successfully');
+        print('   - Result: $reviewResult');
 
-        // ✅ Reload order data to get updated reviews
-        await _loadOrderDetail();
+        // ✅ STEP 11: Reload order data to get updated reviews with proper error handling
+        try {
+          await _loadOrderDetail();
 
-        if (_orderReviews != null || _driverReviews != null) {
-          _reviewCardController.forward();
+          if (_orderReviews != null || _driverReviews != null) {
+            _reviewCardController.forward();
+          }
+        } catch (reloadError) {
+          print('⚠️ HistoryDetailPage: Error reloading order detail after review: $reloadError');
+          // Continue anyway since review was submitted successfully
         }
 
+        // ✅ STEP 12: Show success message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('Rating berhasil dikirim. Terima kasih!'),
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text('Rating berhasil dikirim. Terima kasih!'),
+                  ),
+                ],
+              ),
               backgroundColor: Colors.green,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
+      } else {
+        print('ℹ️ HistoryDetailPage: Rating page cancelled or no data returned');
       }
+
     } catch (e) {
       print('❌ HistoryDetailPage: Error handling rating submission: $e');
+
+      // ✅ Enhanced error handling with specific messages
+      String errorMessage = 'Gagal mengirim rating';
+
+      if (e.toString().contains('Authentication required') ||
+          e.toString().contains('Access denied')) {
+        errorMessage = 'Autentikasi diperlukan. Silakan login sebagai customer.';
+      } else if (e.toString().contains('Rating can only be given')) {
+        errorMessage = 'Rating hanya dapat diberikan untuk pesanan yang telah selesai.';
+      } else if (e.toString().contains('already been submitted')) {
+        errorMessage = 'Rating sudah pernah diberikan untuk pesanan ini.';
+      } else if (e.toString().contains('At least one rating')) {
+        errorMessage = 'Minimal berikan satu rating (toko atau driver).';
+      } else if (e.toString().contains('Invalid review data') ||
+          e.toString().contains('Bad request')) {
+        errorMessage = 'Data rating tidak valid. Silakan periksa rating Anda dan coba lagi.';
+      } else if (e.toString().contains('network') ||
+          e.toString().contains('connection')) {
+        errorMessage = 'Masalah koneksi. Silakan periksa internet Anda.';
+      } else {
+        errorMessage = 'Terjadi kesalahan: ${e.toString()}';
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal mengirim rating: $e'),
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text(errorMessage)),
+              ],
+            ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            duration: const Duration(seconds: 4),
           ),
         );
       }
+    } finally {
+      setState(() {
+        _isSubmittingRating = false;
+      });
     }
   }
 
@@ -2213,7 +2371,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ FIXED: Enhanced action buttons with fixed "Beli Lagi" visibility
+  // ✅ FIXED: Enhanced action buttons with loading state for rating
   Widget _buildActionButtonsCard() {
     final bool canCancel =
         _orderDetail!.canBeCancelled && !_orderDetail!.orderStatus.isCompleted;
@@ -2255,16 +2413,25 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
               ),
             ),
 
-          // Rate Order Button (only for delivered orders without rating)
+          // ✅ FIXED: Rate Order Button with loading state
           if (canRate)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  icon: const Icon(Icons.star),
-                  label: const Text('Beri Rating'),
-                  onPressed: _handleRatingSubmission,
+                  icon: _isSubmittingRating
+                      ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                      : const Icon(Icons.star),
+                  label: Text(_isSubmittingRating ? 'Membuka Rating...' : 'Beri Rating'),
+                  onPressed: _isSubmittingRating ? null : _handleRatingSubmission,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
                     foregroundColor: Colors.white,
@@ -2273,6 +2440,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     elevation: 2,
+                    disabledBackgroundColor: Colors.grey,
                   ),
                 ),
               ),

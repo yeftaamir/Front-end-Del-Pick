@@ -12,6 +12,7 @@ import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/tracking_service.dart';
+import 'package:del_pick/Services/auth_service.dart';
 
 // Import Components
 import 'package:del_pick/Views/Component/rate_store.dart';
@@ -56,7 +57,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
   void initState() {
     super.initState();
     _initializeAnimations();
-    _loadRequiredData();
+    _validateAuthenticationAndLoadData();
   }
 
   void _initializeAnimations() {
@@ -91,14 +92,68 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     super.dispose();
   }
 
-  // Load required data using proper services
-  Future<void> _loadRequiredData() async {
+  // ✅ FIXED: Enhanced authentication validation using getUserData() and getRoleSpecificData()
+  Future<void> _validateAuthenticationAndLoadData() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
+      print('🔒 RatingCustomerPage: Validating authentication...');
+
+      // Validate user authentication using new methods
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null) {
+        throw Exception('Authentication required: Please login');
+      }
+
+      if (roleData == null) {
+        throw Exception('Role data not found: Please login as customer');
+      }
+
+      // Validate customer role
+      final userRole = await AuthService.getUserRole();
+      if (userRole?.toLowerCase() != 'customer') {
+        throw Exception('Access denied: Only customers can rate orders');
+      }
+
+      final hasAccess = await AuthService.validateCustomerAccess();
+      if (!hasAccess) {
+        throw Exception('Access denied: Customer authentication required');
+      }
+
+      print('✅ RatingCustomerPage: Customer authentication validated');
+      print('   - User ID: ${userData['id']}');
+      print('   - User Name: ${userData['name']}');
+      print('   - Role: $userRole');
+
+      // After authentication, load required data
+      await _loadRequiredData();
+
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Authentication failed: ${e.toString()}';
+      });
+      print('❌ RatingCustomerPage: Authentication error: $e');
+
+      // Show error and navigate back after delay
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) {
+          Navigator.pop(context);
+        }
+      });
+    }
+  }
+
+  // Load required data using proper services
+  Future<void> _loadRequiredData() async {
+    try {
+      print('📊 RatingCustomerPage: Loading required data...');
+
       // Load data in parallel for better performance
       await Future.wait([
         _loadStoreDetail(),
@@ -116,12 +171,14 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
           controller.forward();
         }
       });
+
+      print('✅ RatingCustomerPage: All data loaded successfully');
     } catch (e) {
       setState(() {
         _isLoading = false;
         _errorMessage = 'Failed to load rating data: $e';
       });
-      print('Error loading rating data: $e');
+      print('❌ RatingCustomerPage: Error loading data: $e');
     }
   }
 
@@ -130,8 +187,9 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     try {
       final storeData = await StoreService.getStoreById(widget.order.storeId.toString());
       _storeDetail = StoreModel.fromJson(storeData);
+      print('✅ RatingCustomerPage: Store detail loaded: ${_storeDetail?.name}');
     } catch (e) {
-      print('Error loading store detail: $e');
+      print('⚠️ RatingCustomerPage: Error loading store detail: $e');
       // Create fallback store model from order data
       _storeDetail = widget.order.store;
     }
@@ -140,15 +198,16 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
   // Load driver detail using DriverService.getDriverById()
   Future<void> _loadDriverDetail() async {
     if (widget.order.driverId == null) {
-      print('No driver assigned to this order');
+      print('ℹ️ RatingCustomerPage: No driver assigned to this order');
       return;
     }
 
     try {
       final driverData = await DriverService.getDriverById(widget.order.driverId.toString());
       _driverDetail = DriverModel.fromJson(driverData);
+      print('✅ RatingCustomerPage: Driver detail loaded: ${_driverDetail?.name}');
     } catch (e) {
-      print('Error loading driver detail: $e');
+      print('⚠️ RatingCustomerPage: Error loading driver detail: $e');
       // Try to get driver from tracking data as fallback
       try {
         final trackingData = await TrackingService.getTrackingData(widget.order.id.toString());
@@ -156,7 +215,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
           _driverDetail = DriverModel.fromJson(trackingData['driver']);
         }
       } catch (trackingError) {
-        print('Error loading driver from tracking: $trackingError');
+        print('⚠️ RatingCustomerPage: Error loading driver from tracking: $trackingError');
         // Use driver from order data if available
         _driverDetail = widget.order.driver;
       }
@@ -167,19 +226,31 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
   Future<void> _loadOrderTrackingData() async {
     try {
       _orderTrackingData = await TrackingService.getTrackingData(widget.order.id.toString());
+      print('✅ RatingCustomerPage: Tracking data loaded');
     } catch (e) {
-      print('Error loading tracking data: $e');
+      print('ℹ️ RatingCustomerPage: Tracking data not available: $e');
       // This is optional data, so we don't need to fail if it's not available
     }
   }
 
-  // Submit reviews using OrderService.createReview()
+  // ✅ FIXED: Enhanced review submission with proper validation
   Future<void> _submitReviews() async {
     if (_isSubmitting) return;
 
-    // Validate that at least one rating is given
+    // ✅ FIXED: Enhanced validation - ensure at least one rating is given and > 0
     if (_storeRating <= 0 && _driverRating <= 0) {
-      _showErrorSnackBar('Mohon berikan rating untuk toko atau driver');
+      _showErrorSnackBar('Mohon berikan rating minimal 1 bintang untuk toko atau driver');
+      return;
+    }
+
+    // Additional validation for rating values
+    if (_storeRating > 0 && (_storeRating < 1 || _storeRating > 5)) {
+      _showErrorSnackBar('Rating toko harus antara 1-5 bintang');
+      return;
+    }
+
+    if (_driverRating > 0 && (_driverRating < 1 || _driverRating > 5)) {
+      _showErrorSnackBar('Rating driver harus antara 1-5 bintang');
       return;
     }
 
@@ -189,16 +260,35 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
     });
 
     try {
-      // Prepare review data
-      final Map<String, dynamic> orderReview = {
-        'rating': _storeRating.round(),
-        'comment': _storeReviewController.text.trim(),
-      };
+      print('📝 RatingCustomerPage: Submitting reviews...');
+      print('   - Store rating: $_storeRating');
+      print('   - Driver rating: $_driverRating');
 
-      final Map<String, dynamic> driverReview = {
-        'rating': _driverRating.round(),
-        'comment': _driverReviewController.text.trim(),
-      };
+      // ✅ FIXED: Prepare review data with proper validation
+      final Map<String, dynamic> orderReview = {};
+      final Map<String, dynamic> driverReview = {};
+
+      // Only include store review if rating is provided and > 0
+      if (_storeRating > 0) {
+        orderReview['rating'] = _storeRating.round();
+        final storeComment = _storeReviewController.text.trim();
+        if (storeComment.isNotEmpty) {
+          orderReview['comment'] = storeComment;
+        }
+      }
+
+      // Only include driver review if rating is provided and > 0
+      if (_driverRating > 0) {
+        driverReview['rating'] = _driverRating.round();
+        final driverComment = _driverReviewController.text.trim();
+        if (driverComment.isNotEmpty) {
+          driverReview['comment'] = driverComment;
+        }
+      }
+
+      print('📋 RatingCustomerPage: Review data prepared');
+      print('   - Order review: $orderReview');
+      print('   - Driver review: $driverReview');
 
       // Submit review using OrderService.createReview()
       final result = await OrderService.createReview(
@@ -207,15 +297,14 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
         driverReview: driverReview,
       );
 
-      if (result != null) {
-        await _showSuccessDialog();
-      } else {
-        throw Exception('Failed to submit review - no response data');
-      }
+      print('✅ RatingCustomerPage: Reviews submitted successfully');
+      await _showSuccessDialog();
+
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to submit review: $e';
+        _errorMessage = e.toString();
       });
+      print('❌ RatingCustomerPage: Submit reviews error: $e');
       _showErrorSnackBar(_errorMessage!);
     } finally {
       setState(() {
@@ -276,10 +365,10 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
                   onPressed: () {
                     Navigator.pop(context); // Close dialog
                     Navigator.pop(context, {
-                      'storeRating': _storeRating.round(),
-                      'storeComment': _storeReviewController.text.trim(),
-                      'driverRating': _driverRating.round(),
-                      'driverComment': _driverReviewController.text.trim(),
+                      'storeRating': _storeRating > 0 ? _storeRating.round() : null,
+                      'storeComment': _storeRating > 0 ? _storeReviewController.text.trim() : null,
+                      'driverRating': _driverRating > 0 ? _driverRating.round() : null,
+                      'driverComment': _driverRating > 0 ? _driverReviewController.text.trim() : null,
                     }); // Return to previous screen with review data
                   },
                   child: const Text(
@@ -356,7 +445,7 @@ class _RatingCustomerPageState extends State<RatingCustomerPage> with TickerProv
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.red),
-            onPressed: _loadRequiredData,
+            onPressed: _validateAuthenticationAndLoadData,
           ),
         ],
       ),
