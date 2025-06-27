@@ -5,10 +5,12 @@
 import 'package:flutter/material.dart';
 
 // ✅ PERBAIKAN OrderEnum untuk match dengan backend
+
+// ✅ PERBAIKAN 1: Update OrderStatus enum untuk include 'confirmed'
 enum OrderStatus {
   pending('pending'),
-  confirmed('confirmed'),
-  preparing('preparing'), // ✅ Backend menggunakan 'preparing' bukan 'confirmed'
+  confirmed('confirmed'), // ✅ TAMBAHAN: Backend menggunakan 'confirmed'
+  preparing('preparing'), // ✅ Backend menggunakan 'preparing'
   readyForPickup(
       'ready_for_pickup'), // ✅ Backend menggunakan 'ready_for_pickup'
   onDelivery('on_delivery'),
@@ -19,11 +21,13 @@ enum OrderStatus {
   const OrderStatus(this.value);
   final String value;
 
-  // ✅ Factory constructor untuk parsing dari backend
+  // ✅ PERBAIKAN: Factory constructor untuk parsing dari backend
   factory OrderStatus.fromString(String status) {
     switch (status.toLowerCase()) {
       case 'pending':
         return OrderStatus.pending;
+      case 'confirmed': // ✅ TAMBAHAN: Handle 'confirmed' status
+        return OrderStatus.confirmed;
       case 'preparing':
         return OrderStatus.preparing;
       case 'ready_for_pickup':
@@ -37,6 +41,7 @@ enum OrderStatus {
       case 'rejected':
         return OrderStatus.rejected;
       default:
+        print('⚠️ Unknown order status: $status, defaulting to pending');
         return OrderStatus.pending;
     }
   }

@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Common/global_style.dart';
-import 'package:del_pick/Views/Store/historystore_detail.dart';
+import 'package:del_pick/Views/Store/history_store_detail.dart';
 import 'package:del_pick/Views/Store/profil_store.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -61,9 +61,25 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
   ///state management untuk melacak perubahan
   Set<String> _processedOrderIds = <String>{}; // Track processed orders locally
+  static final Set<String> _globalProcessedOrderIds = <String>{};
   bool _needsRefresh =
       false; // Flag untuk refresh saat kembali dari halaman lain
   DateTime? _lastRefreshTime; // Track last refresh time
+  static const List<String> _excludedOrderStatuses = [
+    'confirmed',
+    'preparing',
+    'ready_for_pickup',
+    'on_delivery',
+    'delivered',
+    'cancelled',
+    'rejected'
+  ];
+
+  static const List<String> _excludedDeliveryStatuses = [
+    'picked_up',
+    'on_way',
+    'delivered'
+  ];
 
   @override
   void didChangeDependencies() {
@@ -73,7 +89,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       _needsRefresh = false;
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted) {
-          _forceRefreshOrders();
+          // ✅ PERBAIKAN: Gunakan filtered refresh alih-alih force refresh
+          _refreshOrdersWithFiltering();
         }
       });
     }
@@ -201,7 +218,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     try {
       print('🔄 HomeStore: Force refreshing orders...');
 
-      // Clear all local state
+      // Clear local state tapi JANGAN hapus global processed orders
       setState(() {
         _processedOrderIds.clear();
         _orders.clear();
@@ -285,9 +302,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   /// Launch WhatsApp method
   void _launchWhatsApp(String whatsappUrl, String fallbackPhone) async {
     try {
-      // Import url_launcher jika belum ada
-      // import 'package:url_launcher/url_launcher.dart';
-
       final Uri url = Uri.parse(whatsappUrl);
 
       if (await canLaunchUrl(url)) {
@@ -599,6 +613,160 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
+  // Method untuk refresh dengan filtering yang lebih pintar
+  Future<void> _refreshOrdersWithFiltering() async {
+    try {
+      print('🔄 HomeStore: Refreshing with smart filtering...');
+
+      // Validate store access first
+      final hasStoreAccess = await AuthService.hasRole('store');
+      if (!hasStoreAccess) {
+        throw Exception('Access denied: Store authentication required');
+      }
+
+      final response = await OrderService.getOrdersByStore(
+        page: 1,
+        limit: 10,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      );
+
+      final allOrders =
+          List<Map<String, dynamic>>.from(response['orders'] ?? []);
+
+      // ✅ Apply strict filtering
+      final validOrders = allOrders.where((order) {
+        final orderId = order['id']?.toString() ?? '';
+        final orderStatus = order['order_status']?.toString() ?? '';
+        final deliveryStatus = order['delivery_status']?.toString() ?? '';
+
+        print(
+            '🔍 Smart filtering Order $orderId: order_status=$orderStatus, delivery_status=$deliveryStatus');
+
+        // ✅ Exclude berdasarkan order_status
+        if (_excludedOrderStatuses.contains(orderStatus)) {
+          print('❌ Order $orderId excluded: order_status = $orderStatus');
+          return false;
+        }
+
+        // ✅ Exclude berdasarkan delivery_status
+        if (_excludedDeliveryStatuses.contains(deliveryStatus)) {
+          print('❌ Order $orderId excluded: delivery_status = $deliveryStatus');
+          return false;
+        }
+
+        // ✅ Exclude jika sudah diproses globally
+        if (_globalProcessedOrderIds.contains(orderId)) {
+          print('❌ Order $orderId excluded: globally processed');
+          return false;
+        }
+
+        // ✅ Exclude jika sudah diproses locally
+        if (_processedOrderIds.contains(orderId)) {
+          print('❌ Order $orderId excluded: locally processed');
+          return false;
+        }
+
+        // ✅ Hanya tampilkan pending orders yang benar-benar valid
+        bool isValid = orderStatus == 'pending' && deliveryStatus == 'pending';
+
+        if (isValid) {
+          print('✅ Order $orderId included: valid pending order');
+        } else {
+          print(
+              '❌ Order $orderId excluded: not valid pending (order: $orderStatus, delivery: $deliveryStatus)');
+        }
+
+        return isValid;
+      }).toList();
+
+      print(
+          '📋 HomeStore: Smart filtered ${validOrders.length} valid orders from ${allOrders.length} total');
+
+      if (mounted) {
+        setState(() {
+          // Dispose old controllers safely
+          for (var controller in _cardControllers) {
+            if (controller.isCompleted || controller.isDismissed) {
+              controller.dispose();
+            }
+          }
+
+          _orders = validOrders;
+          _existingOrderIds =
+              validOrders.map((order) => order['id']?.toString() ?? '').toSet();
+
+          // Reinitialize animations
+          _initialAnimations();
+          _lastRefreshTime = DateTime.now();
+        });
+
+        // Start animations
+        _startAnimations();
+
+        // Show feedback jika ada perubahan signifikan
+        if (validOrders.isEmpty && allOrders.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.info, color: Colors.white, size: 16),
+                  const SizedBox(width: 8),
+                  Text('Semua pesanan telah diproses'),
+                ],
+              ),
+              backgroundColor: Colors.blue,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        } else if (validOrders.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.refresh, color: Colors.white, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                      'Data pesanan diperbarui (${validOrders.length} pesanan)'),
+                ],
+              ),
+              backgroundColor: GlobalStyle.primaryColor,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              duration: const Duration(seconds: 1),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('❌ HomeStore: Error in smart refresh: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.error, color: Colors.white, size: 16),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Gagal memperbarui data: $e')),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   // ✅ FIXED: Enhanced order loading dengan OrderService yang benar
   Future<void> _loadOrders(
       {bool isRefresh = false, bool forceRefresh = false}) async {
@@ -708,7 +876,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   //Real-time order monitoring dengan service yang benar
   void _startOrderMonitoring() {
     print(
-        '🔄 HomeStore: Starting real-time order monitoring (35s interval)...');
+        '🔄 HomeStore: Starting real-time order monitoring (20s interval)...');
 
     _orderMonitorTimer =
         Timer.periodic(const Duration(seconds: 20), (timer) async {
@@ -734,101 +902,48 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         final allLatestOrders =
             List<Map<String, dynamic>>.from(response['orders'] ?? []);
 
-        // ✅ PERBAIKAN: Deteksi order yang status-nya berubah dari pending
-        final currentOrderIds =
-            _orders.map((order) => order['id']?.toString() ?? '').toSet();
-
-        // ✅ Cek order yang sudah tidak pending lagi (preparing, confirmed, dll)
-        final changedStatusOrders = <String>[];
-
-        for (var currentOrder in _orders) {
-          final currentOrderId = currentOrder['id']?.toString() ?? '';
-          final currentOrderStatus =
-              currentOrder['order_status']?.toString() ?? '';
-
-          // Cari order yang sama di response terbaru
-          final latestOrder = allLatestOrders.firstWhere(
-            (order) => order['id']?.toString() == currentOrderId,
-            orElse: () => {},
-          );
-
-          if (latestOrder.isNotEmpty) {
-            final latestOrderStatus =
-                latestOrder['order_status']?.toString() ?? '';
-
-            // ✅ Jika status berubah dari pending ke status lain
-            if (currentOrderStatus == 'pending' &&
-                latestOrderStatus != 'pending') {
-              print(
-                  '🔄 Order $currentOrderId status changed: $currentOrderStatus → $latestOrderStatus');
-              changedStatusOrders.add(currentOrderId);
-            }
-          }
-        }
-
-        // ✅ Filter order yang masih valid (pending dan belum diproses)
+        // ✅ PERBAIKAN: Filter dengan aturan yang lebih ketat
         final latestValidOrders = allLatestOrders.where((order) {
           final orderId = order['id']?.toString() ?? '';
           final orderStatus = order['order_status']?.toString() ?? '';
+          final deliveryStatus = order['delivery_status']?.toString() ?? '';
 
-          return orderStatus == 'pending' &&
+          // ✅ Hanya tampilkan jika BENAR-BENAR pending
+          bool isReallyPending =
+              orderStatus == 'pending' && deliveryStatus == 'pending';
+
+          // ✅ Dan belum pernah diproses
+          bool notProcessed = !_globalProcessedOrderIds.contains(orderId) &&
               !_processedOrderIds.contains(orderId);
+
+          return isReallyPending && notProcessed;
         }).toList();
 
-        // ✅ Cek order baru
-        final latestOrderIds = latestValidOrders
+        // ✅ Deteksi perubahan berdasarkan order yang valid saja
+        final currentValidOrderIds = filteredOrders
             .map((order) => order['id']?.toString() ?? '')
             .toSet();
-        final newOrderIds = latestOrderIds.difference(currentOrderIds);
 
-        // ✅ PERBAIKAN: Hapus order yang sudah berubah status atau tidak valid lagi
-        final ordersToKeep = _orders.where((order) {
-          final orderId = order['id']?.toString() ?? '';
-          final orderStatus = order['order_status']?.toString() ?? '';
+        final latestValidOrderIds = latestValidOrders
+            .map((order) => order['id']?.toString() ?? '')
+            .toSet();
 
-          // ✅ Keep order HANYA jika:
-          // 1. Status masih pending DAN
-          // 2. Belum diproses locally DAN
-          // 3. Masih ada di latest response dengan status pending DAN
-          // 4. Tidak dalam list yang berubah status
-          return orderStatus == 'pending' &&
-              !_processedOrderIds.contains(orderId) &&
-              latestOrderIds.contains(orderId) &&
-              !changedStatusOrders.contains(orderId);
-        }).toList();
+        final newOrderIds =
+            latestValidOrderIds.difference(currentValidOrderIds);
+        final removedOrderIds =
+            currentValidOrderIds.difference(latestValidOrderIds);
 
-        // ✅ Tambahkan order baru
-        final newOrders = latestValidOrders.where((order) {
-          final orderId = order['id']?.toString() ?? '';
-          return newOrderIds.contains(orderId);
-        }).toList();
-
-        // ✅ Gabungkan orders yang valid + orders baru
-        final updatedOrders = [...ordersToKeep];
-        for (var newOrder in newOrders) {
-          final newOrderId = newOrder['id']?.toString() ?? '';
-          if (!updatedOrders
-              .any((order) => order['id']?.toString() == newOrderId)) {
-            updatedOrders.add(newOrder);
-          }
-        }
-
-        // ✅ Sort berdasarkan created_at terbaru
-        updatedOrders.sort((a, b) {
-          final aDate =
-              DateTime.tryParse(a['created_at'] ?? '') ?? DateTime.now();
-          final bDate =
-              DateTime.tryParse(b['created_at'] ?? '') ?? DateTime.now();
-          return bDate.compareTo(aDate);
-        });
-
-        bool hasChanges = newOrderIds.isNotEmpty ||
-            changedStatusOrders.isNotEmpty ||
-            updatedOrders.length != _orders.length;
+        // ✅ Update orders dengan filtering yang ketat
+        bool hasChanges = newOrderIds.isNotEmpty || removedOrderIds.isNotEmpty;
 
         if (hasChanges) {
           print(
-              '🔄 HomeStore: Orders updated - New: ${newOrderIds.length}, Status Changed: ${changedStatusOrders.length}, Total: ${updatedOrders.length}');
+              '🔄 HomeStore: Valid orders updated - New: ${newOrderIds.length}, Removed: ${removedOrderIds.length}');
+
+          // ✅ Mark removed orders as globally processed
+          for (String removedId in removedOrderIds) {
+            _globalProcessedOrderIds.add(removedId);
+          }
 
           setState(() {
             // Dispose old controllers
@@ -836,10 +951,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               controller.dispose();
             }
 
-            _orders = updatedOrders;
-            _existingOrderIds = updatedOrders
-                .map((order) => order['id']?.toString() ?? '')
-                .toSet();
+            _orders = latestValidOrders;
+            _existingOrderIds = latestValidOrderIds;
 
             // Reinitialize animations
             _initialAnimations();
@@ -860,17 +973,16 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             }
           }
 
-          // ✅ Show feedback untuk status changes
+          // Show feedback
           if (mounted) {
-            if (changedStatusOrders.isNotEmpty) {
+            if (removedOrderIds.isNotEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Row(
                     children: [
                       Icon(Icons.update, color: Colors.white, size: 16),
                       const SizedBox(width: 8),
-                      Text(
-                          '${changedStatusOrders.length} pesanan telah diproses'),
+                      Text('${removedOrderIds.length} pesanan telah diproses'),
                     ],
                   ),
                   backgroundColor: Colors.blue,
@@ -903,7 +1015,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             }
           }
         } else {
-          print('✅ HomeStore: No changes detected');
+          print('✅ HomeStore: No valid changes detected');
         }
 
         setState(() {
@@ -928,9 +1040,10 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         throw Exception('Access denied: Store authentication required');
       }
 
-      // ✅ IMMEDIATELY mark as processed untuk prevent re-appearance
+      // ✅ IMMEDIATELY mark as processed GLOBALLY dan LOCALLY
       setState(() {
         _processedOrderIds.add(orderId);
+        _globalProcessedOrderIds.add(orderId); // ✅ BARU: Global marking
 
         // ✅ LANGSUNG hapus dari UI untuk immediate feedback
         final orderIndex =
@@ -967,9 +1080,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                       ? 'Menyetujui pesanan...'
                       : 'Menolak pesanan...',
                   style: TextStyle(
-                    fontSize: 16,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
+                      fontSize: 16, fontFamily: GlobalStyle.fontFamily),
                 ),
               ],
             ),
@@ -987,14 +1098,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       if (mounted) Navigator.of(context).pop();
 
       print(
-          '✅ HomeStore: Order $orderId processed successfully and removed from UI');
+          '✅ HomeStore: Order $orderId processed successfully and permanently marked');
 
       // Show appropriate response
       if (action == 'approve') {
-        // Show contact customer popup
         await _showContactCustomerPopup(orderId, result);
       } else {
-        // Show rejection success message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1014,15 +1123,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           );
         }
       }
-
-      // ✅ Set flag untuk refresh when returning from other pages
-      _needsRefresh = true;
     } catch (e) {
-      // ✅ ROLLBACK: Kembalikan order ke UI jika gagal
+      // ✅ ROLLBACK: Kembalikan order HANYA jika benar-benar gagal
       setState(() {
         _processedOrderIds.remove(orderId);
-        // Reload orders untuk restore UI
-        _forceRefreshOrders();
+        // JANGAN hapus dari _globalProcessedOrderIds karena mungkin sudah berhasil di backend
       });
 
       // Close loading dialog if still open
@@ -1048,6 +1153,9 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           ),
         );
       }
+
+      // Force refresh to get current state
+      _forceRefreshOrders();
     }
   }
 
@@ -1403,27 +1511,46 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       final orderStatus = order['order_status']?.toString() ?? '';
       final deliveryStatus = order['delivery_status']?.toString() ?? '';
 
-      // ✅ DEBUG: Print setiap order yang di-filter
       print(
           '🔍 Filtering Order $orderId: order_status=$orderStatus, delivery_status=$deliveryStatus');
 
-      // ✅ ATURAN 1: Hanya tampilkan order dengan status 'pending' SAJA
-      // Exclude preparing, confirmed, dll
-      if (orderStatus != 'pending') {
+      // ✅ ATURAN 1: Exclude berdasarkan order_status
+      if (_excludedOrderStatuses.contains(orderStatus)) {
         print(
-            '❌ Order $orderId filtered out: order_status != pending ($orderStatus)');
+            '❌ Order $orderId filtered out: order_status excluded ($orderStatus)');
         return false;
       }
 
-      // ✅ ATURAN 2: Jangan tampilkan jika sudah diproses locally (approve/reject)
+      // ✅ ATURAN 2: Exclude berdasarkan delivery_status (PENTING!)
+      if (_excludedDeliveryStatuses.contains(deliveryStatus)) {
+        print(
+            '❌ Order $orderId filtered out: delivery_status excluded ($deliveryStatus)');
+        return false;
+      }
+
+      // ✅ ATURAN 3: Exclude jika sudah diproses secara global
+      if (_globalProcessedOrderIds.contains(orderId)) {
+        print('❌ Order $orderId filtered out: globally processed');
+        return false;
+      }
+
+      // ✅ ATURAN 4: Exclude jika sudah diproses locally
       if (_processedOrderIds.contains(orderId)) {
-        print('❌ Order $orderId filtered out: already processed locally');
+        print('❌ Order $orderId filtered out: locally processed');
         return false;
       }
 
-      // ✅ PENTING: ABAIKAN delivery_status, fokus hanya pada order_status = pending
-      print(
-          '✅ Order $orderId included: order_status=pending, delivery_status=$deliveryStatus');
+      // ✅ ATURAN 5: Hanya tampilkan jika order_status = 'pending' DAN delivery_status = 'pending'
+      bool isValidForDisplay =
+          orderStatus == 'pending' && deliveryStatus == 'pending';
+
+      if (!isValidForDisplay) {
+        print(
+            '❌ Order $orderId filtered out: not valid for display (order: $orderStatus, delivery: $deliveryStatus)');
+        return false;
+      }
+
+      print('✅ Order $orderId included: valid pending order');
       return true;
     }).toList();
   }

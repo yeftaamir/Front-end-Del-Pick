@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 class GlobalStyle {
   static Color primaryColor = const Color(0xff3E90E9);

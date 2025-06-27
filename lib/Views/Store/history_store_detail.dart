@@ -30,7 +30,6 @@ class HistoryStoreDetailPage extends StatefulWidget {
 
 class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     with TickerProviderStateMixin {
-
   // Data state
   OrderModel? _orderDetail;
   Map<String, dynamic>? _storeData;
@@ -68,9 +67,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       'animation': 'assets/animations/diambil.json'
     },
     {
-      'status': OrderStatus.confirmed,
+      'status': OrderStatus.confirmed, // ✅ GUNAKAN confirmed dari enum
       'label': 'Dikonfirmasi',
-      'description': 'Pesanan diterima',
+      'description': 'Pesanan diterima store',
       'icon': Icons.thumb_up,
       'color': Colors.blue,
       'animation': 'assets/animations/diambil.json'
@@ -120,7 +119,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     // Initialize animation controllers for card sections
     _cardControllers = List.generate(
       5, // Status, Customer, Driver, Items, Actions cards
-          (index) => AnimationController(
+      (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 150)),
       ),
@@ -254,7 +253,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       });
 
       if (_storeData != null) {
-        print('✅ HistoryStoreDetail: Store data loaded - ID: ${_storeData!['id']}');
+        print(
+            '✅ HistoryStoreDetail: Store data loaded - ID: ${_storeData!['id']}');
         print('   - Store Name: ${_storeData!['name']}');
       } else {
         print('⚠️ HistoryStoreDetail: No store data found, but proceeding...');
@@ -273,7 +273,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       });
 
       print('✅ HistoryStoreDetail: Data loading completed successfully');
-
     } catch (e) {
       print('❌ HistoryStoreDetail: Validation/loading error: $e');
       setState(() {
@@ -287,7 +286,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   // ✅ FIXED: Enhanced order data loading using OrderService.getOrderById
   Future<void> _loadOrderData() async {
     try {
-      print('📋 HistoryStoreDetail: Loading order data for ID: ${widget.orderId}');
+      print(
+          '📋 HistoryStoreDetail: Loading order data for ID: ${widget.orderId}');
 
       // ✅ FIXED: Additional validation before API call
       final isAuthenticated = await AuthService.isAuthenticated();
@@ -326,7 +326,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
         // ✅ Store previous status for change detection
         _previousStatus = _orderDetail!.orderStatus;
-
       } else {
         throw Exception('Order not found or empty response');
       }
@@ -339,13 +338,16 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   // ✅ UPDATED: Enhanced status tracking
   void _startStatusTracking() {
     if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
-      print('⚠️ HistoryStoreDetail: Order is completed, skipping status tracking');
+      print(
+          '⚠️ HistoryStoreDetail: Order is completed, skipping status tracking');
       return;
     }
 
-    print('🔄 HistoryStoreDetail: Starting status tracking for order ${_orderDetail!.id}');
+    print(
+        '🔄 HistoryStoreDetail: Starting status tracking for order ${_orderDetail!.id}');
 
-    _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
+    _statusUpdateTimer =
+        Timer.periodic(const Duration(seconds: 15), (timer) async {
       if (!mounted) {
         print('⚠️ HistoryStoreDetail: Widget unmounted, stopping timer');
         timer.cancel();
@@ -358,7 +360,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         // ✅ Enhanced session validation
         final isAuthenticated = await AuthService.isAuthenticated();
         if (!isAuthenticated) {
-          print('❌ HistoryStoreDetail: User not authenticated, stopping tracking');
+          print(
+              '❌ HistoryStoreDetail: User not authenticated, stopping tracking');
           timer.cancel();
           return;
         }
@@ -371,7 +374,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         }
 
         // ✅ Get updated order data with safe conversion
-        final rawUpdatedOrderData = await OrderService.getOrderById(widget.orderId);
+        final rawUpdatedOrderData =
+            await OrderService.getOrderById(widget.orderId);
         final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
         final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
 
@@ -457,7 +461,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               ? (newStatus == OrderStatus.delivered ? Colors.green : Colors.red)
               : GlobalStyle.primaryColor,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -506,7 +511,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             content: Text('Failed to refresh order: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -539,7 +545,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       case OrderStatus.confirmed:
         return 'Dikonfirmasi';
       case OrderStatus.preparing:
-        return 'Sedang Dipersiapkan';
+        return 'Sedang Disiapkan';
       case OrderStatus.readyForPickup:
         return 'Siap Diambil';
       case OrderStatus.onDelivery:
@@ -555,6 +561,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
+// ✅ PERBAIKAN 6: Update _getStatusColor() sesuai enum yang baru
   Color _getStatusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
@@ -580,8 +587,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   Widget _buildCard({required Widget child, required int index}) {
     return SlideTransition(
-      position: index < _cardAnimations.length ? _cardAnimations[index] :
-      const AlwaysStoppedAnimation(Offset.zero),
+      position: index < _cardAnimations.length
+          ? _cardAnimations[index]
+          : const AlwaysStoppedAnimation(Offset.zero),
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
@@ -721,7 +729,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -775,7 +784,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       height: 180,
                       child: Lottie.asset(
                         currentStatusInfo['animation'],
-                        repeat: ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus),
+                        repeat: ![
+                          OrderStatus.delivered,
+                          OrderStatus.cancelled,
+                          OrderStatus.rejected
+                        ].contains(currentStatus),
                         errorBuilder: (context, error, stackTrace) {
                           return Icon(
                             currentStatusInfo['icon'],
@@ -789,17 +802,21 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                   const SizedBox(height: 20),
 
                   // ✅ FIXED: Status Timeline with overflow handling (same fix as customer)
-                  if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus))
+                  if (![OrderStatus.cancelled, OrderStatus.rejected]
+                      .contains(currentStatus))
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5), // ✅ Reduced padding
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5), // ✅ Reduced padding
                       child: Column(
                         children: [
                           // Icons and connectors row
                           Row(
-                            children: List.generate(_statusTimeline.length, (index) {
+                            children:
+                                List.generate(_statusTimeline.length, (index) {
                               final isActive = index <= currentIndex;
                               final isCurrent = index == currentIndex;
-                              final isLast = index == _statusTimeline.length - 1;
+                              final isLast =
+                                  index == _statusTimeline.length - 1;
                               final statusItem = _statusTimeline[index];
 
                               return Expanded(
@@ -809,26 +826,38 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                                     Expanded(
                                       child: Center(
                                         child: AnimatedContainer(
-                                          duration: const Duration(milliseconds: 300),
-                                          width: isCurrent ? 28 : 20, // ✅ Slightly smaller
-                                          height: isCurrent ? 28 : 20, // ✅ Slightly smaller
+                                          duration:
+                                              const Duration(milliseconds: 300),
+                                          width: isCurrent
+                                              ? 28
+                                              : 20, // ✅ Slightly smaller
+                                          height: isCurrent
+                                              ? 28
+                                              : 20, // ✅ Slightly smaller
                                           decoration: BoxDecoration(
                                             color: isActive
                                                 ? statusItem['color']
                                                 : Colors.grey[300],
                                             shape: BoxShape.circle,
-                                            boxShadow: isCurrent ? [
-                                              BoxShadow(
-                                                color: statusItem['color'].withOpacity(0.4),
-                                                blurRadius: 6, // ✅ Reduced shadow
-                                                spreadRadius: 1, // ✅ Reduced shadow
-                                              ),
-                                            ] : [],
+                                            boxShadow: isCurrent
+                                                ? [
+                                                    BoxShadow(
+                                                      color: statusItem['color']
+                                                          .withOpacity(0.4),
+                                                      blurRadius:
+                                                          6, // ✅ Reduced shadow
+                                                      spreadRadius:
+                                                          1, // ✅ Reduced shadow
+                                                    ),
+                                                  ]
+                                                : [],
                                           ),
                                           child: Icon(
                                             statusItem['icon'],
                                             color: Colors.white,
-                                            size: isCurrent ? 14 : 10, // ✅ Smaller icons
+                                            size: isCurrent
+                                                ? 14
+                                                : 10, // ✅ Smaller icons
                                           ),
                                         ),
                                       ),
@@ -842,7 +871,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                                           color: index < currentIndex
                                               ? _statusTimeline[index]['color']
                                               : Colors.grey[300],
-                                          borderRadius: BorderRadius.circular(1),
+                                          borderRadius:
+                                              BorderRadius.circular(1),
                                         ),
                                       ),
                                   ],
@@ -851,18 +881,21 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                             }),
                           ),
 
-                          const SizedBox(height: 8), // ✅ Space between icons and labels
+                          const SizedBox(
+                              height: 8), // ✅ Space between icons and labels
 
                           // ✅ FIXED: Labels row with proper overflow handling
                           Row(
-                            children: List.generate(_statusTimeline.length, (index) {
+                            children:
+                                List.generate(_statusTimeline.length, (index) {
                               final isActive = index <= currentIndex;
                               final isCurrent = index == currentIndex;
                               final statusItem = _statusTimeline[index];
 
                               return Expanded(
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 2), // ✅ Minimal padding
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 2), // ✅ Minimal padding
                                   child: Text(
                                     statusItem['label'],
                                     style: TextStyle(
@@ -877,7 +910,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                                     ),
                                     textAlign: TextAlign.center,
                                     maxLines: 2, // ✅ Allow 2 lines
-                                    overflow: TextOverflow.ellipsis, // ✅ Handle overflow
+                                    overflow: TextOverflow
+                                        .ellipsis, // ✅ Handle overflow
                                   ),
                                 ),
                               );
@@ -950,7 +984,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                             ClipRRect(
                               borderRadius: BorderRadius.circular(16),
                               child: ImageService.displayImage(
-                                imageSource: _orderDetail!.customer!.avatar ?? '',
+                                imageSource:
+                                    _orderDetail!.customer!.avatar ?? '',
                                 width: 32,
                                 height: 32,
                                 fit: BoxFit.cover,
@@ -958,13 +993,15 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                                   width: 32,
                                   height: 32,
                                   color: Colors.grey[300],
-                                  child: Icon(Icons.person, color: Colors.grey[600], size: 18),
+                                  child: Icon(Icons.person,
+                                      color: Colors.grey[600], size: 18),
                                 ),
                                 errorWidget: Container(
                                   width: 32,
                                   height: 32,
                                   color: Colors.grey[300],
-                                  child: Icon(Icons.person, color: Colors.grey[600], size: 18),
+                                  child: Icon(Icons.person,
+                                      color: Colors.grey[600], size: 18),
                                 ),
                               ),
                             ),
@@ -995,7 +1032,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                                 ],
                               ),
                             ),
-                            Icon(Icons.phone, size: 16, color: Colors.grey[600]),
+                            Icon(Icons.phone,
+                                size: 16, color: Colors.grey[600]),
                           ],
                         ),
                       ),
@@ -1009,13 +1047,20 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
+// ✅ PERBAIKAN: Method _getCurrentStatusInfo() yang benar
   Map<String, dynamic> _getCurrentStatusInfo() {
     if (_orderDetail == null) {
       return _statusTimeline[0];
     }
 
     final currentStatus = _orderDetail!.orderStatus;
+    final deliveryStatus = _orderDetail!.deliveryStatus;
 
+    print('🔍 HistoryStoreDetail: Getting status info');
+    print('   - Order Status: ${currentStatus.name}');
+    print('   - Delivery Status: ${deliveryStatus?.name}');
+
+    // ✅ Handle cancelled/rejected status
     if (currentStatus == OrderStatus.cancelled) {
       return {
         'status': OrderStatus.cancelled,
@@ -1038,16 +1083,55 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       };
     }
 
-    return _statusTimeline.firstWhere(
-          (item) => item['status'] == currentStatus,
-      orElse: () => _statusTimeline[0],
-    );
+    // ✅ FIXED: Langsung gunakan order_status dari backend
+    // Cari status di timeline
+    for (int i = 0; i < _statusTimeline.length; i++) {
+      final item = _statusTimeline[i];
+      if (item['status'] == currentStatus) {
+        print('✅ Status Info found: ${item['label']} (${currentStatus.name})');
+        return item;
+      }
+    }
+
+    // ✅ FIXED: Fallback jika tidak ditemukan
+    print(
+        '⚠️ Status tidak ditemukan di timeline: ${currentStatus.name}, using default');
+    return _statusTimeline[0];
   }
 
   int _getCurrentStatusIndex() {
     if (_orderDetail == null) return 0;
+
     final currentStatus = _orderDetail!.orderStatus;
-    return _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
+    final deliveryStatus = _orderDetail!.deliveryStatus;
+
+    print('🔍 HistoryStoreDetail: Getting status index');
+    print('   - Order Status: ${currentStatus.name}');
+    print('   - Delivery Status: ${deliveryStatus?.name}');
+
+    // ✅ FIXED: Handle cancelled/rejected (tidak masuk timeline)
+    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus)) {
+      return -1; // Tidak ada di timeline
+    }
+
+    // ✅ FIXED: Logic yang sama seperti _getCurrentStatusInfo
+    if (deliveryStatus?.name == 'picked_up' &&
+        currentStatus == OrderStatus.preparing) {
+      print('✅ Index: Driver sudah accept, index = 2 (preparing)');
+      return 2; // preparing
+    }
+
+    if (currentStatus == OrderStatus.confirmed &&
+        deliveryStatus?.name == 'pending') {
+      print('✅ Index: Store sudah terima, index = 1 (confirmed)');
+      return 1; // confirmed
+    }
+
+    // ✅ FIXED: Default mapping
+    final index =
+        _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
+    print('✅ Status Index: $index for ${currentStatus.name}');
+    return index >= 0 ? index : 0;
   }
 
   Widget _buildCustomerInfoCard() {
@@ -1241,7 +1325,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.message, color: Colors.white, size: 18),
+                              Icon(Icons.message,
+                                  color: Colors.white, size: 18),
                               const SizedBox(width: 8),
                               Text(
                                 'WhatsApp',
@@ -1271,7 +1356,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     final orderStatus = _orderDetail!.orderStatus;
 
     // Only show driver info if driver is assigned and order is in delivery phase
-    if (driver == null || !['ready_for_pickup', 'on_delivery', 'delivered'].contains(orderStatus.name)) {
+    if (driver == null ||
+        !['ready_for_pickup', 'on_delivery', 'delivered']
+            .contains(orderStatus.name)) {
       return const SizedBox.shrink();
     }
 
@@ -1524,7 +1611,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
                             color: GlobalStyle.primaryColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(20),
@@ -1609,9 +1697,14 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   Widget _buildActionButtons() {
     final orderStatus = _orderDetail!.orderStatus;
+    final deliveryStatus = _orderDetail!.deliveryStatus;
+
+    print(
+        '🔍 Action Buttons for status: ${orderStatus.name}, delivery: ${deliveryStatus?.name}');
 
     switch (orderStatus) {
       case OrderStatus.pending:
+        // Hanya tampilkan tombol approve/reject untuk status pending
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1638,7 +1731,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(12),
-                      onTap: _isUpdatingStatus ? null : () => _processOrder('reject'),
+                      onTap: _isUpdatingStatus
+                          ? null
+                          : () => _processOrder('reject'),
                       child: Center(
                         child: Icon(
                           Icons.close,
@@ -1670,26 +1765,29 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       color: Colors.transparent,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: _isUpdatingStatus ? null : () => _processOrder('approve'),
+                        onTap: _isUpdatingStatus
+                            ? null
+                            : () => _processOrder('approve'),
                         child: Center(
                           child: _isUpdatingStatus
                               ? SizedBox(
-                            height: 24,
-                            width: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white),
+                                  ),
+                                )
                               : Text(
-                            'Terima Pesanan',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
+                                  'Terima Pesanan',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    fontFamily: GlobalStyle.fontFamily,
+                                  ),
+                                ),
                         ),
                       ),
                     ),
@@ -1701,6 +1799,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.confirmed:
+        // Tombol untuk mulai persiapan
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1725,26 +1824,29 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: _isUpdatingStatus ? null : () => _updateOrderStatus(OrderStatus.preparing),
+                  onTap: _isUpdatingStatus
+                      ? null
+                      : () => _updateOrderStatus(OrderStatus.preparing),
                   child: Center(
                     child: _isUpdatingStatus
                         ? SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
                         : Text(
-                      'Mulai Persiapan',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
+                            'Mulai Persiapan',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
                   ),
                 ),
               ),
@@ -1753,6 +1855,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.preparing:
+        // Tombol untuk siap diambil
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1777,26 +1880,29 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: _isUpdatingStatus ? null : () => _updateOrderStatus(OrderStatus.readyForPickup),
+                  onTap: _isUpdatingStatus
+                      ? null
+                      : () => _updateOrderStatus(OrderStatus.readyForPickup),
                   child: Center(
                     child: _isUpdatingStatus
                         ? SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
                         : Text(
-                      'Siap Diambil',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
+                            'Siap Diambil',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
                   ),
                 ),
               ),
@@ -1805,6 +1911,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.readyForPickup:
+        // Menunggu driver
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1848,6 +1955,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       default:
+        // Untuk status onDelivery, delivered, cancelled, rejected - tidak ada tombol
         return const SizedBox.shrink();
     }
   }
@@ -1880,7 +1988,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       await OrderService.processOrderByStore(
         orderId: widget.orderId,
         action: action, // 'approve' atau 'reject'
-        rejectionReason: action == 'reject' ? 'Toko tidak dapat memproses pesanan saat ini' : null,
+        rejectionReason: action == 'reject'
+            ? 'Toko tidak dapat memproses pesanan saat ini'
+            : null,
       );
 
       // Refresh order data
@@ -1890,11 +2000,14 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              action == 'approve' ? 'Pesanan berhasil diterima' : 'Pesanan berhasil ditolak',
+              action == 'approve'
+                  ? 'Pesanan berhasil diterima'
+                  : 'Pesanan berhasil ditolak',
             ),
             backgroundColor: action == 'approve' ? Colors.green : Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -1908,7 +2021,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             content: Text('Gagal memproses pesanan: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -1956,10 +2070,12 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Status pesanan berhasil diupdate ke ${_getStatusText(status)}'),
+            content: Text(
+                'Status pesanan berhasil diupdate ke ${_getStatusText(status)}'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -1973,7 +2089,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             content: Text('Gagal mengupdate status: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -2008,7 +2125,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             content: Text('Tidak dapat melakukan panggilan: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -2029,7 +2147,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
     final storeName = _storeData?['name'] ?? 'Toko';
     final orderId = widget.orderId;
-    final message = 'Halo! Saya dari $storeName mengenai pesanan #$orderId Anda. Apakah ada yang bisa saya bantu?';
+    final message =
+        'Halo! Saya dari $storeName mengenai pesanan #$orderId Anda. Apakah ada yang bisa saya bantu?';
     final encodedMessage = Uri.encodeComponent(message);
     final url = 'https://wa.me/$cleanPhone?text=$encodedMessage';
 
@@ -2046,7 +2165,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             content: Text('Tidak dapat membuka WhatsApp: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -2174,7 +2294,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
                   ),
                   child: Text(
                     'Coba Lagi',
@@ -2234,17 +2355,17 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             child: IconButton(
               icon: _isRefreshing
                   ? SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: GlobalStyle.primaryColor,
-                ),
-              )
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: GlobalStyle.primaryColor,
+                      ),
+                    )
                   : Icon(
-                Icons.refresh,
-                color: GlobalStyle.primaryColor,
-              ),
+                      Icons.refresh,
+                      color: GlobalStyle.primaryColor,
+                    ),
               onPressed: _isRefreshing ? null : _refreshOrderData,
             ),
           ),

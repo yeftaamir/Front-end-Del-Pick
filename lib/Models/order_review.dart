@@ -1,4 +1,3 @@
-import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Services/image_service.dart';
 
 class Item {
@@ -11,7 +10,7 @@ class Item {
   final bool isAvailable;
   final String status;
   final String? notes;
-  final int? orderId;  // Added to match backend OrderItem model
+  final int? orderId; // Added to match backend OrderItem model
 
   Item({
     required this.id,

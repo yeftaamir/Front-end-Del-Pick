@@ -1,4 +1,3 @@
-import 'package:del_pick/Models/menu_item.dart';
 import 'package:del_pick/Services/image_service.dart';
 
 class Item {
@@ -11,7 +10,7 @@ class Item {
   final bool isAvailable;
   final String status;
   final String? notes;
-  final int? orderId;  // Added to match backend OrderItem model
+  final int? orderId; // Added to match backend OrderItem model
 
   Item({
     required this.id,
@@ -153,10 +152,17 @@ class Item {
 
         // Handle decimal format like "15000.00"
         if (price.contains('.') && price.split('.').length == 2) {
-          final parts = price.replaceAll('Rp', '').replaceAll(' ', '').replaceAll(',', '').split('.');
+          final parts = price
+              .replaceAll('Rp', '')
+              .replaceAll(' ', '')
+              .replaceAll(',', '')
+              .split('.');
           if (parts.length == 2 && parts[1].length <= 2) {
             // This is likely a decimal format
-            return double.parse(price.replaceAll('Rp', '').replaceAll(' ', '').replaceAll(',', ''));
+            return double.parse(price
+                .replaceAll('Rp', '')
+                .replaceAll(' ', '')
+                .replaceAll(',', ''));
           }
         }
 

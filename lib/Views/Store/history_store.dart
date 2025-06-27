@@ -6,7 +6,7 @@ import 'package:lottie/lottie.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/bottom_navigation.dart';
 import 'package:del_pick/Views/Store/home_store.dart';
-import 'package:del_pick/Views/Store/historystore_detail.dart';
+import 'package:del_pick/Views/Store/history_store_detail.dart';
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/driver_service.dart';

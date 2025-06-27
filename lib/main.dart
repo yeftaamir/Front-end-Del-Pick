@@ -34,7 +34,7 @@ import 'package:del_pick/Views/Customers/rating_cust.dart';
 import 'package:del_pick/Views/Store/home_store.dart';
 import 'package:del_pick/Views/Store/add_item.dart';
 import 'package:del_pick/Views/Store/history_store.dart';
-import 'package:del_pick/Views/Store/historystore_detail.dart';
+import 'package:del_pick/Views/Store/history_store_detail.dart';
 import 'package:del_pick/Views/Store/add_edit_items.dart';
 import 'package:del_pick/Views/Store/profil_store.dart';
 import 'package:del_pick/Views/Driver/home_driver.dart';

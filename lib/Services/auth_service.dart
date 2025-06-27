@@ -1,5 +1,4 @@
 // lib/Services/auth_service.dart
-import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'Core/token_service.dart';
 import 'core/base_service.dart';
@@ -184,7 +183,8 @@ class AuthService {
   static Future<Map<String, dynamic>?> getUserData() async {
     try {
       final userData = await TokenService.getUserData();
-      print('🔍 AuthService: Retrieved user data: ${userData != null ? userData.keys.toList() : 'null'}');
+      print(
+          '🔍 AuthService: Retrieved user data: ${userData != null ? userData.keys.toList() : 'null'}');
       return userData;
     } catch (e) {
       print('❌ Error getting user data: $e');
@@ -240,7 +240,8 @@ class AuthService {
         return false;
       }
 
-      print('✅ AuthService: User is authenticated - Role: $userRole, ID: $userId');
+      print(
+          '✅ AuthService: User is authenticated - Role: $userRole, ID: $userId');
       return true;
     } catch (e) {
       print('❌ AuthService: Error checking authentication: $e');
@@ -284,7 +285,8 @@ class AuthService {
 
       // Get cached user data
       final userData = await getUserData();
-      print('🔍 AuthService: Cached user data structure: ${userData?.keys.toList()}');
+      print(
+          '🔍 AuthService: Cached user data structure: ${userData?.keys.toList()}');
 
       if (userData == null) {
         print('⚠️ AuthService: No cached user data, fetching from server...');
@@ -292,7 +294,8 @@ class AuthService {
         final freshData = await refreshUserData();
         if (freshData != null) {
           // Process the fresh data based on role
-          final processedData = await _processRoleSpecificData(freshData, userRole);
+          final processedData =
+              await _processRoleSpecificData(freshData, userRole);
           return processedData;
         }
         return null;
@@ -301,7 +304,6 @@ class AuthService {
       // Process existing data based on role
       final processedData = await _processRoleSpecificData(userData, userRole);
       return processedData;
-
     } catch (e) {
       print('❌ AuthService: Error getting role-specific data: $e');
       return null;
@@ -359,8 +361,10 @@ class AuthService {
       customerData['role'] = customerData['role'] ?? 'customer';
 
       // Process customer avatar
-      if (customerData['avatar'] != null && customerData['avatar'].toString().isNotEmpty) {
-        customerData['avatar'] = ImageService.getImageUrl(customerData['avatar']);
+      if (customerData['avatar'] != null &&
+          customerData['avatar'].toString().isNotEmpty) {
+        customerData['avatar'] =
+            ImageService.getImageUrl(customerData['avatar']);
       }
 
       print('✅ AuthService: Customer data processed successfully');
@@ -406,7 +410,8 @@ class AuthService {
       }
 
       // If we need to fetch store data from server
-      print('⚠️ AuthService: No store data found, attempting to fetch from server...');
+      print(
+          '⚠️ AuthService: No store data found, attempting to fetch from server...');
       final freshProfile = await getProfile();
       if (freshProfile != null && freshProfile['store'] != null) {
         print('✅ AuthService: Store data fetched from server');
@@ -540,7 +545,7 @@ class AuthService {
         await _processStoreData(loginData);
         break;
       case 'customer':
-      // Customer data processing is handled in _processCustomerSpecificData
+        // Customer data processing is handled in _processCustomerSpecificData
         print('✅ AuthService: Customer login data processed');
         break;
     }
@@ -574,7 +579,8 @@ class AuthService {
       final store = loginData['store'];
 
       // Process store image
-      if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
+      if (store['image_url'] != null &&
+          store['image_url'].toString().isNotEmpty) {
         store['image_url'] = ImageService.getImageUrl(store['image_url']);
       }
 
@@ -598,9 +604,11 @@ class AuthService {
   }
 
   /// Process images in profile data based on role
-  static Future<void> _processProfileImages(Map<String, dynamic> profileData) async {
+  static Future<void> _processProfileImages(
+      Map<String, dynamic> profileData) async {
     // Process user avatar
-    if (profileData['avatar'] != null && profileData['avatar'].toString().isNotEmpty) {
+    if (profileData['avatar'] != null &&
+        profileData['avatar'].toString().isNotEmpty) {
       profileData['avatar'] = ImageService.getImageUrl(profileData['avatar']);
     }
 
@@ -608,18 +616,21 @@ class AuthService {
     if (profileData['driver'] != null) {
       final driver = profileData['driver'];
       if (driver['user'] != null && driver['user']['avatar'] != null) {
-        driver['user']['avatar'] = ImageService.getImageUrl(driver['user']['avatar']);
+        driver['user']['avatar'] =
+            ImageService.getImageUrl(driver['user']['avatar']);
       }
     }
 
     // Process store data if present
     if (profileData['store'] != null) {
       final store = profileData['store'];
-      if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
+      if (store['image_url'] != null &&
+          store['image_url'].toString().isNotEmpty) {
         store['image_url'] = ImageService.getImageUrl(store['image_url']);
       }
       if (store['owner'] != null && store['owner']['avatar'] != null) {
-        store['owner']['avatar'] = ImageService.getImageUrl(store['owner']['avatar']);
+        store['owner']['avatar'] =
+            ImageService.getImageUrl(store['owner']['avatar']);
       }
     }
   }
