@@ -6,8 +6,13 @@ import 'auth_service.dart';
 
 class MenuItemService {
   static const String _baseEndpoint = '/menu';
+  static const bool _debugMode = false; // Toggle for development debugging
 
-  /// Get all menu items (with pagination and filtering)
+  static void _log(String message) {
+    if (_debugMode) print(message);
+  }
+
+  /// Get all menu items - Optimized version
   static Future<Map<String, dynamic>> getAllMenuItems({
     int page = 1,
     int limit = 20,
@@ -41,10 +46,11 @@ class MenuItemService {
         requiresAuth: true,
       );
 
-      // Process menu item images
+      // Batch process menu item images
       if (response['data'] != null && response['data'] is List) {
-        for (var menuItem in response['data']) {
-          _processMenuItemImages(menuItem);
+        final menuItems = response['data'] as List;
+        for (var menuItem in menuItems) {
+          _processMenuItemData(menuItem);
         }
       }
 
@@ -56,7 +62,7 @@ class MenuItemService {
         'limit': limit,
       };
     } catch (e) {
-      print('❌ Get all menu items error: $e');
+      _log('Get all menu items error: $e');
       return {
         'success': false,
         'data': [],
@@ -68,7 +74,7 @@ class MenuItemService {
     }
   }
 
-  /// Get menu items by store ID - Improved version with proper authentication and error handling
+  /// Get menu items by store - Optimized version
   static Future<Map<String, dynamic>> getMenuItemsByStore({
     required String storeId,
     int page = 1,
@@ -77,24 +83,29 @@ class MenuItemService {
     bool? isAvailable,
     String? sortBy,
     String? sortOrder,
-    bool bustCache = false, // New parameter for cache busting
+    bool bustCache = false,
   }) async {
     try {
-      print('🔍 MenuItemService: Fetching menu items for store $storeId (bustCache: $bustCache)');
+      _log('Fetching menu items for store $storeId (bustCache: $bustCache)');
 
-      // Validate authentication
-      final userData = await AuthService.getRoleSpecificData();
+      // Batch authentication validation
+      final validationResults = await Future.wait([
+        AuthService.getRoleSpecificData(),
+        AuthService.getUserRole(),
+      ]);
+
+      final userData = validationResults[0] as Map<String, dynamic>?;
+      final userRole = validationResults[1] as String?;
+
       if (userData == null) {
         throw Exception('User not authenticated');
       }
 
-      // Check user role - allow both store owners and customers
-      final userRole = await AuthService.getUserRole();
       if (userRole == null) {
         throw Exception('Unable to determine user role');
       }
 
-      print('✅ MenuItemService: User authenticated with role: $userRole');
+      _log('User authenticated with role: $userRole');
 
       // Validate storeId format
       final parsedStoreId = int.tryParse(storeId);
@@ -102,27 +113,27 @@ class MenuItemService {
         throw Exception('Invalid store ID format: $storeId');
       }
 
-      // Build query parameters
+      // Build query parameters efficiently
       final queryParams = <String, String>{
         'page': page.toString(),
         'limit': limit.toString(),
+        if (category != null) 'category': category,
+        if (isAvailable != null) 'isAvailable': isAvailable.toString(),
+        if (sortBy != null) 'sortBy': sortBy,
+        if (sortOrder != null) 'sortOrder': sortOrder,
       };
 
-      if (category != null) queryParams['category'] = category;
-      if (isAvailable != null) queryParams['isAvailable'] = isAvailable.toString();
-      if (sortBy != null) queryParams['sortBy'] = sortBy;
-      if (sortOrder != null) queryParams['sortOrder'] = sortOrder;
-
-      // Add cache-busting parameter if requested
+      // Add cache-busting parameters if requested
       if (bustCache) {
-        queryParams['_t'] = DateTime.now().millisecondsSinceEpoch.toString();
-        queryParams['_fresh'] = 'true';
-        print('🔄 MenuItemService: Added cache-busting parameters');
+        queryParams.addAll({
+          '_t': DateTime.now().millisecondsSinceEpoch.toString(),
+          '_fresh': 'true',
+        });
+        _log('Added cache-busting parameters');
       }
 
-      print('🔍 MenuItemService: API call params: $queryParams');
+      _log('API call params: $queryParams');
 
-      // Fixed endpoint - remove duplicate '/menu'
       final response = await BaseService.apiCall(
         method: 'GET',
         endpoint: '$_baseEndpoint/store/$storeId',
@@ -130,73 +141,22 @@ class MenuItemService {
         requiresAuth: true,
       );
 
-      print('🔍 MenuItemService: Response keys: ${response.keys.toList()}');
+      _log('Response keys: ${response.keys.toList()}');
 
-      // Handle different response structures
-      List<dynamic> menuItemsList = [];
+      // Efficiently extract menu items from various response structures
+      final menuItemsList = _extractMenuItemsList(response);
 
-      if (response['data'] != null) {
-        if (response['data'] is List) {
-          menuItemsList = response['data'];
-        } else if (response['data'] is Map && response['data']['items'] != null) {
-          menuItemsList = response['data']['items'];
-        } else if (response['data'] is Map && response['data']['menuItems'] != null) {
-          menuItemsList = response['data']['menuItems'];
-        }
-      } else if (response['menuItems'] != null) {
-        menuItemsList = response['menuItems'];
-      } else if (response['items'] != null) {
-        menuItemsList = response['items'];
-      }
-
-      print('📋 MenuItemService: Found ${menuItemsList.length} raw menu items');
+      _log('Found ${menuItemsList.length} raw menu items');
 
       if (menuItemsList.isEmpty) {
-        print('⚠️ MenuItemService: No menu items found for store $storeId');
-        return {
-          'success': true,
-          'data': [],
-          'total': 0,
-          'page': page,
-          'limit': limit,
-          'message': 'No menu items found for this store',
-        };
+        _log('No menu items found for store $storeId');
+        return _createEmptyMenuResponse(page, limit, 'No menu items found for this store');
       }
 
-      // Process menu items with individual error handling
-      final processedItems = <Map<String, dynamic>>[];
+      // Batch process menu items
+      final processedItems = _batchProcessMenuItems(menuItemsList);
 
-      for (int i = 0; i < menuItemsList.length; i++) {
-        try {
-          final rawItem = menuItemsList[i];
-          if (rawItem == null || rawItem is! Map) {
-            print('⚠️ Skipping invalid item at index $i: $rawItem');
-            continue;
-          }
-
-          final item = Map<String, dynamic>.from(rawItem);
-
-          // Normalize field names and types
-          _normalizeMenuItemData(item);
-
-          // Validate required fields
-          if (_validateMenuItemData(item)) {
-            // Process images
-            _processMenuItemImages(item);
-            processedItems.add(item);
-
-            print('✅ Processed item: ${item['name']} - ${item['price']}');
-          } else {
-            print('⚠️ Skipping item $i: missing required fields');
-          }
-
-        } catch (e) {
-          print('❌ Error processing menu item $i: $e');
-          // Continue processing other items
-        }
-      }
-
-      print('✅ MenuItemService: Successfully processed ${processedItems.length}/${menuItemsList.length} menu items');
+      _log('Successfully processed ${processedItems.length}/${menuItemsList.length} menu items');
 
       return {
         'success': true,
@@ -205,11 +165,11 @@ class MenuItemService {
         'page': page,
         'limit': limit,
         'message': 'Menu items loaded successfully',
-        'timestamp': DateTime.now().millisecondsSinceEpoch, // Add timestamp for debugging
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
       };
 
     } catch (e) {
-      print('❌ MenuItemService: Get menu items by store error: $e');
+      _log('Get menu items by store error: $e');
 
       return {
         'success': false,
@@ -222,10 +182,10 @@ class MenuItemService {
     }
   }
 
-  /// Get menu item by ID with enhanced validation
+  /// Get menu item by ID - Optimized
   static Future<Map<String, dynamic>> getMenuItemById(String menuItemId) async {
     try {
-      print('🔍 MenuItemService: Getting menu item by ID: $menuItemId');
+      _log('Getting menu item by ID: $menuItemId');
 
       // Validate authentication
       final userData = await AuthService.getRoleSpecificData();
@@ -242,13 +202,10 @@ class MenuItemService {
       if (response['data'] != null) {
         final item = Map<String, dynamic>.from(response['data']);
 
-        // Normalize data
-        _normalizeMenuItemData(item);
+        // Process data efficiently
+        _processMenuItemData(item);
 
-        // Process images
-        _processMenuItemImages(item);
-
-        print('✅ MenuItemService: Successfully retrieved menu item: ${item['name']}');
+        _log('Successfully retrieved menu item: ${item['name']}');
         return {
           'success': true,
           'data': item,
@@ -261,7 +218,7 @@ class MenuItemService {
         'error': 'Menu item not found',
       };
     } catch (e) {
-      print('❌ MenuItemService: Get menu item by ID error: $e');
+      _log('Get menu item by ID error: $e');
       return {
         'success': false,
         'data': {},
@@ -270,7 +227,7 @@ class MenuItemService {
     }
   }
 
-  /// Create new menu item (for store owners)
+  /// Create new menu item - Optimized
   static Future<Map<String, dynamic>> createMenuItem({
     required String name,
     required double price,
@@ -282,15 +239,21 @@ class MenuItemService {
     bool isAvailable = true,
   }) async {
     try {
-      print('🔨 MenuItemService: Creating menu item for store $storeId');
+      _log('Creating menu item for store $storeId');
 
-      // Validate store owner access
-      final userData = await AuthService.getRoleSpecificData();
+      // Batch validate store owner access
+      final validationResults = await Future.wait([
+        AuthService.getRoleSpecificData(),
+        AuthService.getUserRole(),
+      ]);
+
+      final userData = validationResults[0] as Map<String, dynamic>?;
+      final userRole = validationResults[1] as String?;
+
       if (userData == null) {
         throw Exception('User not authenticated');
       }
 
-      final userRole = await AuthService.getUserRole();
       if (userRole?.toLowerCase() != 'store') {
         throw Exception('Access denied: Only store owners can create menu items');
       }
@@ -306,7 +269,7 @@ class MenuItemService {
         if (imageBase64 != null) 'image': imageBase64,
       };
 
-      print('🔨 MenuItemService: Request body keys: ${body.keys.toList()}');
+      _log('Request body keys: ${body.keys.toList()}');
 
       final response = await BaseService.apiCall(
         method: 'POST',
@@ -315,10 +278,10 @@ class MenuItemService {
         requiresAuth: true,
       );
 
-      print('✅ MenuItemService: Menu item created successfully');
+      _log('Menu item created successfully');
 
       if (response['data'] != null) {
-        _processMenuItemImages(response['data']);
+        _processMenuItemData(response['data']);
       }
 
       return {
@@ -326,7 +289,7 @@ class MenuItemService {
         'data': response['data'] ?? {},
       };
     } catch (e) {
-      print('❌ MenuItemService: Create menu item error: $e');
+      _log('Create menu item error: $e');
       return {
         'success': false,
         'data': {},
@@ -335,26 +298,32 @@ class MenuItemService {
     }
   }
 
-  /// Update menu item (for store owners)
+  /// Update menu item - Optimized
   static Future<Map<String, dynamic>> updateMenuItem({
     required String menuItemId,
     required Map<String, dynamic> updateData,
   }) async {
     try {
-      print('🔧 MenuItemService: Updating menu item $menuItemId');
+      _log('Updating menu item $menuItemId');
 
-      // Validate store owner access
-      final userData = await AuthService.getRoleSpecificData();
+      // Batch validate store owner access
+      final validationResults = await Future.wait([
+        AuthService.getRoleSpecificData(),
+        AuthService.getUserRole(),
+      ]);
+
+      final userData = validationResults[0] as Map<String, dynamic>?;
+      final userRole = validationResults[1] as String?;
+
       if (userData == null) {
         throw Exception('User not authenticated');
       }
 
-      final userRole = await AuthService.getUserRole();
       if (userRole?.toLowerCase() != 'store') {
         throw Exception('Access denied: Only store owners can update menu items');
       }
 
-      print('🔧 MenuItemService: Update data keys: ${updateData.keys.toList()}');
+      _log('Update data keys: ${updateData.keys.toList()}');
 
       final response = await BaseService.apiCall(
         method: 'PUT',
@@ -363,10 +332,10 @@ class MenuItemService {
         requiresAuth: true,
       );
 
-      print('✅ MenuItemService: Menu item updated successfully');
+      _log('Menu item updated successfully');
 
       if (response['data'] != null) {
-        _processMenuItemImages(response['data']);
+        _processMenuItemData(response['data']);
       }
 
       return {
@@ -374,7 +343,7 @@ class MenuItemService {
         'data': response['data'] ?? {},
       };
     } catch (e) {
-      print('❌ MenuItemService: Update menu item error: $e');
+      _log('Update menu item error: $e');
       return {
         'success': false,
         'data': {},
@@ -383,18 +352,24 @@ class MenuItemService {
     }
   }
 
-  /// Delete menu item (for store owners)
+  /// Delete menu item - Optimized
   static Future<bool> deleteMenuItem(String menuItemId) async {
     try {
-      print('🗑️ MenuItemService: Deleting menu item $menuItemId');
+      _log('Deleting menu item $menuItemId');
 
-      // Validate store owner access
-      final userData = await AuthService.getRoleSpecificData();
+      // Batch validate store owner access
+      final validationResults = await Future.wait([
+        AuthService.getRoleSpecificData(),
+        AuthService.getUserRole(),
+      ]);
+
+      final userData = validationResults[0] as Map<String, dynamic>?;
+      final userRole = validationResults[1] as String?;
+
       if (userData == null) {
         throw Exception('User not authenticated');
       }
 
-      final userRole = await AuthService.getUserRole();
       if (userRole?.toLowerCase() != 'store') {
         throw Exception('Access denied: Only store owners can delete menu items');
       }
@@ -405,33 +380,39 @@ class MenuItemService {
         requiresAuth: true,
       );
 
-      print('✅ MenuItemService: Menu item deleted successfully');
+      _log('Menu item deleted successfully');
       return true;
     } catch (e) {
-      print('❌ MenuItemService: Delete menu item error: $e');
+      _log('Delete menu item error: $e');
       throw Exception('Failed to delete menu item: $e');
     }
   }
 
-  /// Update menu item status (available/unavailable)
+  /// Update menu item status - Optimized
   static Future<Map<String, dynamic>> updateMenuItemStatus({
     required String menuItemId,
-    required String status, // available, unavailable
+    required String status,
   }) async {
     try {
       if (!['available', 'unavailable'].contains(status)) {
         throw Exception('Invalid status. Must be "available" or "unavailable"');
       }
 
-      print('🔄 MenuItemService: Updating item $menuItemId status to $status');
+      _log('Updating item $menuItemId status to $status');
 
-      // Validate store owner access
-      final userData = await AuthService.getRoleSpecificData();
+      // Batch validate store owner access
+      final validationResults = await Future.wait([
+        AuthService.getRoleSpecificData(),
+        AuthService.getUserRole(),
+      ]);
+
+      final userData = validationResults[0] as Map<String, dynamic>?;
+      final userRole = validationResults[1] as String?;
+
       if (userData == null) {
         throw Exception('User not authenticated');
       }
 
-      final userRole = await AuthService.getUserRole();
       if (userRole?.toLowerCase() != 'store') {
         throw Exception('Access denied: Only store owners can update menu item status');
       }
@@ -443,14 +424,14 @@ class MenuItemService {
         requiresAuth: true,
       );
 
-      print('✅ MenuItemService: Item status updated successfully');
+      _log('Item status updated successfully');
 
       return {
         'success': true,
         'data': response['data'] ?? {},
       };
     } catch (e) {
-      print('❌ MenuItemService: Update menu item status error: $e');
+      _log('Update menu item status error: $e');
       return {
         'success': false,
         'data': {},
@@ -459,7 +440,7 @@ class MenuItemService {
     }
   }
 
-  /// Search menu items across stores (customer access)
+  /// Search menu items - Optimized
   static Future<List<Map<String, dynamic>>> searchMenuItems({
     required String query,
     String? category,
@@ -499,17 +480,17 @@ class MenuItemService {
 
       final menuItems = List<Map<String, dynamic>>.from(response['data'] ?? []);
       for (var menuItem in menuItems) {
-        _processMenuItemImages(menuItem);
+        _processMenuItemData(menuItem);
       }
 
       return menuItems;
     } catch (e) {
-      print('❌ MenuItemService: Search menu items error: $e');
+      _log('Search menu items error: $e');
       return [];
     }
   }
 
-  /// Get menu categories
+  /// Get menu categories - Optimized
   static Future<List<String>> getMenuCategories() async {
     try {
       final response = await BaseService.apiCall(
@@ -520,12 +501,12 @@ class MenuItemService {
 
       return List<String>.from(response['data'] ?? []);
     } catch (e) {
-      print('❌ MenuItemService: Get menu categories error: $e');
+      _log('Get menu categories error: $e');
       return [];
     }
   }
 
-  /// Get popular menu items
+  /// Get popular menu items - Optimized
   static Future<List<Map<String, dynamic>>> getPopularMenuItems({
     int limit = 10,
     String? category,
@@ -547,105 +528,208 @@ class MenuItemService {
 
       final menuItems = List<Map<String, dynamic>>.from(response['data'] ?? []);
       for (var menuItem in menuItems) {
-        _processMenuItemImages(menuItem);
+        _processMenuItemData(menuItem);
       }
 
       return menuItems;
     } catch (e) {
-      print('❌ MenuItemService: Get popular menu items error: $e');
+      _log('Get popular menu items error: $e');
       return [];
     }
   }
 
-  // PRIVATE HELPER METHODS
+  // PRIVATE HELPER METHODS - OPTIMIZED
 
-  /// Normalize menu item data structure and types
-  static void _normalizeMenuItemData(Map<String, dynamic> item) {
+  /// Extract menu items list from various response structures - Optimized
+  static List<dynamic> _extractMenuItemsList(Map<String, dynamic> response) {
+    if (response['data'] != null) {
+      if (response['data'] is List) {
+        return response['data'];
+      } else if (response['data'] is Map) {
+        final data = response['data'] as Map<String, dynamic>;
+        return data['items'] ?? data['menuItems'] ?? [];
+      }
+    }
+    return response['menuItems'] ?? response['items'] ?? [];
+  }
+
+  /// Create empty menu response - Optimized
+  static Map<String, dynamic> _createEmptyMenuResponse(int page, int limit, String message) {
+    return {
+      'success': true,
+      'data': [],
+      'total': 0,
+      'page': page,
+      'limit': limit,
+      'message': message,
+    };
+  }
+
+  /// Batch process menu items - Optimized
+  static List<Map<String, dynamic>> _batchProcessMenuItems(List<dynamic> menuItemsList) {
+    final processedItems = <Map<String, dynamic>>[];
+
+    for (int i = 0; i < menuItemsList.length; i++) {
+      try {
+        final rawItem = menuItemsList[i];
+        if (rawItem == null || rawItem is! Map) {
+          _log('Skipping invalid item at index $i: $rawItem');
+          continue;
+        }
+
+        final item = Map<String, dynamic>.from(rawItem);
+
+        // Process and validate in one go
+        if (_processAndValidateMenuItem(item)) {
+          processedItems.add(item);
+          _log('Processed item: ${item['name']} - ${item['price']}');
+        } else {
+          _log('Skipping item $i: missing required fields');
+        }
+
+      } catch (e) {
+        _log('Error processing menu item $i: $e');
+        // Continue processing other items
+      }
+    }
+
+    return processedItems;
+  }
+
+  /// Process and validate menu item in one step - Optimized
+  static bool _processAndValidateMenuItem(Map<String, dynamic> item) {
     try {
-      // Ensure price is properly formatted as double
-      if (item['price'] != null) {
-        if (item['price'] is String) {
-          item['price'] = double.tryParse(item['price']) ?? 0.0;
-        } else if (item['price'] is int) {
-          item['price'] = item['price'].toDouble();
-        }
-      } else {
-        item['price'] = 0.0;
+      // Normalize and validate in one pass
+      _normalizeMenuItemData(item);
+
+      if (!_validateMenuItemData(item)) {
+        return false;
       }
 
-      // Ensure boolean fields are properly typed
-      if (item['is_available'] != null) {
-        if (item['is_available'] is String) {
-          item['is_available'] = item['is_available'].toLowerCase() == 'true';
-        } else if (item['is_available'] is int) {
-          item['is_available'] = item['is_available'] == 1;
-        }
-      } else {
-        item['is_available'] = true;
-      }
+      // Process images
+      _processMenuItemImages(item);
 
-      // Normalize other fields
-      item['id'] = item['id']?.toString() ?? '';
-      item['name'] = item['name']?.toString() ?? '';
-      item['description'] = item['description']?.toString() ?? '';
-      item['category'] = item['category']?.toString() ?? '';
-      item['store_id'] = item['store_id']?.toString() ?? '';
-
-      // Handle image URL
-      if (item['image_url'] == null || item['image_url'].toString().isEmpty) {
-        item['image_url'] = null;
-      }
-
+      return true;
     } catch (e) {
-      print('❌ Error normalizing menu item data: $e');
+      _log('Error processing/validating menu item: $e');
+      return false;
     }
   }
 
-  /// Process menu item images with enhanced error handling
+  /// Unified menu item data processing - Optimized
+  static void _processMenuItemData(Map<String, dynamic> item) {
+    _normalizeMenuItemData(item);
+    _processMenuItemImages(item);
+  }
+
+  /// Normalize menu item data structure - Optimized
+  static void _normalizeMenuItemData(Map<String, dynamic> item) {
+    try {
+      // Batch normalize numeric fields
+      _normalizePrice(item);
+      _normalizeBoolean(item);
+      _normalizeStringFields(item);
+      _normalizeImageUrl(item);
+
+    } catch (e) {
+      _log('Error normalizing menu item data: $e');
+    }
+  }
+
+  /// Normalize price field - Optimized
+  static void _normalizePrice(Map<String, dynamic> item) {
+    final price = item['price'];
+    if (price == null) {
+      item['price'] = 0.0;
+    } else if (price is String) {
+      item['price'] = double.tryParse(price) ?? 0.0;
+    } else if (price is int) {
+      item['price'] = price.toDouble();
+    }
+  }
+
+  /// Normalize boolean field - Optimized
+  static void _normalizeBoolean(Map<String, dynamic> item) {
+    final isAvailable = item['is_available'];
+    if (isAvailable == null) {
+      item['is_available'] = true;
+    } else if (isAvailable is String) {
+      item['is_available'] = isAvailable.toLowerCase() == 'true';
+    } else if (isAvailable is int) {
+      item['is_available'] = isAvailable == 1;
+    }
+  }
+
+  /// Normalize string fields - Optimized
+  static void _normalizeStringFields(Map<String, dynamic> item) {
+    const stringFields = ['id', 'name', 'description', 'category', 'store_id'];
+
+    for (final field in stringFields) {
+      item[field] = item[field]?.toString() ?? '';
+    }
+  }
+
+  /// Normalize image URL - Optimized
+  static void _normalizeImageUrl(Map<String, dynamic> item) {
+    final imageUrl = item['image_url'];
+    if (imageUrl == null || imageUrl.toString().isEmpty) {
+      item['image_url'] = null;
+    }
+  }
+
+  /// Process menu item images - Optimized
   static void _processMenuItemImages(Map<String, dynamic> menuItem) {
     try {
       // Process menu item image
-      if (menuItem['image_url'] != null && menuItem['image_url'].toString().isNotEmpty) {
-        final originalUrl = menuItem['image_url'].toString();
+      final imageUrl = menuItem['image_url'];
+      if (imageUrl != null && imageUrl.toString().isNotEmpty) {
+        final originalUrl = imageUrl.toString();
         final processedUrl = ImageService.getImageUrl(originalUrl);
         menuItem['image_url'] = processedUrl;
-        print('🖼️ Processed image URL: $originalUrl -> $processedUrl');
+        _log('Processed image URL: $originalUrl -> $processedUrl');
       }
 
       // Process store image if included
-      if (menuItem['store'] != null && menuItem['store']['image_url'] != null) {
-        final originalUrl = menuItem['store']['image_url'].toString();
-        final processedUrl = ImageService.getImageUrl(originalUrl);
-        menuItem['store']['image_url'] = processedUrl;
-        print('🏪 Processed store image URL: $originalUrl -> $processedUrl');
+      final store = menuItem['store'];
+      if (store is Map<String, dynamic>) {
+        final storeImageUrl = store['image_url'];
+        if (storeImageUrl != null) {
+          final originalUrl = storeImageUrl.toString();
+          final processedUrl = ImageService.getImageUrl(originalUrl);
+          store['image_url'] = processedUrl;
+          _log('Processed store image URL: $originalUrl -> $processedUrl');
+        }
       }
     } catch (e) {
-      print('❌ Error processing menu item images: $e');
+      _log('Error processing menu item images: $e');
     }
   }
 
-  /// Validate menu item data structure
+  /// Validate menu item data - Optimized with const array
   static bool _validateMenuItemData(Map<String, dynamic> item) {
-    final requiredFields = ['id', 'name', 'price', 'store_id'];
+    const requiredFields = ['id', 'name', 'price', 'store_id'];
 
-    for (String field in requiredFields) {
-      if (item[field] == null || item[field].toString().isEmpty) {
-        print('❌ Missing or empty required field: $field');
+    for (final field in requiredFields) {
+      final value = item[field];
+      if (value == null || value.toString().isEmpty) {
+        _log('Missing or empty required field: $field');
         return false;
       }
     }
 
     // Validate price is numeric
     if (item['price'] is! num) {
-      print('❌ Invalid price format: ${item['price']}');
+      _log('Invalid price format: ${item['price']}');
       return false;
     }
 
     return true;
   }
 
-  /// Debug method to inspect menu item data structure
+  /// Debug method - Only active when debug mode is on
   static void debugMenuItemData(Map<String, dynamic> item) {
+    if (!_debugMode) return;
+
     print('🔍 ====== MENU ITEM DEBUG ======');
     print('📋 Item ID: ${item['id']} (${item['id']?.runtimeType})');
     print('📋 Item Name: ${item['name']} (${item['name']?.runtimeType})');

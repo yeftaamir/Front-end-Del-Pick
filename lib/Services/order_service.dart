@@ -7,29 +7,53 @@ import 'auth_service.dart';
 
 class OrderService {
   static const String _baseEndpoint = '/orders';
-  static const bool _debugMode = false; // Toggle for development debugging
+  static const bool _debugMode = false;
+
+  // Optimized const field mappings for ultra-fast processing
+  static const _doubleFields = {
+    'total_amount', 'total_price', 'total', 'subtotal', 'delivery_fee',
+    'service_fee', 'price', 'rating', 'latitude', 'longitude', 'distance',
+    'pickup_latitude', 'pickup_longitude', 'destination_latitude',
+    'destination_longitude', 'distance_km', 'distance_meters', 'base_fee'
+  };
+
+  static const _intFields = {
+    'id', 'customer_id', 'driver_id', 'store_id', 'menu_item_id',
+    'quantity', 'reviews_count', 'review_count', 'total_products',
+    'estimated_duration', 'duration_minutes'
+  };
+
+  static const _imageFields = {
+    'image_url': true,
+    'avatar': true,
+  };
 
   static void _log(String message) {
     if (_debugMode) print(message);
   }
 
-  /// Place a new order (customer only) - Optimized version
+  /// Place a new order - Ultra optimized
   static Future<Map<String, dynamic>> placeOrder({
     required String storeId,
     required List<Map<String, dynamic>> items,
     String? notes,
   }) async {
     try {
-      // Enhanced authentication validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
+      // Parallel authentication validation
+      final authResults = await Future.wait([
+        AuthService.getUserData(),
+        AuthService.getRoleSpecificData(),
+        AuthService.getUserRole(),
+      ]);
+
+      final userData = authResults[0] as Map<String, dynamic>?;
+      final roleData = authResults[1] as Map<String, dynamic>?;
+      final userRole = authResults[2] as String?;
 
       if (userData == null || roleData == null) {
         throw Exception('Authentication required: Please login as customer');
       }
 
-      // Validate customer role
-      final userRole = await AuthService.getUserRole();
       if (userRole?.toLowerCase() != 'customer') {
         throw Exception('Access denied: Customer authentication required');
       }
@@ -39,22 +63,9 @@ class OrderService {
         throw Exception('Unable to retrieve customer data');
       }
 
-      // Prepare order body
-      final body = {
-        'store_id': int.parse(storeId),
-        'items': items
-            .map((item) => {
-          'menu_item_id': item['id'] ??
-              item['menu_item_id'] ??
-              item['itemId'],
-          'quantity': item['quantity'] ?? 1,
-          'notes': item['notes'] ?? '',
-        })
-            .toList(),
-        if (notes != null && notes.isNotEmpty) 'notes': notes,
-      };
+      // Optimized body preparation
+      final body = _createOrderBody(storeId, items, notes);
 
-      // Make API call
       final response = await BaseService.apiCall(
         method: 'POST',
         endpoint: _baseEndpoint,
@@ -63,30 +74,19 @@ class OrderService {
       );
 
       if (response['data'] != null) {
-        _processOrderData(response['data']);
+        _fastProcessOrderData(response['data']);
+        _log('Order created successfully: ${response['data']['id']}');
         return response['data'];
       }
 
       throw Exception('Invalid response: No order data returned');
     } catch (e) {
-      // Enhanced error handling with specific messages
-      if (e.toString().contains('authentication') ||
-          e.toString().contains('Access denied')) {
-        throw Exception('Authentication required. Please login as customer.');
-      } else if (e.toString().contains('validation')) {
-        throw Exception(
-            'Order validation failed. Please check your order details.');
-      } else if (e.toString().contains('network') ||
-          e.toString().contains('connection')) {
-        throw Exception(
-            'Network error. Please check your internet connection.');
-      } else {
-        throw Exception('Failed to place order: ${e.toString()}');
-      }
+      _log('Place order error: $e');
+      throw _createOptimizedError(e);
     }
   }
 
-  /// Get orders by user (customer)
+  /// Get orders by user - Ultra optimized
   static Future<Map<String, dynamic>> getOrdersByUser({
     int page = 1,
     int limit = 10,
@@ -95,56 +95,25 @@ class OrderService {
     String? sortOrder,
   }) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
-
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
-      }
-
-      // Validate customer access
-      final hasAccess = await AuthService.validateCustomerAccess();
-      if (!hasAccess) {
-        throw Exception('Access denied: Customer authentication required');
-      }
-
-      final queryParams = {
-        'page': page.toString(),
-        'limit': limit.toString(),
-        if (status != null) 'status': status,
-        if (sortBy != null) 'sortBy': sortBy,
-        if (sortOrder != null) 'sortOrder': sortOrder,
-      };
+      // Fast validation
+      final isValid = await _fastValidateCustomer();
+      if (!isValid) throw Exception('Authentication required: Please login');
 
       final response = await BaseService.apiCall(
         method: 'GET',
         endpoint: '$_baseEndpoint/customer',
-        queryParams: queryParams,
+        queryParams: _buildQueryParams(page, limit, status, sortBy, sortOrder),
         requiresAuth: true,
       );
 
-      // Process response
-      if (response['data'] != null && response['data']['orders'] != null) {
-        final orders = response['data']['orders'] as List;
-        for (var order in orders) {
-          _processOrderData(order);
-        }
-      }
-
-      return response['data'] ??
-          {
-            'orders': [],
-            'totalItems': 0,
-            'totalPages': 0,
-            'currentPage': 1,
-          };
+      return _fastProcessOrdersResponse(response);
     } catch (e) {
+      _log('Get orders by user error: $e');
       throw Exception('Failed to get user orders: $e');
     }
   }
 
-  /// Get orders by store (store owner)
+  /// Get orders by store - Ultra optimized
   static Future<Map<String, dynamic>> getOrdersByStore({
     int page = 1,
     int limit = 10,
@@ -154,28 +123,15 @@ class OrderService {
     int? timestamp,
   }) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
+      // Fast store validation
+      final isValid = await _fastValidateStore();
+      if (!isValid) throw Exception('Access denied: Store authentication required');
 
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
+      final queryParams = _buildQueryParams(page, limit, status, sortBy, sortOrder);
+      if (timestamp != null) {
+        queryParams['_t'] = timestamp.toString();
+        _log('Force refresh with timestamp: $timestamp');
       }
-
-      // Validate store access
-      final hasStoreAccess = await AuthService.hasRole('store');
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
-      }
-
-      final queryParams = {
-        'page': page.toString(),
-        'limit': limit.toString(),
-        if (status != null) 'status': status,
-        if (sortBy != null) 'sortBy': sortBy,
-        if (sortOrder != null) 'sortOrder': sortOrder,
-        if (timestamp != null) '_t': timestamp.toString(),
-      };
 
       final response = await BaseService.apiCall(
         method: 'GET',
@@ -184,27 +140,14 @@ class OrderService {
         requiresAuth: true,
       );
 
-      // Process response
-      if (response['data'] != null && response['data']['orders'] != null) {
-        final orders = response['data']['orders'] as List;
-        for (var order in orders) {
-          _processOrderData(order);
-        }
-      }
-
-      return response['data'] ??
-          {
-            'orders': [],
-            'totalItems': 0,
-            'totalPages': 0,
-            'currentPage': 1,
-          };
+      return _fastProcessOrdersResponse(response);
     } catch (e) {
+      _log('Get orders by store error: $e');
       throw Exception('Failed to get store orders: $e');
     }
   }
 
-  /// Force refresh orders by store
+  /// Force refresh orders - Optimized
   static Future<Map<String, dynamic>> forceRefreshOrdersByStore({
     int page = 1,
     int limit = 10,
@@ -212,7 +155,7 @@ class OrderService {
     String? sortBy,
     String? sortOrder,
   }) async {
-    return await getOrdersByStore(
+    return getOrdersByStore(
       page: page,
       limit: limit,
       status: status,
@@ -222,21 +165,11 @@ class OrderService {
     );
   }
 
-  /// Get order by ID
+  /// Get order by ID - Ultra optimized
   static Future<Map<String, dynamic>> getOrderById(String orderId) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
-
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
-      }
-
-      final isAuth = await AuthService.isAuthenticated();
-      if (!isAuth) {
-        throw Exception('Authentication required');
-      }
+      final isValid = await _fastValidateAuth();
+      if (!isValid) throw Exception('Authentication required');
 
       final response = await BaseService.apiCall(
         method: 'GET',
@@ -245,45 +178,35 @@ class OrderService {
       );
 
       if (response['data'] != null) {
-        _processOrderData(response['data']);
+        _fastProcessOrderData(response['data']);
+        _log('Order details retrieved successfully');
         return response['data'];
       }
 
       throw Exception('Order not found or invalid response');
     } catch (e) {
+      _log('Get order by ID error: $e');
       throw Exception('Failed to get order: $e');
     }
   }
 
-  /// Process order by store (approve/reject)
+  /// Process order by store - Optimized
   static Future<Map<String, dynamic>> processOrderByStore({
     required String orderId,
     required String action,
     String? rejectionReason,
   }) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
+      final isValid = await _fastValidateStore();
+      if (!isValid) throw Exception('Access denied: Store authentication required');
 
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
-      }
-
-      // Validate store access
-      final hasStoreAccess = await AuthService.hasRole('store');
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
-      }
-
-      if (!['approve', 'reject'].contains(action.toLowerCase())) {
+      if (!{'approve', 'reject'}.contains(action.toLowerCase())) {
         throw Exception('Invalid action. Must be "approve" or "reject"');
       }
 
       final body = {
         'action': action.toLowerCase(),
-        if (rejectionReason != null && rejectionReason.isNotEmpty)
-          'rejection_reason': rejectionReason,
+        if (rejectionReason?.isNotEmpty == true) 'rejection_reason': rejectionReason,
       };
 
       final response = await BaseService.apiCall(
@@ -294,15 +217,16 @@ class OrderService {
       );
 
       if (response['data'] != null) {
-        _processOrderData(response['data']);
+        _fastProcessOrderData(response['data']);
       }
       return response['data'] ?? {};
     } catch (e) {
+      _log('Process order by store error: $e');
       throw Exception('Failed to process order: $e');
     }
   }
 
-  /// Update order status with customer cancellation permission
+  /// Update order status - Ultra optimized
   static Future<Map<String, dynamic>> updateOrderStatus({
     required String orderId,
     required String orderStatus,
@@ -310,38 +234,10 @@ class OrderService {
     String? notes,
   }) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
-
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
-      }
-
-      // Validate authentication and role
-      final isAuth = await AuthService.isAuthenticated();
-      if (!isAuth) {
-        throw Exception('Authentication required');
-      }
-
-      final userRole = await AuthService.getUserRole();
-      if (userRole == null) {
-        throw Exception('Unable to determine user role');
-      }
-
-      // Check permissions
-      bool hasPermission = false;
-
-      if (['store', 'driver', 'admin'].contains(userRole.toLowerCase())) {
-        hasPermission = true;
-      } else if (userRole.toLowerCase() == 'customer' &&
-          orderStatus.toLowerCase() == 'cancelled') {
-        hasPermission = true;
-      }
-
+      // Fast permission check
+      final hasPermission = await _fastCheckStatusPermission(orderStatus);
       if (!hasPermission) {
-        throw Exception(
-            'Access denied: Insufficient permissions to update order status to $orderStatus');
+        throw Exception('Access denied: Insufficient permissions to update order status to $orderStatus');
       }
 
       final body = {
@@ -358,33 +254,23 @@ class OrderService {
       );
 
       if (response['data'] != null) {
-        _processOrderData(response['data']);
+        _fastProcessOrderData(response['data']);
       }
       return response['data'] ?? {};
     } catch (e) {
+      _log('Update order status error: $e');
       throw Exception('Failed to update order status: $e');
     }
   }
 
-  /// Cancel order specifically for customers
+  /// Cancel order by customer - Optimized
   static Future<Map<String, dynamic>> cancelOrderByCustomer({
     required String orderId,
     String? cancellationReason,
   }) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
-
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
-      }
-
-      // Validate customer access
-      final hasAccess = await AuthService.validateCustomerAccess();
-      if (!hasAccess) {
-        throw Exception('Access denied: Customer authentication required');
-      }
+      final isValid = await _fastValidateCustomer();
+      if (!isValid) throw Exception('Access denied: Customer authentication required');
 
       final body = {
         'cancellation_reason': cancellationReason ?? 'Cancelled by customer',
@@ -398,11 +284,11 @@ class OrderService {
       );
 
       if (response['data'] != null) {
-        _processOrderData(response['data']);
+        _fastProcessOrderData(response['data']);
       }
       return response['data'] ?? {};
     } catch (e) {
-      // Fallback to updateOrderStatus if specific cancel endpoint doesn't exist
+      // Fallback to updateOrderStatus
       try {
         return await updateOrderStatus(
           orderId: orderId,
@@ -415,220 +301,97 @@ class OrderService {
     }
   }
 
-  /// Create review for completed order
+  /// Create review - Ultra optimized
   static Future<Map<String, dynamic>> createReview({
     required String orderId,
     required Map<String, dynamic> orderReview,
     required Map<String, dynamic> driverReview,
   }) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
+      // Fast customer validation
+      final isValid = await _fastValidateCustomer();
+      if (!isValid) throw Exception('Access denied: Only customers can create reviews');
 
-      if (userData == null) {
-        throw Exception('Authentication required: Please login');
-      }
-
-      if (roleData == null) {
-        throw Exception('Role data not found: Please login as customer');
-      }
-
-      // Validate customer access
-      final userRole = await AuthService.getUserRole();
-      if (userRole?.toLowerCase() != 'customer') {
-        throw Exception('Access denied: Only customers can create reviews');
-      }
-
-      final hasAccess = await AuthService.validateCustomerAccess();
-      if (!hasAccess) {
-        throw Exception('Access denied: Customer authentication required');
-      }
-
-      // Validate review data
-      final orderRating = orderReview['rating'];
-      final driverRating = driverReview['rating'];
-
-      if (orderRating != null && (orderRating < 1 || orderRating > 5)) {
-        throw Exception('Order rating must be between 1 and 5');
-      }
-
-      if (driverRating != null && (driverRating < 1 || driverRating > 5)) {
-        throw Exception('Driver rating must be between 1 and 5');
-      }
-
-      // Ensure at least one rating is provided
-      if ((orderRating == null || orderRating <= 0) &&
-          (driverRating == null || driverRating <= 0)) {
-        throw Exception('At least one rating (store or driver) must be provided');
-      }
-
-      // Clean the review data
-      final cleanOrderReview = <String, dynamic>{};
-      final cleanDriverReview = <String, dynamic>{};
-
-      // Order review
-      if (orderRating != null && orderRating > 0) {
-        cleanOrderReview['rating'] = orderRating;
-        final orderComment = orderReview['comment']?.toString().trim();
-        if (orderComment != null && orderComment.isNotEmpty) {
-          cleanOrderReview['comment'] = orderComment;
-        }
-      }
-
-      // Driver review
-      if (driverRating != null && driverRating > 0) {
-        cleanDriverReview['rating'] = driverRating;
-        final driverComment = driverReview['comment']?.toString().trim();
-        if (driverComment != null && driverComment.isNotEmpty) {
-          cleanDriverReview['comment'] = driverComment;
-        }
-      }
-
-      final body = <String, dynamic>{};
-
-      if (cleanOrderReview.isNotEmpty) {
-        body['order_review'] = cleanOrderReview;
-      }
-
-      if (cleanDriverReview.isNotEmpty) {
-        body['driver_review'] = cleanDriverReview;
-      }
-
-      if (body.isEmpty) {
-        throw Exception('No valid reviews to submit');
-      }
+      // Fast review validation and cleaning
+      final cleanedBody = _fastCleanReviewData(orderReview, driverReview);
 
       final response = await BaseService.apiCall(
         method: 'POST',
         endpoint: '$_baseEndpoint/$orderId/review',
-        body: body,
+        body: cleanedBody,
         requiresAuth: true,
       );
 
       if (response['data'] != null) {
-        _processOrderData(response['data']);
+        _fastProcessOrderData(response['data']);
         return response['data'];
       }
 
       return {'success': true, 'message': 'Review submitted successfully'};
-
     } catch (e) {
-      // Enhanced error handling
-      String errorMessage = 'Failed to submit review';
-
-      if (e.toString().contains('authentication') || e.toString().contains('Access denied')) {
-        errorMessage = 'Authentication required. Please login as customer.';
-      } else if (e.toString().contains('rating must be between')) {
-        errorMessage = 'Invalid rating. Please provide ratings between 1-5 stars.';
-      } else if (e.toString().contains('At least one rating')) {
-        errorMessage = 'Please provide at least one rating (store or driver).';
-      } else if (e.toString().contains('Bad request')) {
-        errorMessage = 'Invalid review data. Please check your ratings and try again.';
-      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
-        errorMessage = 'Network error. Please check your internet connection.';
-      }
-
-      throw Exception(errorMessage);
+      _log('Create review error: $e');
+      throw _createReviewError(e);
     }
   }
 
-  /// Calculate delivery fee using distance * 2500 and round up
+  /// Calculate delivery fee - Ultra optimized
   static Future<Map<String, dynamic>> calculateDeliveryFee({
     required String storeId,
     required double destinationLatitude,
     required double destinationLongitude,
   }) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
-
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
-      }
-
-      final isAuth = await AuthService.isAuthenticated();
-      if (!isAuth) {
-        throw Exception('Authentication required');
-      }
-
-      final queryParams = {
-        'store_id': storeId,
-        'destination_latitude': destinationLatitude.toString(),
-        'destination_longitude': destinationLongitude.toString(),
-      };
+      final isValid = await _fastValidateAuth();
+      if (!isValid) throw Exception('Authentication required');
 
       final response = await BaseService.apiCall(
         method: 'GET',
         endpoint: '$_baseEndpoint/calculate-delivery-fee',
-        queryParams: queryParams,
+        queryParams: {
+          'store_id': storeId,
+          'destination_latitude': destinationLatitude.toString(),
+          'destination_longitude': destinationLongitude.toString(),
+        },
         requiresAuth: true,
       );
 
-      // Process numeric fields
       if (response['data'] != null) {
-        _processNumericFields(response['data']);
-
-        // Apply custom delivery fee calculation
         final data = response['data'];
+        _fastProcessNumericFields(data);
+
+        // Fast delivery fee calculation
         final distance = (data['distance_km'] as double?) ?? 0.0;
-
-        // Calculate delivery fee: distance * 2500, rounded up to nearest 1000
         final baseFee = distance * 2500;
-        final roundedFee = _roundUpToNearestThousand(baseFee);
+        final roundedFee = _fastRoundUpToThousand(baseFee);
 
-        data['delivery_fee'] = roundedFee;
-        data['base_fee'] = baseFee;
-        data['distance_km'] = distance;
+        data.addAll({
+          'delivery_fee': roundedFee,
+          'base_fee': baseFee,
+          'distance_km': distance,
+        });
 
-        _log('Custom delivery fee calculation: Distance: ${distance.toStringAsFixed(2)} km, Base fee: Rp ${baseFee.toStringAsFixed(0)}, Rounded fee: Rp ${roundedFee.toStringAsFixed(0)}');
+        _log('Delivery fee: Distance ${distance.toStringAsFixed(2)}km, Fee Rp${roundedFee.toStringAsFixed(0)}');
       }
 
       return response['data'] ?? {};
     } catch (e) {
-      // Fallback with default distance calculation
-      return {
-        'delivery_fee': 5000.0,
-        'distance_km': 2.0,
-        'base_fee': 5000.0,
-      };
+      _log('Calculate delivery fee error: $e');
+      return {'delivery_fee': 5000.0, 'distance_km': 2.0, 'base_fee': 5000.0};
     }
   }
 
-  /// Round up to nearest 1000
-  static double _roundUpToNearestThousand(double amount) {
-    if (amount <= 1000) {
-      return 1000.0;
-    }
-    return (amount / 1000).ceil() * 1000.0;
-  }
-
-  /// Get order statistics
+  /// Get order statistics - Optimized
   static Future<Map<String, dynamic>> getOrderStatistics({
     DateTime? startDate,
     DateTime? endDate,
     String? groupBy,
   }) async {
     try {
-      // Enhanced validation
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
-
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
-      }
-
-      // Validate store or admin access
-      final userRole = await AuthService.getUserRole();
-      if (!['store', 'admin'].contains(userRole?.toLowerCase())) {
-        throw Exception(
-            'Access denied: Only store or admin can view statistics');
-      }
+      final isValid = await _fastValidateStoreOrAdmin();
+      if (!isValid) throw Exception('Access denied: Only store or admin can view statistics');
 
       final queryParams = <String, String>{};
-      if (startDate != null)
-        queryParams['startDate'] = startDate.toIso8601String();
+      if (startDate != null) queryParams['startDate'] = startDate.toIso8601String();
       if (endDate != null) queryParams['endDate'] = endDate.toIso8601String();
       if (groupBy != null) queryParams['groupBy'] = groupBy;
 
@@ -639,215 +402,329 @@ class OrderService {
         requiresAuth: true,
       );
 
-      // Process numeric fields in statistics
       if (response['data'] != null) {
-        _processStatisticsData(response['data']);
+        _fastProcessStatisticsData(response['data']);
       }
 
       return response['data'] ?? {};
     } catch (e) {
+      _log('Get order statistics error: $e');
       return {};
     }
   }
 
-  // PRIVATE HELPER METHODS - OPTIMIZED
+  // ULTRA-OPTIMIZED PRIVATE HELPER METHODS
 
-  /// Comprehensive order data processing (optimized)
-  static void _processOrderData(Map<String, dynamic> order) {
-    try {
-      // Process numeric fields
-      _processNumericFields(order);
+  /// Ultra-fast order data processing
+  static void _fastProcessOrderData(Map<String, dynamic> order) {
+    // Single-pass processing untuk semua data
+    _fastProcessNumericFields(order);
+    _fastProcessTrackingUpdates(order);
+    _fastProcessAllImages(order);
+    _fastProcessNestedItems(order);
+    _fastProcessNestedEntities(order);
+  }
 
-      // Process tracking updates
-      _processTrackingUpdates(order);
-
-      // Process images
-      _processOrderImages(order);
-
-      // Process nested order items
-      if (order['items'] != null) {
-        final items = order['items'] as List;
-        for (var item in items) {
-          _processNumericFields(item);
+  /// Lightning-fast numeric field processing
+  static void _fastProcessNumericFields(Map<String, dynamic> data) {
+    // Ultra-optimized dengan direct field access
+    for (final field in _doubleFields) {
+      final value = data[field];
+      if (value != null) {
+        if (value is String) {
+          data[field] = double.tryParse(value) ?? 0.0;
+        } else if (value is int) {
+          data[field] = value.toDouble();
         }
       }
+    }
 
-      if (order['order_items'] != null) {
-        final orderItems = order['order_items'] as List;
-        for (var item in orderItems) {
-          _processNumericFields(item);
-          if (item['menu_item'] != null) {
-            _processNumericFields(item['menu_item']);
-          }
+    for (final field in _intFields) {
+      final value = data[field];
+      if (value != null) {
+        if (value is String) {
+          data[field] = int.tryParse(value) ?? 0;
+        } else if (value is double) {
+          data[field] = value.toInt();
         }
       }
-
-      // Process store data
-      if (order['store'] != null) {
-        _processNumericFields(order['store']);
-      }
-
-      // Process driver data
-      if (order['driver'] != null) {
-        _processNumericFields(order['driver']);
-        if (order['driver']['user'] != null) {
-          _processNumericFields(order['driver']['user']);
-        }
-      }
-    } catch (e) {
-      _log('Error processing order data: $e');
     }
   }
 
-  /// Convert string numeric values to proper numeric types (optimized)
-  static void _processNumericFields(Map<String, dynamic> data) {
-    try {
-      // Optimized field lists - grouped for better performance
-      const doubleFields = [
-        'total_amount', 'total_price', 'total', 'subtotal', 'delivery_fee',
-        'service_fee', 'price', 'rating', 'latitude', 'longitude', 'distance',
-        'pickup_latitude', 'pickup_longitude', 'destination_latitude',
-        'destination_longitude', 'distance_km', 'distance_meters', 'base_fee'
-      ];
-
-      const intFields = [
-        'id', 'customer_id', 'driver_id', 'store_id', 'menu_item_id',
-        'quantity', 'reviews_count', 'review_count', 'total_products',
-        'estimated_duration', 'duration_minutes'
-      ];
-
-      // Batch convert double fields
-      for (final field in doubleFields) {
-        final value = data[field];
-        if (value != null) {
-          if (value is String) {
-            data[field] = double.tryParse(value) ?? 0.0;
-          } else if (value is int) {
-            data[field] = value.toDouble();
-          }
-        }
-      }
-
-      // Batch convert int fields
-      for (final field in intFields) {
-        final value = data[field];
-        if (value != null) {
-          if (value is String) {
-            data[field] = int.tryParse(value) ?? 0;
-          } else if (value is double) {
-            data[field] = value.toInt();
-          }
-        }
-      }
-    } catch (e) {
-      _log('Error processing numeric fields: $e');
-    }
-  }
-
-  /// Process statistics data (optimized)
-  static void _processStatisticsData(Map<String, dynamic> statistics) {
-    try {
-      _processNumericFields(statistics);
-
-      // Process nested arrays efficiently
-      final nestedArrays = ['daily_stats', 'monthly_stats'];
-      for (final arrayKey in nestedArrays) {
-        final array = statistics[arrayKey];
-        if (array is List) {
-          for (var stat in array) {
-            if (stat is Map<String, dynamic>) {
-              _processNumericFields(stat);
+  /// Ultra-fast tracking updates processing
+  static void _fastProcessTrackingUpdates(Map<String, dynamic> order) {
+    final trackingUpdates = order['tracking_updates'];
+    if (trackingUpdates is String) {
+      try {
+        final parsed = jsonDecode(trackingUpdates);
+        if (parsed is List) {
+          // Batch process all updates
+          for (var update in parsed) {
+            if (update is Map<String, dynamic>) {
+              _fastProcessNumericFields(update);
             }
           }
+          order['tracking_updates'] = parsed;
         }
-      }
-    } catch (e) {
-      _log('Error processing statistics data: $e');
-    }
-  }
-
-  /// Process tracking updates (optimized)
-  static void _processTrackingUpdates(Map<String, dynamic> order) {
-    try {
-      final trackingUpdatesRaw = order['tracking_updates'];
-
-      if (trackingUpdatesRaw is String) {
-        try {
-          final parsed = jsonDecode(trackingUpdatesRaw);
-          if (parsed is List) {
-            // Process all updates in batch
-            for (var update in parsed) {
-              if (update is Map<String, dynamic>) {
-                _processNumericFields(update);
-              }
-            }
-            order['tracking_updates'] = parsed;
-          }
-        } catch (e) {
-          order['tracking_updates'] = [];
-        }
-      } else if (trackingUpdatesRaw is List) {
-        // Process existing list
-        for (var update in trackingUpdatesRaw) {
-          if (update is Map<String, dynamic>) {
-            _processNumericFields(update);
-          }
-        }
-        order['tracking_updates'] = trackingUpdatesRaw;
-      } else {
+      } catch (e) {
         order['tracking_updates'] = [];
       }
-    } catch (e) {
+    } else if (trackingUpdates is List) {
+      // Direct processing
+      for (var update in trackingUpdates) {
+        if (update is Map<String, dynamic>) {
+          _fastProcessNumericFields(update);
+        }
+      }
+    } else {
       order['tracking_updates'] = [];
     }
   }
 
-  /// Process images in order data (optimized)
-  static void _processOrderImages(Map<String, dynamic> order) {
-    try {
-      // Process store image
-      final store = order['store'];
-      if (store is Map<String, dynamic> && store['image_url'] != null) {
-        store['image_url'] = ImageService.getImageUrl(store['image_url']);
-      }
+  /// Ultra-fast image processing untuk semua entities
+  static void _fastProcessAllImages(Map<String, dynamic> order) {
+    // Batch process store images
+    final store = order['store'];
+    if (store is Map<String, dynamic>) {
+      _fastProcessEntityImages(store);
+    }
 
-      // Process customer avatar
-      final customer = order['customer'];
-      if (customer is Map<String, dynamic> && customer['avatar'] != null) {
-        customer['avatar'] = ImageService.getImageUrl(customer['avatar']);
-      }
+    // Batch process customer images
+    final customer = order['customer'];
+    if (customer is Map<String, dynamic>) {
+      _fastProcessEntityImages(customer);
+    }
 
-      // Process driver avatar
-      final driver = order['driver'];
-      if (driver is Map<String, dynamic>) {
-        final driverUser = driver['user'];
-        if (driverUser is Map<String, dynamic> && driverUser['avatar'] != null) {
-          driverUser['avatar'] = ImageService.getImageUrl(driverUser['avatar']);
-        } else if (driver['avatar'] != null) {
-          driver['avatar'] = ImageService.getImageUrl(driver['avatar']);
+    // Batch process driver images
+    final driver = order['driver'];
+    if (driver is Map<String, dynamic>) {
+      _fastProcessEntityImages(driver);
+      final driverUser = driver['user'];
+      if (driverUser is Map<String, dynamic>) {
+        _fastProcessEntityImages(driverUser);
+      }
+    }
+  }
+
+  /// Ultra-fast entity image processing
+  static void _fastProcessEntityImages(Map<String, dynamic> entity) {
+    for (final field in _imageFields.keys) {
+      final imageUrl = entity[field];
+      if (imageUrl != null && imageUrl.toString().isNotEmpty) {
+        entity[field] = ImageService.getImageUrl(imageUrl.toString());
+      }
+    }
+  }
+
+  /// Ultra-fast nested items processing
+  static void _fastProcessNestedItems(Map<String, dynamic> order) {
+    // Process items array
+    final items = order['items'];
+    if (items is List) {
+      for (var item in items) {
+        if (item is Map<String, dynamic>) {
+          _fastProcessNumericFields(item);
+          _fastProcessEntityImages(item);
         }
       }
+    }
 
-      // Process order items images efficiently
-      final itemsArrays = ['items', 'order_items'];
-      for (final arrayKey in itemsArrays) {
-        final items = order[arrayKey];
-        if (items is List) {
-          for (var item in items) {
-            if (item is Map<String, dynamic>) {
-              if (item['image_url'] != null) {
-                item['image_url'] = ImageService.getImageUrl(item['image_url']);
-              }
-              final menuItem = item['menu_item'];
-              if (menuItem is Map<String, dynamic> && menuItem['image_url'] != null) {
-                menuItem['image_url'] = ImageService.getImageUrl(menuItem['image_url']);
-              }
-            }
+    // Process order_items array
+    final orderItems = order['order_items'];
+    if (orderItems is List) {
+      for (var item in orderItems) {
+        if (item is Map<String, dynamic>) {
+          _fastProcessNumericFields(item);
+          _fastProcessEntityImages(item);
+          final menuItem = item['menu_item'];
+          if (menuItem is Map<String, dynamic>) {
+            _fastProcessNumericFields(menuItem);
+            _fastProcessEntityImages(menuItem);
           }
         }
       }
-    } catch (e) {
-      _log('Error processing order images: $e');
+    }
+  }
+
+  /// Ultra-fast nested entities processing
+  static void _fastProcessNestedEntities(Map<String, dynamic> order) {
+    final entities = ['store', 'driver'];
+    for (final entityKey in entities) {
+      final entity = order[entityKey];
+      if (entity is Map<String, dynamic>) {
+        _fastProcessNumericFields(entity);
+      }
+    }
+  }
+
+  /// Lightning-fast statistics processing
+  static void _fastProcessStatisticsData(Map<String, dynamic> statistics) {
+    _fastProcessNumericFields(statistics);
+
+    // Process nested arrays in parallel concept
+    const nestedArrays = ['daily_stats', 'monthly_stats'];
+    for (final arrayKey in nestedArrays) {
+      final array = statistics[arrayKey];
+      if (array is List) {
+        for (var stat in array) {
+          if (stat is Map<String, dynamic>) {
+            _fastProcessNumericFields(stat);
+          }
+        }
+      }
+    }
+  }
+
+  /// Ultra-fast orders response processing
+  static Map<String, dynamic> _fastProcessOrdersResponse(Map<String, dynamic> response) {
+    if (response['data'] != null && response['data']['orders'] != null) {
+      final orders = response['data']['orders'] as List;
+      for (var order in orders) {
+        _fastProcessOrderData(order);
+      }
+      _log('Retrieved ${orders.length} orders');
+    }
+
+    return response['data'] ?? {
+      'orders': [],
+      'totalItems': 0,
+      'totalPages': 0,
+      'currentPage': 1,
+    };
+  }
+
+  /// Ultra-fast query params builder
+  static Map<String, String> _buildQueryParams(int page, int limit, String? status, String? sortBy, String? sortOrder) {
+    final params = {
+      'page': page.toString(),
+      'limit': limit.toString(),
+    };
+
+    if (status != null) params['status'] = status;
+    if (sortBy != null) params['sortBy'] = sortBy;
+    if (sortOrder != null) params['sortOrder'] = sortOrder;
+
+    return params;
+  }
+
+  /// Ultra-fast order body creation
+  static Map<String, dynamic> _createOrderBody(String storeId, List<Map<String, dynamic>> items, String? notes) {
+    final body = {
+      'store_id': int.parse(storeId),
+      'items': items.map((item) => {
+        'menu_item_id': item['id'] ?? item['menu_item_id'] ?? item['itemId'],
+        'quantity': item['quantity'] ?? 1,
+        'notes': item['notes'] ?? '',
+      }).toList(),
+    };
+    return body;
+  }
+
+  /// Lightning-fast review data cleaning
+  static Map<String, dynamic> _fastCleanReviewData(Map<String, dynamic> orderReview, Map<String, dynamic> driverReview) {
+    final orderRating = orderReview['rating'];
+    final driverRating = driverReview['rating'];
+
+    // Fast validation
+    if ((orderRating == null || orderRating <= 0) && (driverRating == null || driverRating <= 0)) {
+      throw Exception('At least one rating (store or driver) must be provided');
+    }
+
+    final body = <String, dynamic>{};
+
+    // Fast order review processing
+    if (orderRating != null && orderRating > 0 && orderRating <= 5) {
+      final cleanOrderReview = {'rating': orderRating};
+      final orderComment = orderReview['comment']?.toString().trim();
+      if (orderComment?.isNotEmpty == true) {
+        cleanOrderReview['comment'] = orderComment;
+      }
+      body['order_review'] = cleanOrderReview;
+    }
+
+    // Fast driver review processing
+    if (driverRating != null && driverRating > 0 && driverRating <= 5) {
+      final cleanDriverReview = {'rating': driverRating};
+      final driverComment = driverReview['comment']?.toString().trim();
+      if (driverComment?.isNotEmpty == true) {
+        cleanDriverReview['comment'] = driverComment;
+      }
+      body['driver_review'] = cleanDriverReview;
+    }
+
+    if (body.isEmpty) {
+      throw Exception('No valid reviews to submit');
+    }
+
+    return body;
+  }
+
+  /// Ultra-fast validation methods
+  static Future<bool> _fastValidateAuth() async {
+    return AuthService.isAuthenticated();
+  }
+
+  static Future<bool> _fastValidateCustomer() async {
+    final results = await Future.wait([
+      AuthService.isAuthenticated(),
+      AuthService.getUserRole(),
+    ]);
+    return results[0] as bool && (results[1] as String?)?.toLowerCase() == 'customer';
+  }
+
+  static Future<bool> _fastValidateStore() async {
+    final results = await Future.wait([
+      AuthService.isAuthenticated(),
+      AuthService.hasRole('store'),
+    ]);
+    return results[0] as bool && results[1] as bool;
+  }
+
+  static Future<bool> _fastValidateStoreOrAdmin() async {
+    final userRole = await AuthService.getUserRole();
+    return {'store', 'admin'}.contains(userRole?.toLowerCase());
+  }
+
+  static Future<bool> _fastCheckStatusPermission(String orderStatus) async {
+    final userRole = await AuthService.getUserRole();
+    if ({'store', 'driver', 'admin'}.contains(userRole?.toLowerCase())) {
+      return true;
+    }
+    return userRole?.toLowerCase() == 'customer' && orderStatus.toLowerCase() == 'cancelled';
+  }
+
+  /// Ultra-fast utility methods
+  static double _fastRoundUpToThousand(double amount) {
+    return amount <= 1000 ? 1000.0 : (amount / 1000).ceil() * 1000.0;
+  }
+
+  static Exception _createOptimizedError(dynamic e) {
+    final errorStr = e.toString();
+    if (errorStr.contains('authentication') || errorStr.contains('Access denied')) {
+      return Exception('Authentication required. Please login as customer.');
+    } else if (errorStr.contains('validation')) {
+      return Exception('Order validation failed. Please check your order details.');
+    } else if (errorStr.contains('network') || errorStr.contains('connection')) {
+      return Exception('Network error. Please check your internet connection.');
+    } else {
+      return Exception('Failed to place order: $errorStr');
+    }
+  }
+
+  static Exception _createReviewError(dynamic e) {
+    final errorStr = e.toString();
+    if (errorStr.contains('authentication') || errorStr.contains('Access denied')) {
+      return Exception('Authentication required. Please login as customer.');
+    } else if (errorStr.contains('rating must be between')) {
+      return Exception('Invalid rating. Please provide ratings between 1-5 stars.');
+    } else if (errorStr.contains('At least one rating')) {
+      return Exception('Please provide at least one rating (store or driver).');
+    } else if (errorStr.contains('Bad request')) {
+      return Exception('Invalid review data. Please check your ratings and try again.');
+    } else if (errorStr.contains('network') || errorStr.contains('connection')) {
+      return Exception('Network error. Please check your internet connection.');
+    } else {
+      return Exception('Failed to submit review');
     }
   }
 }

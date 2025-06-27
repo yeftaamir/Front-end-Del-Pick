@@ -6,9 +6,13 @@ import 'image_service.dart';
 
 class AuthService {
   static const String _baseEndpoint = '/auth';
+  static const bool _debugMode = false; // Toggle for development debugging
 
-  /// Login user with email and password
-  /// Returns role-specific user data with nested structures for driver/store
+  static void _log(String message) {
+    if (_debugMode) print(message);
+  }
+
+  /// Login user with email and password - Optimized version
   static Future<Map<String, dynamic>> login({
     required String email,
     required String password,
@@ -33,10 +37,12 @@ class AuthService {
           throw Exception('Invalid login response: missing user or token');
         }
 
-        // Save authentication data
-        await TokenService.saveToken(token);
-        await TokenService.saveUserRole(user['role']);
-        await TokenService.saveUserId(user['id'].toString());
+        // Batch save authentication data
+        await Future.wait([
+          TokenService.saveToken(token),
+          TokenService.saveUserRole(user['role']),
+          TokenService.saveUserId(user['id'].toString()),
+        ]);
 
         // Process role-specific data and images
         await _processLoginData(loginData);
@@ -44,50 +50,49 @@ class AuthService {
         // Save complete user data
         await TokenService.saveUserData(loginData);
 
-        print('✅ Login successful for user: ${user['name']} (${user['role']})');
+        _log('Login successful for user: ${user['name']} (${user['role']})');
         return loginData;
       }
 
       throw Exception('Invalid login response format');
     } catch (e) {
-      print('❌ Login error: $e');
+      _log('Login error: $e');
       throw Exception('Login failed: $e');
     }
   }
 
-  /// Logout user - clears all local data and calls server logout
+  /// Logout user - Optimized cleanup
   static Future<bool> logout() async {
     try {
-      // Try to call server-side logout
+      // Try server-side logout with timeout
       try {
         await BaseService.apiCall(
           method: 'POST',
           endpoint: '$_baseEndpoint/logout',
           requiresAuth: true,
-        );
+        ).timeout(Duration(seconds: 5));
       } catch (e) {
-        print('⚠️ Server-side logout failed: $e');
-        // Continue with local cleanup even if server call fails
+        _log('Server-side logout failed: $e');
+        // Continue with local cleanup
       }
 
       // Clear all local authentication data
       await TokenService.clearAll();
-      print('✅ Logout completed successfully');
+      _log('Logout completed successfully');
       return true;
     } catch (e) {
-      print('❌ Logout error: $e');
+      _log('Logout error: $e');
       // Still try to clear local data on error
       try {
         await TokenService.clearAll();
       } catch (clearError) {
-        print('❌ Failed to clear local data: $clearError');
+        _log('Failed to clear local data: $clearError');
       }
       return false;
     }
   }
 
-  /// Get current user profile based on role
-  /// Returns different data structure for customer/driver/store
+  /// Get current user profile - Optimized
   static Future<Map<String, dynamic>> getProfile() async {
     try {
       final response = await BaseService.apiCall(
@@ -110,12 +115,12 @@ class AuthService {
 
       throw Exception('Invalid profile response format');
     } catch (e) {
-      print('❌ Get profile error: $e');
+      _log('Get profile error: $e');
       throw Exception('Failed to get profile: $e');
     }
   }
 
-  /// Update user profile - handles role-specific updates
+  /// Update user profile - Optimized
   static Future<Map<String, dynamic>> updateProfile({
     required Map<String, dynamic> updateData,
   }) async {
@@ -130,29 +135,29 @@ class AuthService {
       if (response['data'] != null) {
         final updatedProfile = response['data'];
 
-        // Process images
-        await _processProfileImages(updatedProfile);
-
-        // Update cached data
-        await TokenService.saveUserData({'user': updatedProfile});
+        // Process images and update cache in parallel
+        await Future.wait([
+          _processProfileImages(updatedProfile),
+          TokenService.saveUserData({'user': updatedProfile}),
+        ]);
 
         return updatedProfile;
       }
 
       throw Exception('Invalid update profile response format');
     } catch (e) {
-      print('❌ Update profile error: $e');
+      _log('Update profile error: $e');
       throw Exception('Failed to update profile: $e');
     }
   }
 
-  /// Register new user
+  /// Register new user - Optimized
   static Future<Map<String, dynamic>> register({
     required String name,
     required String email,
     required String password,
     required String phone,
-    required String role, // customer, driver, store
+    required String role,
     Map<String, dynamic>? additionalData,
   }) async {
     try {
@@ -174,128 +179,132 @@ class AuthService {
 
       return response['data'] ?? {};
     } catch (e) {
-      print('❌ Registration error: $e');
+      _log('Registration error: $e');
       throw Exception('Registration failed: $e');
     }
   }
 
-  /// Get cached user data with enhanced error handling
+  /// Get cached user data - Optimized
   static Future<Map<String, dynamic>?> getUserData() async {
     try {
       final userData = await TokenService.getUserData();
-      print(
-          '🔍 AuthService: Retrieved user data: ${userData != null ? userData.keys.toList() : 'null'}');
+      _log('Retrieved user data: ${userData != null ? userData.keys.toList() : 'null'}');
       return userData;
     } catch (e) {
-      print('❌ Error getting user data: $e');
+      _log('Error getting user data: $e');
       return null;
     }
   }
 
-  /// Get user role from cache with validation
+  /// Get user role from cache - Optimized
   static Future<String?> getUserRole() async {
     try {
       final role = await TokenService.getUserRole();
-      print('🔍 AuthService: Retrieved user role: $role');
+      _log('Retrieved user role: $role');
       return role;
     } catch (e) {
-      print('❌ Error getting user role: $e');
+      _log('Error getting user role: $e');
       return null;
     }
   }
 
-  /// Get user ID from cache
+  /// Get user ID from cache - Optimized
   static Future<String?> getUserId() async {
     try {
       final userId = await TokenService.getUserId();
-      print('🔍 AuthService: Retrieved user ID: $userId');
+      _log('Retrieved user ID: $userId');
       return userId;
     } catch (e) {
-      print('❌ Error getting user ID: $e');
+      _log('Error getting user ID: $e');
       return null;
     }
   }
 
-  /// Check if user is authenticated with comprehensive validation
+  /// Check authentication - Optimized with batch operations
   static Future<bool> isAuthenticated() async {
     try {
-      // Check if token exists
-      final hasToken = await TokenService.isAuthenticated();
+      // Batch check all required authentication data
+      final results = await Future.wait([
+        TokenService.isAuthenticated(),
+        getUserRole(),
+        getUserId(),
+      ]);
+
+      final hasToken = results[0] as bool;
+      final userRole = results[1] as String?;
+      final userId = results[2] as String?;
+
       if (!hasToken) {
-        print('⚠️ AuthService: No authentication token found');
+        _log('No authentication token found');
         return false;
       }
 
-      // Check if user role exists
-      final userRole = await getUserRole();
       if (userRole == null || userRole.isEmpty) {
-        print('⚠️ AuthService: No user role found');
+        _log('No user role found');
         return false;
       }
 
-      // Check if user ID exists
-      final userId = await getUserId();
       if (userId == null || userId.isEmpty) {
-        print('⚠️ AuthService: No user ID found');
+        _log('No user ID found');
         return false;
       }
 
-      print(
-          '✅ AuthService: User is authenticated - Role: $userRole, ID: $userId');
+      _log('User is authenticated - Role: $userRole, ID: $userId');
       return true;
     } catch (e) {
-      print('❌ AuthService: Error checking authentication: $e');
+      _log('Error checking authentication: $e');
       return false;
     }
   }
 
-  /// Refresh user data from server
+  /// Refresh user data from server - Optimized
   static Future<Map<String, dynamic>?> refreshUserData() async {
     try {
-      print('🔄 AuthService: Refreshing user data from server...');
+      _log('Refreshing user data from server...');
       final profile = await getProfile();
-      print('✅ AuthService: User data refreshed successfully');
+      _log('User data refreshed successfully');
       return profile;
     } catch (e) {
-      print('❌ Error refreshing user data: $e');
+      _log('Error refreshing user data: $e');
       return null;
     }
   }
 
-  /// Enhanced method to get role-specific user data structure with better customer handling
+  /// Get role-specific data - Optimized
   static Future<Map<String, dynamic>?> getRoleSpecificData() async {
     try {
-      print('🔍 AuthService: Getting role-specific data...');
+      _log('Getting role-specific data...');
 
-      // First, check authentication
-      final isAuth = await isAuthenticated();
+      // Batch check authentication and get role
+      final authCheck = await Future.wait([
+        isAuthenticated(),
+        getUserRole(),
+      ]);
+
+      final isAuth = authCheck[0] as bool;
+      final userRole = authCheck[1] as String?;
+
       if (!isAuth) {
-        print('❌ AuthService: User not authenticated');
+        _log('User not authenticated');
         return null;
       }
-
-      // Get the user role
-      final userRole = await getUserRole();
-      print('🔍 AuthService: User role: $userRole');
 
       if (userRole == null) {
-        print('❌ AuthService: No user role found');
+        _log('No user role found');
         return null;
       }
+
+      _log('User role: $userRole');
 
       // Get cached user data
       final userData = await getUserData();
-      print(
-          '🔍 AuthService: Cached user data structure: ${userData?.keys.toList()}');
+      _log('Cached user data structure: ${userData?.keys.toList()}');
 
       if (userData == null) {
-        print('⚠️ AuthService: No cached user data, fetching from server...');
-        // If no cached data, try to get fresh data from server
+        _log('No cached user data, fetching from server...');
         final freshData = await refreshUserData();
         if (freshData != null) {
-          // Process the fresh data based on role
-          final processedData =
-              await _processRoleSpecificData(freshData, userRole);
+          final processedData = await _processRoleSpecificData(freshData, userRole);
           return processedData;
         }
         return null;
@@ -305,17 +314,17 @@ class AuthService {
       final processedData = await _processRoleSpecificData(userData, userRole);
       return processedData;
     } catch (e) {
-      print('❌ AuthService: Error getting role-specific data: $e');
+      _log('Error getting role-specific data: $e');
       return null;
     }
   }
 
-  /// Process data based on user role and ensure proper structure with enhanced customer handling
+  /// Process data based on user role - Optimized
   static Future<Map<String, dynamic>?> _processRoleSpecificData(
       Map<String, dynamic> data, String role) async {
     try {
-      print('🔍 AuthService: Processing role-specific data for role: $role');
-      print('🔍 AuthService: Input data structure: ${data.keys.toList()}');
+      _log('Processing role-specific data for role: $role');
+      _log('Input data structure: ${data.keys.toList()}');
 
       switch (role.toLowerCase()) {
         case 'customer':
@@ -325,59 +334,59 @@ class AuthService {
         case 'driver':
           return await _processDriverSpecificData(data);
         default:
-          print('⚠️ AuthService: Unknown role: $role, returning data as-is');
+          _log('Unknown role: $role, returning data as-is');
           return data;
       }
     } catch (e) {
-      print('❌ AuthService: Error processing role-specific data: $e');
+      _log('Error processing role-specific data: $e');
       return data;
     }
   }
 
-  /// Enhanced customer-specific data processing with proper structure validation
+  /// Process customer data - Optimized
   static Future<Map<String, dynamic>> _processCustomerSpecificData(
       Map<String, dynamic> data) async {
     try {
-      print('🔍 AuthService: Processing customer-specific data...');
+      _log('Processing customer-specific data...');
 
-      // Customer data structure is usually straightforward
-      // The user data should be in the 'user' key or at the root level
       Map<String, dynamic> customerData;
 
       if (data.containsKey('user')) {
         customerData = Map<String, dynamic>.from(data['user']);
-        print('✅ AuthService: Customer data found in user object');
+        _log('Customer data found in user object');
       } else {
-        // If the data is already at root level, use it directly
         customerData = Map<String, dynamic>.from(data);
-        print('✅ AuthService: Customer data found at root level');
+        _log('Customer data found at root level');
       }
 
-      // Ensure required customer fields with defaults
-      customerData['id'] = customerData['id'] ?? 0;
-      customerData['name'] = customerData['name'] ?? 'Unknown Customer';
-      customerData['email'] = customerData['email'] ?? '';
-      customerData['phone'] = customerData['phone'] ?? '';
-      customerData['role'] = customerData['role'] ?? 'customer';
+      // Batch set required customer fields with defaults
+      final defaults = {
+        'id': 0,
+        'name': 'Unknown Customer',
+        'email': '',
+        'phone': '',
+        'role': 'customer',
+      };
+
+      for (final entry in defaults.entries) {
+        customerData[entry.key] ??= entry.value;
+      }
 
       // Process customer avatar
       if (customerData['avatar'] != null &&
           customerData['avatar'].toString().isNotEmpty) {
-        customerData['avatar'] =
-            ImageService.getImageUrl(customerData['avatar']);
+        customerData['avatar'] = ImageService.getImageUrl(customerData['avatar']);
       }
 
-      print('✅ AuthService: Customer data processed successfully');
-      print('   - Customer ID: ${customerData['id']}');
-      print('   - Customer Name: ${customerData['name']}');
-      print('   - Customer Email: ${customerData['email']}');
+      _log('Customer data processed successfully');
+      _log('Customer ID: ${customerData['id']}, Name: ${customerData['name']}');
 
       return {
         'user': customerData,
         'role': 'customer',
       };
     } catch (e) {
-      print('❌ AuthService: Error processing customer-specific data: $e');
+      _log('Error processing customer-specific data: $e');
       return {
         'user': data['user'] ?? data,
         'role': 'customer',
@@ -385,22 +394,21 @@ class AuthService {
     }
   }
 
-  /// Process store-specific data and ensure store info is available
+  /// Process store data - Optimized
   static Future<Map<String, dynamic>> _processStoreSpecificData(
       Map<String, dynamic> data) async {
     try {
-      print('🔍 AuthService: Processing store-specific data...');
+      _log('Processing store-specific data...');
 
-      // If store data is already at the root level
+      // Check store data locations in order of priority
       if (data['store'] != null) {
-        print('✅ AuthService: Store data found at root level');
+        _log('Store data found at root level');
         await _processStoreData(data);
         return data;
       }
 
-      // If user data contains store info
       if (data['user'] != null && data['user']['store'] != null) {
-        print('✅ AuthService: Store data found in user object');
+        _log('Store data found in user object');
         final storeData = data['user']['store'];
         await _processStoreData({'store': storeData});
         return {
@@ -409,12 +417,11 @@ class AuthService {
         };
       }
 
-      // If we need to fetch store data from server
-      print(
-          '⚠️ AuthService: No store data found, attempting to fetch from server...');
+      // Fetch store data from server if not found
+      _log('No store data found, attempting to fetch from server...');
       final freshProfile = await getProfile();
       if (freshProfile != null && freshProfile['store'] != null) {
-        print('✅ AuthService: Store data fetched from server');
+        _log('Store data fetched from server');
         await _processStoreData({'store': freshProfile['store']});
         return {
           'user': freshProfile,
@@ -422,15 +429,15 @@ class AuthService {
         };
       }
 
-      print('❌ AuthService: No store data available');
+      _log('No store data available');
       return data;
     } catch (e) {
-      print('❌ AuthService: Error processing store-specific data: $e');
+      _log('Error processing store-specific data: $e');
       return data;
     }
   }
 
-  /// Process driver-specific data
+  /// Process driver data - Optimized
   static Future<Map<String, dynamic>> _processDriverSpecificData(
       Map<String, dynamic> data) async {
     try {
@@ -448,12 +455,12 @@ class AuthService {
 
       return data;
     } catch (e) {
-      print('❌ AuthService: Error processing driver-specific data: $e');
+      _log('Error processing driver-specific data: $e');
       return data;
     }
   }
 
-  /// Verify email with token
+  /// Email verification - Optimized
   static Future<bool> verifyEmail(String token) async {
     try {
       await BaseService.apiCall(
@@ -463,12 +470,12 @@ class AuthService {
       );
       return true;
     } catch (e) {
-      print('❌ Email verification error: $e');
+      _log('Email verification error: $e');
       return false;
     }
   }
 
-  /// Resend verification email
+  /// Resend verification email - Optimized
   static Future<bool> resendVerification(String email) async {
     try {
       await BaseService.apiCall(
@@ -479,12 +486,12 @@ class AuthService {
       );
       return true;
     } catch (e) {
-      print('❌ Resend verification error: $e');
+      _log('Resend verification error: $e');
       return false;
     }
   }
 
-  /// Forgot password
+  /// Forgot password - Optimized
   static Future<bool> forgotPassword(String email) async {
     try {
       await BaseService.apiCall(
@@ -495,12 +502,12 @@ class AuthService {
       );
       return true;
     } catch (e) {
-      print('❌ Forgot password error: $e');
+      _log('Forgot password error: $e');
       return false;
     }
   }
 
-  /// Reset password with token
+  /// Reset password - Optimized
   static Future<bool> resetPassword({
     required String token,
     required String newPassword,
@@ -518,14 +525,14 @@ class AuthService {
       );
       return true;
     } catch (e) {
-      print('❌ Reset password error: $e');
+      _log('Reset password error: $e');
       return false;
     }
   }
 
-  // PRIVATE HELPER METHODS
+  // PRIVATE HELPER METHODS - OPTIMIZED
 
-  /// Process login data based on user role
+  /// Process login data - Optimized
   static Future<void> _processLoginData(Map<String, dynamic> loginData) async {
     final user = loginData['user'];
     if (user == null) return;
@@ -545,134 +552,144 @@ class AuthService {
         await _processStoreData(loginData);
         break;
       case 'customer':
-        // Customer data processing is handled in _processCustomerSpecificData
-        print('✅ AuthService: Customer login data processed');
+        _log('Customer login data processed');
         break;
     }
   }
 
-  /// Enhanced driver-specific login data processing
+  /// Process driver data - Optimized
   static Future<void> _processDriverData(Map<String, dynamic> loginData) async {
-    print('🔍 AuthService: Processing driver data...');
+    _log('Processing driver data...');
 
-    if (loginData['driver'] != null) {
-      final driver = loginData['driver'];
+    final driver = loginData['driver'];
+    if (driver != null) {
+      // Batch set driver defaults
+      final driverDefaults = {
+        'rating': 5.0,
+        'reviews_count': 0,
+        'status': 'inactive',
+        'license_number': '',
+        'vehicle_plate': '',
+      };
 
-      // Ensure all required driver fields with defaults
-      driver['rating'] = driver['rating'] ?? 5.0;
-      driver['reviews_count'] = driver['reviews_count'] ?? 0;
-      driver['status'] = driver['status'] ?? 'inactive';
-      driver['license_number'] = driver['license_number'] ?? '';
-      driver['vehicle_plate'] = driver['vehicle_plate'] ?? '';
-      driver['latitude'] = driver['latitude'];
-      driver['longitude'] = driver['longitude'];
+      for (final entry in driverDefaults.entries) {
+        driver[entry.key] ??= entry.value;
+      }
 
-      print('✅ AuthService: Driver data processed');
+      // Keep nullable location fields as they are
+      // driver['latitude'] and driver['longitude'] can be null
+
+      _log('Driver data processed');
     }
   }
 
-  /// Enhanced store-specific login data processing
+  /// Process store data - Optimized
   static Future<void> _processStoreData(Map<String, dynamic> loginData) async {
-    print('🔍 AuthService: Processing store data...');
+    _log('Processing store data...');
 
-    if (loginData['store'] != null) {
-      final store = loginData['store'];
-
+    final store = loginData['store'];
+    if (store != null) {
       // Process store image
-      if (store['image_url'] != null &&
-          store['image_url'].toString().isNotEmpty) {
+      if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
         store['image_url'] = ImageService.getImageUrl(store['image_url']);
       }
 
-      // Ensure all required store fields with defaults
-      store['rating'] = store['rating'] ?? 0.0;
-      store['review_count'] = store['review_count'] ?? 0;
-      store['total_products'] = store['total_products'] ?? 0;
-      store['status'] = store['status'] ?? 'active';
+      // Batch set store defaults
+      final storeDefaults = {
+        'rating': 0.0,
+        'review_count': 0,
+        'total_products': 0,
+        'status': 'active',
+      };
 
-      // Ensure store ID is available
-      if (store['id'] == null) {
-        print('⚠️ AuthService: Store ID is null!');
-      } else {
-        print('✅ AuthService: Store ID found: ${store['id']}');
+      for (final entry in storeDefaults.entries) {
+        store[entry.key] ??= entry.value;
       }
 
-      print('✅ AuthService: Store data processed');
+      if (store['id'] == null) {
+        _log('Store ID is null!');
+      } else {
+        _log('Store ID found: ${store['id']}');
+      }
+
+      _log('Store data processed');
     } else {
-      print('⚠️ AuthService: No store data found in loginData');
+      _log('No store data found in loginData');
     }
   }
 
-  /// Process images in profile data based on role
-  static Future<void> _processProfileImages(
-      Map<String, dynamic> profileData) async {
+  /// Process profile images - Optimized
+  static Future<void> _processProfileImages(Map<String, dynamic> profileData) async {
     // Process user avatar
-    if (profileData['avatar'] != null &&
-        profileData['avatar'].toString().isNotEmpty) {
+    if (profileData['avatar'] != null && profileData['avatar'].toString().isNotEmpty) {
       profileData['avatar'] = ImageService.getImageUrl(profileData['avatar']);
     }
 
     // Process driver data if present
-    if (profileData['driver'] != null) {
-      final driver = profileData['driver'];
-      if (driver['user'] != null && driver['user']['avatar'] != null) {
-        driver['user']['avatar'] =
-            ImageService.getImageUrl(driver['user']['avatar']);
+    final driver = profileData['driver'];
+    if (driver != null) {
+      final driverUser = driver['user'];
+      if (driverUser != null && driverUser['avatar'] != null) {
+        driverUser['avatar'] = ImageService.getImageUrl(driverUser['avatar']);
       }
     }
 
     // Process store data if present
-    if (profileData['store'] != null) {
-      final store = profileData['store'];
-      if (store['image_url'] != null &&
-          store['image_url'].toString().isNotEmpty) {
+    final store = profileData['store'];
+    if (store != null) {
+      if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
         store['image_url'] = ImageService.getImageUrl(store['image_url']);
       }
-      if (store['owner'] != null && store['owner']['avatar'] != null) {
-        store['owner']['avatar'] =
-            ImageService.getImageUrl(store['owner']['avatar']);
+      final storeOwner = store['owner'];
+      if (storeOwner != null && storeOwner['avatar'] != null) {
+        storeOwner['avatar'] = ImageService.getImageUrl(storeOwner['avatar']);
       }
     }
   }
 
-  /// Validate customer access for store and menu operations
+  /// Validate customer access - Optimized
   static Future<bool> validateCustomerAccess() async {
     try {
-      print('🔍 AuthService: Validating customer access...');
+      _log('Validating customer access...');
 
-      // Check authentication
-      final isAuth = await isAuthenticated();
+      // Batch check authentication and role
+      final checks = await Future.wait([
+        isAuthenticated(),
+        getUserRole(),
+      ]);
+
+      final isAuth = checks[0] as bool;
+      final userRole = checks[1] as String?;
+
       if (!isAuth) {
-        print('❌ AuthService: User not authenticated');
+        _log('User not authenticated');
         return false;
       }
 
-      // Check role
-      final userRole = await getUserRole();
       if (userRole?.toLowerCase() != 'customer') {
-        print('❌ AuthService: Invalid role for customer operation: $userRole');
+        _log('Invalid role for customer operation: $userRole');
         return false;
       }
 
       // Get user data to ensure it's valid
       final userData = await getRoleSpecificData();
       if (userData == null) {
-        print('❌ AuthService: No valid user data found');
+        _log('No valid user data found');
         return false;
       }
 
-      print('✅ AuthService: Customer access validated');
+      _log('Customer access validated');
       return true;
     } catch (e) {
-      print('❌ AuthService: Error validating customer access: $e');
+      _log('Error validating customer access: $e');
       return false;
     }
   }
 
-  /// Enhanced method for customer-specific operations
+  /// Get customer data - Optimized
   static Future<Map<String, dynamic>?> getCustomerData() async {
     try {
-      print('🔍 AuthService: Getting customer data...');
+      _log('Getting customer data...');
 
       // Validate customer access first
       final hasAccess = await validateCustomerAccess();
@@ -683,27 +700,29 @@ class AuthService {
       // Get role-specific data
       final roleData = await getRoleSpecificData();
       if (roleData == null) {
-        print('❌ AuthService: No role-specific data found');
+        _log('No role-specific data found');
         return null;
       }
 
       // Extract customer data
       final customerData = roleData['user'];
       if (customerData == null) {
-        print('❌ AuthService: No customer user data found');
+        _log('No customer user data found');
         return null;
       }
 
-      print('✅ AuthService: Customer data retrieved successfully');
+      _log('Customer data retrieved successfully');
       return customerData;
     } catch (e) {
-      print('❌ AuthService: Error getting customer data: $e');
+      _log('Error getting customer data: $e');
       return null;
     }
   }
 
-  /// Debug method to print current user data structure
+  /// Debug user data - Only active when debug mode is on
   static Future<void> debugUserData() async {
+    if (!_debugMode) return;
+
     try {
       print('🔍 ====== DEBUG USER DATA ======');
 
@@ -733,49 +752,48 @@ class AuthService {
     }
   }
 
-  /// Check if current user has specific role
+  /// Check if user has specific role - Optimized
   static Future<bool> hasRole(String requiredRole) async {
     try {
       final userRole = await getUserRole();
       return userRole?.toLowerCase() == requiredRole.toLowerCase();
     } catch (e) {
-      print('❌ Error checking user role: $e');
+      _log('Error checking user role: $e');
       return false;
     }
   }
 
-  /// Ensure user data is fresh and valid
+  /// Ensure user data is valid - Optimized
   static Future<bool> ensureValidUserData() async {
     try {
-      print('🔄 AuthService: Ensuring valid user data...');
+      _log('Ensuring valid user data...');
 
-      // Check if authenticated
-      final isAuth = await isAuthenticated();
+      // Batch check authentication and cached data
+      final checks = await Future.wait([
+        isAuthenticated(),
+        getUserData(),
+        getUserRole(),
+      ]);
+
+      final isAuth = checks[0] as bool;
+      final cachedData = checks[1] as Map<String, dynamic>?;
+      final role = checks[2] as String?;
+
       if (!isAuth) {
-        print('❌ AuthService: User not authenticated');
+        _log('User not authenticated');
         return false;
       }
 
-      // Check if we have cached data
-      final cachedData = await getUserData();
-      if (cachedData == null) {
-        print('⚠️ AuthService: No cached data, refreshing...');
+      if (cachedData == null || role == null) {
+        _log('No cached data or role, refreshing...');
         final freshData = await refreshUserData();
         return freshData != null;
       }
 
-      // Validate cached data structure
-      final role = await getUserRole();
-      if (role == null) {
-        print('⚠️ AuthService: No role found, refreshing...');
-        final freshData = await refreshUserData();
-        return freshData != null;
-      }
-
-      print('✅ AuthService: User data is valid');
+      _log('User data is valid');
       return true;
     } catch (e) {
-      print('❌ AuthService: Error ensuring valid user data: $e');
+      _log('Error ensuring valid user data: $e');
       return false;
     }
   }

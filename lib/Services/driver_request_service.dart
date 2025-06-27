@@ -6,19 +6,24 @@ import 'auth_service.dart';
 
 class DriverRequestService {
   static const String _baseEndpoint = '/driver-requests';
+  static const bool _debugMode = false; // Toggle for development debugging
 
-  /// Get driver requests for current driver - FIXED struktur response
+  static void _log(String message) {
+    if (_debugMode) print(message);
+  }
+
+  /// Get driver requests - Optimized version
   static Future<Map<String, dynamic>> getDriverRequests({
     int page = 1,
     int limit = 20,
-    String? status, // pending, accepted, rejected, expired
+    String? status,
     String? sortBy,
     String? sortOrder,
   }) async {
     try {
-      print('🔄 DriverRequestService: Getting driver requests...');
+      _log('Getting driver requests...');
 
-      // ✅ PERBAIKAN: Validate driver authentication and role
+      // Validate driver authentication and role
       final isValid = await _validateDriverAccess();
       if (!isValid) {
         throw Exception('Invalid driver access');
@@ -39,7 +44,7 @@ class DriverRequestService {
         requiresAuth: true,
       );
 
-      // ✅ PERBAIKAN: Process response sesuai struktur backend
+      // Process response structure
       Map<String, dynamic> result = {
         'requests': [],
         'totalItems': 0,
@@ -47,36 +52,34 @@ class DriverRequestService {
         'currentPage': 1,
       };
 
-      if (response['data'] != null) {
-        // Backend mengembalikan struktur dengan 'requests' array
-        if (response['data']['requests'] != null) {
-          final requests = response['data']['requests'] as List;
-          for (var request in requests) {
-            _processRequestImages(request);
-            _processOrderData(request); // Process nested order data
-          }
-          result['requests'] = requests;
-          result['totalItems'] = response['data']['totalItems'] ?? 0;
-          result['totalPages'] = response['data']['totalPages'] ?? 0;
-          result['currentPage'] = response['data']['currentPage'] ?? 1;
+      if (response['data'] != null && response['data']['requests'] != null) {
+        final requests = response['data']['requests'] as List;
+
+        // Batch process all requests
+        for (var request in requests) {
+          _processRequestData(request);
         }
+
+        result = {
+          'requests': requests,
+          'totalItems': response['data']['totalItems'] ?? 0,
+          'totalPages': response['data']['totalPages'] ?? 0,
+          'currentPage': response['data']['currentPage'] ?? 1,
+        };
       }
 
-      print(
-          '✅ DriverRequestService: Retrieved ${result['requests']?.length ?? 0} requests');
+      _log('Retrieved ${result['requests']?.length ?? 0} requests');
       return result;
     } catch (e) {
-      print('❌ DriverRequestService: Error getting driver requests: $e');
+      _log('Error getting driver requests: $e');
       throw Exception('Failed to get driver requests: $e');
     }
   }
 
-  /// Get detailed information about a specific driver request - FIXED
-  static Future<Map<String, dynamic>> getDriverRequestDetail(
-      String requestId) async {
+  /// Get detailed driver request - Optimized
+  static Future<Map<String, dynamic>> getDriverRequestDetail(String requestId) async {
     try {
-      print(
-          '🔍 DriverRequestService: Getting request detail for ID: $requestId');
+      _log('Getting request detail for ID: $requestId');
 
       // Validate driver authentication
       final isValid = await _validateDriverAccess();
@@ -86,82 +89,37 @@ class DriverRequestService {
 
       final response = await BaseService.apiCall(
         method: 'GET',
-        endpoint: '$_baseEndpoint/$requestId', // GET /driver-requests/{id}
+        endpoint: '$_baseEndpoint/$requestId',
         requiresAuth: true,
       );
 
       if (response['data'] != null) {
         final requestDetail = response['data'];
 
-        // ✅ ENHANCED: Process all nested data
-        _processRequestImages(requestDetail);
-        _processOrderData(requestDetail);
+        // Process all data in batch
+        _processRequestData(requestDetail);
 
-        // ✅ TAMBAHAN: Process numeric fields
-        _processNumericFields(requestDetail);
-
-        // ✅ TAMBAHAN: Process order items if present
-        if (requestDetail['order'] != null &&
-            requestDetail['order']['items'] != null) {
-          final items = requestDetail['order']['items'] as List;
-          for (var item in items) {
-            _processNumericFields(item);
-          }
-        }
-
-        print(
-            '✅ DriverRequestService: Request detail retrieved and processed successfully');
+        _log('Request detail retrieved and processed successfully');
         return requestDetail;
       }
 
       throw Exception('Driver request not found');
     } catch (e) {
-      print('❌ DriverRequestService: Error getting request detail: $e');
+      _log('Error getting request detail: $e');
       throw Exception('Failed to get request detail: $e');
     }
   }
 
-  // static Future<Map<String, dynamic>> getDriverRequestDetail(String requestId) async {
-  //   try {
-  //     print('🔄 DriverRequestService: Getting request detail for ID: $requestId');
-  //
-  //     // Validate driver authentication
-  //     final isValid = await _validateDriverAccess();
-  //     if (!isValid) {
-  //       throw Exception('Invalid driver access');
-  //     }
-  //
-  //     final response = await BaseService.apiCall(
-  //       method: 'GET',
-  //       endpoint: '$_baseEndpoint/$requestId',
-  //       requiresAuth: true,
-  //     );
-  //
-  //     if (response['data'] != null) {
-  //       _processRequestImages(response['data']);
-  //       _processOrderData(response['data']);
-  //       print('✅ DriverRequestService: Request detail retrieved successfully');
-  //       return response['data'];
-  //     }
-  //
-  //     throw Exception('Driver request not found');
-  //   } catch (e) {
-  //     print('❌ DriverRequestService: Error getting request detail: $e');
-  //     throw Exception('Failed to get request detail: $e');
-  //   }
-  // }
-
-  /// Respond to driver request (accept or reject) - FIXED sesuai backend
+  /// Respond to driver request - Optimized
   static Future<Map<String, dynamic>> respondToDriverRequest({
     required String requestId,
-    required String action, // 'accept' atau 'reject'
+    required String action,
     String? estimatedPickupTime,
     String? estimatedDeliveryTime,
     String? notes,
   }) async {
     try {
-      print(
-          '🔄 DriverRequestService: Responding to request $requestId with action: $action');
+      _log('Responding to request $requestId with action: $action');
 
       // Validate driver authentication and role
       final isValid = await _validateDriverAccess();
@@ -173,13 +131,10 @@ class DriverRequestService {
         throw Exception('Invalid action. Must be "accept" or "reject"');
       }
 
-      // ✅ PERBAIKAN: Body sesuai struktur backend
       final body = {
         'action': action.toLowerCase(),
-        if (estimatedPickupTime != null)
-          'estimatedPickupTime': estimatedPickupTime,
-        if (estimatedDeliveryTime != null)
-          'estimatedDeliveryTime': estimatedDeliveryTime,
+        if (estimatedPickupTime != null) 'estimatedPickupTime': estimatedPickupTime,
+        if (estimatedDeliveryTime != null) 'estimatedDeliveryTime': estimatedDeliveryTime,
         if (notes != null) 'notes': notes,
       };
 
@@ -191,41 +146,37 @@ class DriverRequestService {
       );
 
       if (response['data'] != null) {
-        _processRequestImages(response['data']);
-        _processOrderData(response['data']);
+        _processRequestData(response['data']);
       }
 
-      print('✅ DriverRequestService: Response submitted successfully');
+      _log('Response submitted successfully');
       return response['data'] ?? {};
     } catch (e) {
-      print('❌ DriverRequestService: Error responding to request: $e');
+      _log('Error responding to request: $e');
       throw Exception('Failed to respond to request: $e');
     }
   }
 
-  /// Accept driver request (convenience method) dengan auto-generated times
+  /// Accept driver request - Optimized convenience method
   static Future<Map<String, dynamic>> acceptDriverRequest({
     required String requestId,
     String? notes,
   }) async {
-    // Auto-generate estimated times
+    // Pre-calculate estimated times
     final now = DateTime.now();
-    final estimatedPickupTime =
-        now.add(const Duration(minutes: 15)).toIso8601String();
-    final estimatedDeliveryTime =
-        now.add(const Duration(minutes: 45)).toIso8601String();
+    final estimatedPickupTime = now.add(const Duration(minutes: 15)).toIso8601String();
+    final estimatedDeliveryTime = now.add(const Duration(minutes: 45)).toIso8601String();
 
     return await respondToDriverRequest(
       requestId: requestId,
       action: 'accept',
       estimatedPickupTime: estimatedPickupTime,
       estimatedDeliveryTime: estimatedDeliveryTime,
-      notes: notes ??
-          'Driver telah menerima permintaan dan akan segera menghubungi Anda',
+      notes: notes ?? 'Driver telah menerima permintaan dan akan segera menghubungi Anda',
     );
   }
 
-  /// Reject driver request (convenience method)
+  /// Reject driver request - Optimized convenience method
   static Future<Map<String, dynamic>> rejectDriverRequest({
     required String requestId,
     String? reason,
@@ -237,7 +188,7 @@ class DriverRequestService {
     );
   }
 
-  /// Get pending requests count for current driver
+  /// Get pending requests count - Optimized
   static Future<int> getPendingRequestsCount() async {
     try {
       final isValid = await _validateDriverAccess();
@@ -250,12 +201,12 @@ class DriverRequestService {
 
       return response['totalItems'] ?? 0;
     } catch (e) {
-      print('❌ DriverRequestService: Error getting pending count: $e');
+      _log('Error getting pending count: $e');
       return 0;
     }
   }
 
-  /// ✅ BARU: Get driver earnings from completed requests
+  /// Get driver earnings - Optimized
   static Future<Map<String, dynamic>> getDriverEarnings({
     DateTime? startDate,
     DateTime? endDate,
@@ -267,8 +218,7 @@ class DriverRequestService {
       }
 
       final queryParams = <String, String>{};
-      if (startDate != null)
-        queryParams['start_date'] = startDate.toIso8601String();
+      if (startDate != null) queryParams['start_date'] = startDate.toIso8601String();
       if (endDate != null) queryParams['end_date'] = endDate.toIso8601String();
 
       final response = await BaseService.apiCall(
@@ -280,12 +230,12 @@ class DriverRequestService {
 
       return response['data'] ?? _getDefaultEarnings();
     } catch (e) {
-      print('❌ DriverRequestService: Error getting earnings: $e');
+      _log('Error getting earnings: $e');
       return _getDefaultEarnings();
     }
   }
 
-  /// ✅ BARU: Get driver request statistics
+  /// Get driver request statistics - Optimized
   static Future<Map<String, dynamic>> getDriverRequestStats({
     DateTime? startDate,
     DateTime? endDate,
@@ -297,8 +247,7 @@ class DriverRequestService {
       }
 
       final queryParams = <String, String>{};
-      if (startDate != null)
-        queryParams['start_date'] = startDate.toIso8601String();
+      if (startDate != null) queryParams['start_date'] = startDate.toIso8601String();
       if (endDate != null) queryParams['end_date'] = endDate.toIso8601String();
 
       final response = await BaseService.apiCall(
@@ -310,12 +259,12 @@ class DriverRequestService {
 
       return response['data'] ?? _getDefaultStats();
     } catch (e) {
-      print('❌ DriverRequestService: Error getting stats: $e');
+      _log('Error getting stats: $e');
       return _getDefaultStats();
     }
   }
 
-  /// Get request urgency level based on order details
+  /// Get request urgency level - Optimized
   static String getRequestUrgency(Map<String, dynamic> request) {
     try {
       final order = request['order'];
@@ -324,8 +273,7 @@ class DriverRequestService {
       final createdAt = DateTime.tryParse(order['created_at'] ?? '');
       if (createdAt == null) return 'normal';
 
-      final now = DateTime.now();
-      final difference = now.difference(createdAt).inMinutes;
+      final difference = DateTime.now().difference(createdAt).inMinutes;
 
       if (difference > 30) return 'urgent';
       if (difference > 15) return 'high';
@@ -335,115 +283,107 @@ class DriverRequestService {
     }
   }
 
-  /// ✅ BARU: Calculate potential earnings for a request
+  /// Calculate potential earnings - Optimized
   static double calculatePotentialEarnings(Map<String, dynamic> request) {
     try {
       final order = request['order'];
       if (order == null) return 0.0;
 
-      final deliveryFee =
-          double.tryParse(order['delivery_fee']?.toString() ?? '0') ?? 0.0;
-      final totalAmount =
-          double.tryParse(order['total_amount']?.toString() ?? '0') ?? 0.0;
+      final deliveryFee = double.tryParse(order['delivery_fee']?.toString() ?? '0') ?? 0.0;
+      final totalAmount = double.tryParse(order['total_amount']?.toString() ?? '0') ?? 0.0;
 
-      // Driver gets delivery fee + small percentage of order total
-      final baseEarning = deliveryFee;
-      final commissionRate = 0.05; // 5% dari total order
-      final commission = totalAmount * commissionRate;
-
-      return baseEarning + commission;
+      // Driver gets delivery fee + 5% commission
+      const commissionRate = 0.05;
+      return deliveryFee + (totalAmount * commissionRate);
     } catch (e) {
       return 0.0;
     }
   }
 
-  /// Check if driver is eligible to receive requests
+  /// Check driver eligibility - Optimized
   static Future<bool> isDriverEligible() async {
     try {
       final isValid = await _validateDriverAccess();
       if (!isValid) return false;
 
       final driverData = await AuthService.getRoleSpecificData();
-      final driverStatus =
-          driverData?['driver']?['status']?.toString().toLowerCase();
+      final driverStatus = driverData?['driver']?['status']?.toString().toLowerCase();
 
       return driverStatus == 'active';
     } catch (e) {
-      print('❌ DriverRequestService: Error checking eligibility: $e');
+      _log('Error checking eligibility: $e');
       return false;
     }
   }
 
-  /// ✅ BARU: Get driver current status
+  /// Get driver current status - Optimized
   static Future<String> getDriverCurrentStatus() async {
     try {
       final isValid = await _validateDriverAccess();
       if (!isValid) return 'unknown';
 
       final driverData = await AuthService.getRoleSpecificData();
-      return driverData?['driver']?['status']?.toString().toLowerCase() ??
-          'unknown';
+      return driverData?['driver']?['status']?.toString().toLowerCase() ?? 'unknown';
     } catch (e) {
-      print('❌ DriverRequestService: Error getting driver status: $e');
+      _log('Error getting driver status: $e');
       return 'unknown';
     }
   }
 
-  /// ✅ BARU: Format request status text untuk UI
+  /// Format request status text - Optimized with map lookup
   static String getRequestStatusText(String status) {
-    switch (status.toLowerCase()) {
-      case 'pending':
-        return 'Menunggu Respon';
-      case 'accepted':
-        return 'Diterima';
-      case 'rejected':
-        return 'Ditolak';
-      case 'expired':
-        return 'Kedaluwarsa';
-      case 'completed':
-        return 'Selesai';
-      default:
-        return 'Status Tidak Diketahui';
-    }
+    const statusMap = {
+      'pending': 'Menunggu Respon',
+      'accepted': 'Diterima',
+      'rejected': 'Ditolak',
+      'expired': 'Kedaluwarsa',
+      'completed': 'Selesai',
+    };
+
+    return statusMap[status.toLowerCase()] ?? 'Status Tidak Diketahui';
   }
 
-  // PRIVATE HELPER METHODS
+  // PRIVATE HELPER METHODS - OPTIMIZED
 
-  /// Validate driver access for receiving/responding to requests
+  /// Validate driver access - Optimized with batch operations
   static Future<bool> _validateDriverAccess() async {
     try {
-      // Check authentication
-      final isAuth = await AuthService.isAuthenticated();
+      // Batch check authentication, role, and data validity
+      final results = await Future.wait([
+        AuthService.isAuthenticated(),
+        AuthService.getUserRole(),
+        AuthService.ensureValidUserData(),
+      ]);
+
+      final isAuth = results[0] as bool;
+      final userRole = results[1] as String?;
+      final isValidData = results[2] as bool;
+
       if (!isAuth) {
-        print('❌ DriverRequestService: Driver not authenticated');
+        _log('Driver not authenticated');
         return false;
       }
 
-      // Check role
-      final userRole = await AuthService.getUserRole();
       if (userRole?.toLowerCase() != 'driver') {
-        print(
-            '❌ DriverRequestService: Invalid role for driver access: $userRole');
+        _log('Invalid role for driver access: $userRole');
         return false;
       }
 
-      // Ensure valid user data
-      final isValidData = await AuthService.ensureValidUserData();
       if (!isValidData) {
-        print('❌ DriverRequestService: Invalid driver data');
+        _log('Invalid driver data');
         return false;
       }
 
       return true;
     } catch (e) {
-      print('❌ DriverRequestService: Error validating driver access: $e');
+      _log('Error validating driver access: $e');
       return false;
     }
   }
 
-  /// Get default statistics
+  /// Get default statistics - Optimized as const
   static Map<String, dynamic> _getDefaultStats() {
-    return {
+    return const {
       'total_requests': 0,
       'accepted_requests': 0,
       'rejected_requests': 0,
@@ -453,9 +393,9 @@ class DriverRequestService {
     };
   }
 
-  /// Get default earnings
+  /// Get default earnings - Optimized as const
   static Map<String, dynamic> _getDefaultEarnings() {
-    return {
+    return const {
       'total_earnings': 0.0,
       'today_earnings': 0.0,
       'this_week_earnings': 0.0,
@@ -464,134 +404,143 @@ class DriverRequestService {
     };
   }
 
-  /// ✅ BARU: Process nested order data dalam driver request
+  /// Process request data - Optimized unified processing
+  static void _processRequestData(Map<String, dynamic> request) {
+    try {
+      // Process all data types in sequence for efficiency
+      _processRequestImages(request);
+      _processOrderData(request);
+      _processNumericFields(request);
+
+      // Process order items if present
+      final order = request['order'];
+      if (order != null && order['items'] != null) {
+        final items = order['items'] as List;
+        for (var item in items) {
+          _processNumericFields(item);
+        }
+      }
+    } catch (e) {
+      _log('Error processing request data: $e');
+    }
+  }
+
+  /// Process nested order data - Optimized
   static void _processOrderData(Map<String, dynamic> request) {
     try {
-      if (request['order'] != null) {
-        final order = request['order'];
+      final order = request['order'];
+      if (order == null) return;
 
-        // Process order images
-        if (order['store'] != null && order['store']['image_url'] != null) {
-          order['store']['image_url'] =
-              ImageService.getImageUrl(order['store']['image_url']);
-        }
+      // Process store image
+      final store = order['store'];
+      if (store is Map<String, dynamic> && store['image_url'] != null) {
+        store['image_url'] = ImageService.getImageUrl(store['image_url']);
+      }
 
-        // Process customer avatar
-        if (order['customer'] != null && order['customer']['avatar'] != null) {
-          order['customer']['avatar'] =
-              ImageService.getImageUrl(order['customer']['avatar']);
-        }
+      // Process customer avatar
+      final customer = order['customer'];
+      if (customer is Map<String, dynamic> && customer['avatar'] != null) {
+        customer['avatar'] = ImageService.getImageUrl(customer['avatar']);
+      }
 
-        // Process order items
-        if (order['items'] != null) {
-          final items = order['items'] as List;
-          for (var item in items) {
-            if (item['image_url'] != null) {
-              item['image_url'] = ImageService.getImageUrl(item['image_url']);
-            }
-          }
-        }
-
-        // Process tracking updates if exist
-        if (order['tracking_updates'] != null &&
-            order['tracking_updates'] is String) {
-          try {
-            final parsed = jsonDecode(order['tracking_updates']);
-            if (parsed is List) {
-              order['tracking_updates'] = parsed;
-            }
-          } catch (e) {
-            print('⚠️ Failed to parse tracking_updates in driver request: $e');
-            order['tracking_updates'] = [];
+      // Process order items images
+      final items = order['items'];
+      if (items is List) {
+        for (var item in items) {
+          if (item is Map<String, dynamic> && item['image_url'] != null) {
+            item['image_url'] = ImageService.getImageUrl(item['image_url']);
           }
         }
       }
+
+      // Process tracking updates
+      final trackingUpdates = order['tracking_updates'];
+      if (trackingUpdates is String) {
+        try {
+          final parsed = jsonDecode(trackingUpdates);
+          if (parsed is List) {
+            order['tracking_updates'] = parsed;
+          }
+        } catch (e) {
+          _log('Failed to parse tracking_updates: $e');
+          order['tracking_updates'] = [];
+        }
+      }
     } catch (e) {
-      print('❌ DriverRequestService: Error processing order data: $e');
+      _log('Error processing order data: $e');
     }
   }
 
-  /// Process images in request data
+  /// Process images in request data - Optimized
   static void _processRequestImages(Map<String, dynamic> request) {
     try {
-      // Process customer avatar through order
-      if (request['order'] != null &&
-          request['order']['customer'] != null &&
-          request['order']['customer']['avatar'] != null) {
-        request['order']['customer']['avatar'] =
-            ImageService.getImageUrl(request['order']['customer']['avatar']);
+      final order = request['order'];
+      if (order is Map<String, dynamic>) {
+        // Process customer avatar
+        final customer = order['customer'];
+        if (customer is Map<String, dynamic> && customer['avatar'] != null) {
+          customer['avatar'] = ImageService.getImageUrl(customer['avatar']);
+        }
+
+        // Process store image
+        final store = order['store'];
+        if (store is Map<String, dynamic> && store['image_url'] != null) {
+          store['image_url'] = ImageService.getImageUrl(store['image_url']);
+        }
       }
 
-      // Process store image through order
-      if (request['order'] != null &&
-          request['order']['store'] != null &&
-          request['order']['store']['image_url'] != null) {
-        request['order']['store']['image_url'] =
-            ImageService.getImageUrl(request['order']['store']['image_url']);
-      }
-
-      // Process driver avatar if present
-      if (request['driver'] != null &&
-          request['driver']['user'] != null &&
-          request['driver']['user']['avatar'] != null) {
-        request['driver']['user']['avatar'] =
-            ImageService.getImageUrl(request['driver']['user']['avatar']);
+      // Process driver avatar
+      final driver = request['driver'];
+      if (driver is Map<String, dynamic>) {
+        final driverUser = driver['user'];
+        if (driverUser is Map<String, dynamic> && driverUser['avatar'] != null) {
+          driverUser['avatar'] = ImageService.getImageUrl(driverUser['avatar']);
+        }
       }
     } catch (e) {
-      print('❌ DriverRequestService: Error processing request images: $e');
+      _log('Error processing request images: $e');
     }
   }
 
-  ///Process Numeric Field
+  /// Process numeric fields - Optimized with const arrays
   static void _processNumericFields(Map<String, dynamic> data) {
     try {
-      // List of fields that should be converted from String to double
-      final doubleFields = [
-        'total_amount',
-        'delivery_fee',
-        'service_fee',
-        'price',
-        'rating',
-        'latitude',
-        'longitude',
-        'distance'
+      // Optimized field lists
+      const doubleFields = [
+        'total_amount', 'delivery_fee', 'service_fee', 'price', 'rating',
+        'latitude', 'longitude', 'distance'
       ];
 
-      // List of fields that should be converted from String to int
-      final intFields = [
-        'id',
-        'customer_id',
-        'driver_id',
-        'store_id',
-        'menu_item_id',
-        'quantity',
-        'reviews_count',
-        'review_count'
+      const intFields = [
+        'id', 'customer_id', 'driver_id', 'store_id', 'menu_item_id',
+        'quantity', 'reviews_count', 'review_count'
       ];
 
-      // Convert double fields
+      // Batch convert double fields
       for (final field in doubleFields) {
-        if (data[field] != null) {
-          if (data[field] is String) {
-            data[field] = double.tryParse(data[field]) ?? 0.0;
-          } else if (data[field] is int) {
-            data[field] = data[field].toDouble();
+        final value = data[field];
+        if (value != null) {
+          if (value is String) {
+            data[field] = double.tryParse(value) ?? 0.0;
+          } else if (value is int) {
+            data[field] = value.toDouble();
           }
         }
       }
 
-      // Convert int fields
+      // Batch convert int fields
       for (final field in intFields) {
-        if (data[field] != null) {
-          if (data[field] is String) {
-            data[field] = int.tryParse(data[field]) ?? 0;
-          } else if (data[field] is double) {
-            data[field] = data[field].toInt();
+        final value = data[field];
+        if (value != null) {
+          if (value is String) {
+            data[field] = int.tryParse(value) ?? 0;
+          } else if (value is double) {
+            data[field] = value.toInt();
           }
         }
       }
     } catch (e) {
-      print('❌ DriverRequestService: Error processing numeric fields: $e');
+      _log('Error processing numeric fields: $e');
     }
   }
 }
