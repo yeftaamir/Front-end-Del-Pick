@@ -2,6 +2,7 @@
 // Order Model - Fixed Version
 // ========================================
 
+import 'dart:convert'; // ✅ TAMBAH: Import untuk jsonDecode
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'package:del_pick/Models/order_item.dart';
@@ -93,39 +94,27 @@ class OrderModel {
       deliveryFee: _parseDouble(json['delivery_fee']),
       destinationLatitude: _parseNullableDouble(json['destination_latitude']),
       destinationLongitude: _parseNullableDouble(json['destination_longitude']),
-      estimatedPickupTime: json['estimated_pickup_time'] != null
-          ? DateTime.parse(json['estimated_pickup_time'])
-          : null,
-      actualPickupTime: json['actual_pickup_time'] != null
-          ? DateTime.parse(json['actual_pickup_time'])
-          : null,
-      estimatedDeliveryTime: json['estimated_delivery_time'] != null
-          ? DateTime.parse(json['estimated_delivery_time'])
-          : null,
-      actualDeliveryTime: json['actual_delivery_time'] != null
-          ? DateTime.parse(json['actual_delivery_time'])
-          : null,
-      trackingUpdates: json['tracking_updates'] != null
-          ? List<Map<String, dynamic>>.from(json['tracking_updates'])
-          : null,
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+
+      // ✅ PERBAIKAN: Enhanced date parsing
+      estimatedPickupTime: _parseDateTime(json['estimated_pickup_time']),
+      actualPickupTime: _parseDateTime(json['actual_pickup_time']),
+      estimatedDeliveryTime: _parseDateTime(json['estimated_delivery_time']),
+      actualDeliveryTime: _parseDateTime(json['actual_delivery_time']),
+
+      // ✅ PERBAIKAN: Handle tracking_updates yang mungkin string JSON
+      trackingUpdates: _parseTrackingUpdates(json['tracking_updates']),
+
+      createdAt: _parseDateTime(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDateTime(json['updated_at']) ?? DateTime.now(),
+
+      // ✅ Existing relationship parsing...
       customer: json['customer'] != null
           ? UserModel.fromJson(json['customer'])
           : null,
       store: json['store'] != null ? StoreModel.fromJson(json['store']) : null,
       driver:
           json['driver'] != null ? DriverModel.fromJson(json['driver']) : null,
-      items: json['items'] != null
-          ? (json['items'] as List).map((item) {
-              if (item is Map<String, dynamic>) {
-                final safeItem = Map<String, dynamic>.from(item);
-                safeItem['price'] = _parseDouble(item['price']);
-                return OrderItemModel.fromJson(safeItem);
-              }
-              return OrderItemModel.fromJson(item);
-            }).toList()
-          : [],
+      items: _parseOrderItems(json),
     );
   }
 
@@ -211,6 +200,66 @@ class OrderModel {
   // Utility methods
   double get subtotal => items.fold(0, (sum, item) => sum + item.totalPrice);
   double get grandTotal => totalAmount + deliveryFee;
+
+  static DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (e) {
+        print('⚠️ Failed to parse date: $value');
+        return null;
+      }
+    }
+    return null;
+  }
+
+  // ✅ PERBAIKAN: Helper method untuk parse tracking updates
+  static List<Map<String, dynamic>>? _parseTrackingUpdates(dynamic value) {
+    if (value == null) return null;
+
+    if (value is String) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is List) {
+          return List<Map<String, dynamic>>.from(decoded);
+        }
+      } catch (e) {
+        print('⚠️ Failed to parse tracking_updates JSON: $e');
+        return [];
+      }
+    }
+
+    if (value is List) {
+      return List<Map<String, dynamic>>.from(value);
+    }
+
+    return [];
+  }
+
+  // ✅ PERBAIKAN: Helper method untuk parse order items (support multiple structures)
+  static List<OrderItemModel> _parseOrderItems(Map<String, dynamic> json) {
+    List<dynamic>? itemsData;
+
+    // Backend bisa return 'items' atau 'order_items'
+    if (json['items'] != null) {
+      itemsData = json['items'] as List;
+    } else if (json['order_items'] != null) {
+      itemsData = json['order_items'] as List;
+    }
+
+    if (itemsData == null) return [];
+
+    return itemsData.map((item) {
+      if (item is Map<String, dynamic>) {
+        final safeItem = Map<String, dynamic>.from(item);
+        safeItem['price'] = _parseDouble(item['price']);
+        return OrderItemModel.fromJson(safeItem);
+      }
+      return OrderItemModel.fromJson(item);
+    }).toList();
+  }
 
   String formatTotalAmount() {
     return 'Rp ${totalAmount.toStringAsFixed(0).replaceAllMapped(

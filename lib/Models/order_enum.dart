@@ -5,18 +5,16 @@
 import 'package:flutter/material.dart';
 
 // ✅ PERBAIKAN OrderEnum untuk match dengan backend
-
-// ✅ PERBAIKAN 1: Update OrderStatus enum untuk include 'confirmed'
+// ✅ PERBAIKAN FINAL: Sesuai dengan backend models/order.js
 enum OrderStatus {
   pending('pending'),
-  confirmed('confirmed'), // ✅ TAMBAHAN: Backend menggunakan 'confirmed'
-  preparing('preparing'), // ✅ Backend menggunakan 'preparing'
-  readyForPickup(
-      'ready_for_pickup'), // ✅ Backend menggunakan 'ready_for_pickup'
-  onDelivery('on_delivery'),
-  delivered('delivered'),
-  cancelled('cancelled'),
-  rejected('rejected');
+  confirmed('confirmed'), // ✅ Backend: models/order.js line 30
+  preparing('preparing'), // ✅ Backend: models/order.js line 30
+  readyForPickup('ready_for_pickup'), // ✅ Backend: models/order.js line 30
+  onDelivery('on_delivery'), // ✅ Backend: models/order.js line 30
+  delivered('delivered'), // ✅ Backend: models/order.js line 30
+  cancelled('cancelled'), // ✅ Backend: models/order.js line 30
+  rejected('rejected'); // ✅ Backend: models/order.js line 30
 
   const OrderStatus(this.value);
   final String value;
@@ -26,7 +24,7 @@ enum OrderStatus {
     switch (status.toLowerCase()) {
       case 'pending':
         return OrderStatus.pending;
-      case 'confirmed': // ✅ TAMBAHAN: Handle 'confirmed' status
+      case 'confirmed': // ✅ Backend menggunakan 'confirmed'
         return OrderStatus.confirmed;
       case 'preparing':
         return OrderStatus.preparing;
@@ -46,27 +44,347 @@ enum OrderStatus {
     }
   }
 
-  String get name => value;
+  String get displayName {
+    switch (this) {
+      case OrderStatus.pending:
+        return 'Menunggu Konfirmasi';
+      case OrderStatus.confirmed:
+        return 'Dikonfirmasi';
+      case OrderStatus.preparing:
+        return 'Sedang Diproses';
+      case OrderStatus.readyForPickup:
+        return 'Siap Diambil';
+      case OrderStatus.onDelivery:
+        return 'Sedang Diantar';
+      case OrderStatus.delivered:
+        return 'Selesai';
+      case OrderStatus.cancelled:
+        return 'Dibatalkan';
+      case OrderStatus.rejected:
+        return 'Ditolak';
+    }
+  }
 
   bool get isCompleted => [delivered, cancelled, rejected].contains(this);
   bool get isActive => ![delivered, cancelled, rejected].contains(this);
+  bool get canCancel => [pending, confirmed].contains(this);
 }
 
+// ✅ PERBAIKAN FINAL: Sesuai dengan backend models/order.js
 enum DeliveryStatus {
-  pending,
-  pickedUp,
-  onWay,
-  delivered,
-  rejected,
+  pending('pending'),
+  pickedUp('picked_up'), // ✅ Backend: models/order.js line 34
+  onWay('on_way'), // ✅ Backend: models/order.js line 34
+  delivered('delivered'), // ✅ Backend: models/order.js line 34
+  rejected('rejected'); // ✅ Backend: models/order.js line 34
+
+  const DeliveryStatus(this.value);
+  final String value;
+
+  // ✅ PERBAIKAN: Factory constructor untuk parsing dari backend
+  factory DeliveryStatus.fromString(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return DeliveryStatus.pending;
+      case 'picked_up': // ✅ Backend menggunakan 'picked_up'
+        return DeliveryStatus.pickedUp;
+      case 'on_way': // ✅ Backend menggunakan 'on_way'
+        return DeliveryStatus.onWay;
+      case 'delivered':
+        return DeliveryStatus.delivered;
+      case 'rejected':
+        return DeliveryStatus.rejected;
+      default:
+        print('⚠️ Unknown delivery status: $status, defaulting to pending');
+        return DeliveryStatus.pending;
+    }
+  }
+
+  String get displayName {
+    switch (this) {
+      case DeliveryStatus.pending:
+        return 'Menunggu Penjemputan';
+      case DeliveryStatus.pickedUp:
+        return 'Sudah Diambil';
+      case DeliveryStatus.onWay:
+        return 'Dalam Perjalanan';
+      case DeliveryStatus.delivered:
+        return 'Terkirim';
+      case DeliveryStatus.rejected:
+        return 'Ditolak';
+    }
+  }
 }
 
+// ✅ TAMBAHAN: Driver Request Status sesuai backend models/driverRequest.js
 enum DriverRequestStatus {
-  pending,
-  accepted,
-  rejected,
-  completed,
-  expired,
+  pending('pending'),
+  accepted('accepted'),
+  rejected('rejected'),
+  completed('completed'),
+  expired('expired'),
+  cancelled('cancelled');
+
+  const DriverRequestStatus(this.value);
+  final String value;
+
+  factory DriverRequestStatus.fromString(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return DriverRequestStatus.pending;
+      case 'accepted':
+        return DriverRequestStatus.accepted;
+      case 'rejected':
+        return DriverRequestStatus.rejected;
+      case 'completed':
+        return DriverRequestStatus.completed;
+      case 'expired':
+        return DriverRequestStatus.expired;
+      case 'cancelled':
+        return DriverRequestStatus.cancelled;
+      default:
+        print(
+            '⚠️ Unknown driver request status: $status, defaulting to pending');
+        return DriverRequestStatus.pending;
+    }
+  }
+
+  String get displayName {
+    switch (this) {
+      case DriverRequestStatus.pending:
+        return 'Menunggu Respons';
+      case DriverRequestStatus.accepted:
+        return 'Diterima';
+      case DriverRequestStatus.rejected:
+        return 'Ditolak';
+      case DriverRequestStatus.completed:
+        return 'Selesai';
+      case DriverRequestStatus.expired:
+        return 'Kadaluarsa';
+      case DriverRequestStatus.cancelled:
+        return 'Dibatalkan';
+    }
+  }
 }
+
+// ✅ TAMBAHAN: Driver Status sesuai backend models/driver.js
+enum DriverStatus {
+  active('active'),
+  inactive('inactive'),
+  busy('busy');
+
+  const DriverStatus(this.value);
+  final String value;
+
+  factory DriverStatus.fromString(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return DriverStatus.active;
+      case 'inactive':
+        return DriverStatus.inactive;
+      case 'busy':
+        return DriverStatus.busy;
+      default:
+        print('⚠️ Unknown driver status: $status, defaulting to inactive');
+        return DriverStatus.inactive;
+    }
+  }
+
+  String get displayName {
+    switch (this) {
+      case DriverStatus.active:
+        return 'Aktif';
+      case DriverStatus.inactive:
+        return 'Tidak Aktif';
+      case DriverStatus.busy:
+        return 'Sibuk';
+    }
+  }
+}
+
+// ✅ TAMBAHAN: Store Status sesuai backend models/store.js
+enum StoreStatus {
+  active('active'),
+  inactive('inactive'),
+  closed('closed');
+
+  const StoreStatus(this.value);
+  final String value;
+
+  factory StoreStatus.fromString(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return StoreStatus.active;
+      case 'inactive':
+        return StoreStatus.inactive;
+      case 'closed':
+        return StoreStatus.closed;
+      default:
+        print('⚠️ Unknown store status: $status, defaulting to inactive');
+        return StoreStatus.inactive;
+    }
+  }
+
+  String get displayName {
+    switch (this) {
+      case StoreStatus.active:
+        return 'Buka';
+      case StoreStatus.inactive:
+        return 'Tidak Aktif';
+      case StoreStatus.closed:
+        return 'Tutup';
+    }
+  }
+}
+
+// ✅ TAMBAHAN: Service Order Status sesuai backend models/serviceOrder.js
+enum ServiceOrderStatus {
+  pending('pending'),
+  driverFound('driver_found'),
+  inProgress('in_progress'),
+  completed('completed'),
+  cancelled('cancelled');
+
+  const ServiceOrderStatus(this.value);
+  final String value;
+
+  factory ServiceOrderStatus.fromString(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return ServiceOrderStatus.pending;
+      case 'driver_found':
+        return ServiceOrderStatus.driverFound;
+      case 'in_progress':
+        return ServiceOrderStatus.inProgress;
+      case 'completed':
+        return ServiceOrderStatus.completed;
+      case 'cancelled':
+        return ServiceOrderStatus.cancelled;
+      default:
+        print(
+            '⚠️ Unknown service order status: $status, defaulting to pending');
+        return ServiceOrderStatus.pending;
+    }
+  }
+
+  String get displayName {
+    switch (this) {
+      case ServiceOrderStatus.pending:
+        return 'Mencari Driver';
+      case ServiceOrderStatus.driverFound:
+        return 'Driver Ditemukan';
+      case ServiceOrderStatus.inProgress:
+        return 'Sedang Berlangsung';
+      case ServiceOrderStatus.completed:
+        return 'Selesai';
+      case ServiceOrderStatus.cancelled:
+        return 'Dibatalkan';
+    }
+  }
+
+  bool get isCompleted => [completed, cancelled].contains(this);
+  bool get isActive => ![completed, cancelled].contains(this);
+}
+
+// ✅ TAMBAHAN: User Role sesuai backend models/user.js
+enum UserRole {
+  admin('admin'),
+  customer('customer'),
+  store('store'),
+  driver('driver');
+
+  const UserRole(this.value);
+  final String value;
+
+  factory UserRole.fromString(String role) {
+    switch (role.toLowerCase()) {
+      case 'admin':
+        return UserRole.admin;
+      case 'customer':
+        return UserRole.customer;
+      case 'store':
+        return UserRole.store;
+      case 'driver':
+        return UserRole.driver;
+      default:
+        print('⚠️ Unknown user role: $role, defaulting to customer');
+        return UserRole.customer;
+    }
+  }
+
+  String get displayName {
+    switch (this) {
+      case UserRole.admin:
+        return 'Administrator';
+      case UserRole.customer:
+        return 'Pelanggan';
+      case UserRole.store:
+        return 'Toko';
+      case UserRole.driver:
+        return 'Driver';
+    }
+  }
+}
+// enum OrderStatus {
+//   pending('pending'),
+//   confirmed('confirmed'), // ✅ TAMBAHAN: Backend menggunakan 'confirmed'
+//   preparing('preparing'), // ✅ Backend menggunakan 'preparing'
+//   readyForPickup(
+//       'ready_for_pickup'), // ✅ Backend menggunakan 'ready_for_pickup'
+//   onDelivery('on_delivery'),
+//   delivered('delivered'),
+//   cancelled('cancelled'),
+//   rejected('rejected');
+//
+//   const OrderStatus(this.value);
+//   final String value;
+//
+//   // ✅ PERBAIKAN: Factory constructor untuk parsing dari backend
+//   factory OrderStatus.fromString(String status) {
+//     switch (status.toLowerCase()) {
+//       case 'pending':
+//         return OrderStatus.pending;
+//       case 'confirmed': // ✅ TAMBAHAN: Handle 'confirmed' status
+//         return OrderStatus.confirmed;
+//       case 'preparing':
+//         return OrderStatus.preparing;
+//       case 'ready_for_pickup':
+//         return OrderStatus.readyForPickup;
+//       case 'on_delivery':
+//         return OrderStatus.onDelivery;
+//       case 'delivered':
+//         return OrderStatus.delivered;
+//       case 'cancelled':
+//         return OrderStatus.cancelled;
+//       case 'rejected':
+//         return OrderStatus.rejected;
+//       default:
+//         print('⚠️ Unknown order status: $status, defaulting to pending');
+//         return OrderStatus.pending;
+//     }
+//   }
+//
+//   String get name => value;
+//
+//   bool get isCompleted => [delivered, cancelled, rejected].contains(this);
+//   bool get isActive => ![delivered, cancelled, rejected].contains(this);
+// }
+//
+// enum DeliveryStatus {
+//   pending,
+//   pickedUp,
+//   onWay,
+//   delivered,
+//   rejected,
+// }
+
+// enum DriverRequestStatus {
+//   pending,
+//   accepted,
+//   rejected,
+//   completed,
+//   expired,
+// }
 
 enum PaymentMethod {
   cash,
@@ -78,25 +396,25 @@ enum PaymentStatus {
   failed,
   refunded,
 }
-
-enum DriverStatus {
-  active,
-  inactive,
-  busy,
-}
-
-enum StoreStatus {
-  active,
-  inactive,
-  closed,
-}
-
-enum UserRole {
-  admin,
-  customer,
-  store,
-  driver,
-}
+//
+// enum DriverStatus {
+//   active,
+//   inactive,
+//   busy,
+// }
+//
+// enum StoreStatus {
+//   active,
+//   inactive,
+//   closed,
+// }
+//
+// enum UserRole {
+//   admin,
+//   customer,
+//   store,
+//   driver,
+// }
 
 // Extension methods for OrderStatus
 extension OrderStatusExtension on OrderStatus {
@@ -276,6 +594,8 @@ extension DriverRequestStatusExtension on DriverRequestStatus {
         return 'completed';
       case DriverRequestStatus.expired:
         return 'expired';
+      case DriverRequestStatus.cancelled:
+        return 'cancelled';
     }
   }
 
@@ -291,6 +611,8 @@ extension DriverRequestStatusExtension on DriverRequestStatus {
         return 'Selesai';
       case DriverRequestStatus.expired:
         return 'Kedaluwarsa';
+      case DriverRequestStatus.cancelled:
+        return 'Ditolak';
     }
   }
 
@@ -306,6 +628,9 @@ extension DriverRequestStatusExtension on DriverRequestStatus {
         return Colors.blue;
       case DriverRequestStatus.expired:
         return Colors.grey;
+      case DriverRequestStatus.cancelled:
+        // TODO: Handle this case.
+        throw UnimplementedError();
     }
   }
 
