@@ -49,7 +49,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   OrderModel? _currentOrder;
-  String? _previousDeliveryStatus;
+  OrderStatus? _previousOrderStatus;
+  DeliveryStatus? _previousDeliveryStatus;
   Timer? _statusUpdateTimer;
 
   // Data state
@@ -70,36 +71,67 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
   final Color _primaryColor = const Color(0xFF2E7D32);
   final Color _secondaryColor = const Color(0xFF66BB6A);
 
-  // ✅ FIXED: Delivery Status Timeline untuk driver flow
+  // ✅ UPDATED: Dual status timeline untuk order_status dan delivery_status
+  final List<Map<String, dynamic>> _orderStatusTimeline = [
+    {
+      'status': OrderStatus.pending,
+      'label': 'Menunggu',
+      'description': 'Pesanan baru masuk',
+      'icon': Icons.schedule,
+      'color': Colors.orange,
+    },
+    {
+      'status': OrderStatus.confirmed,
+      'label': 'Dikonfirmasi',
+      'description': 'Pesanan diterima toko',
+      'icon': Icons.assignment_turned_in,
+      'color': Colors.blue,
+    },
+    {
+      'status': OrderStatus.preparing,
+      'label': 'Disiapkan',
+      'description': 'Toko sedang menyiapkan',
+      'icon': Icons.restaurant,
+      'color': Colors.purple,
+    },
+    {
+      'status': OrderStatus.readyForPickup,
+      'label': 'Siap Diambil',
+      'description': 'Pesanan siap diambil',
+      'icon': Icons.shopping_bag,
+      'color': Colors.indigo,
+    },
+  ];
+
   final List<Map<String, dynamic>> _deliveryStatusTimeline = [
     {
-      'status': 'pending',
-      'label': 'Menunggu Konfirmasi',
-      'description': 'Pesanan menunggu driver',
+      'status': DeliveryStatus.pending,
+      'label': 'Menunggu',
+      'description': 'Menunggu driver',
       'icon': Icons.schedule,
       'color': Colors.orange,
       'animation': 'assets/animations/diambil.json'
     },
     {
-      'status': 'picked_up',
-      'label': 'Pesanan Diambil',
-      'description': 'Pesanan sudah diambil dari toko',
-      'icon': Icons.shopping_bag,
+      'status': DeliveryStatus.pickedUp,
+      'label': 'Diambil',
+      'description': 'Driver mengambil pesanan',
+      'icon': Icons.drive_eta,
       'color': Colors.blue,
       'animation': 'assets/animations/diproses.json'
     },
     {
-      'status': 'on_way',
-      'label': 'Dalam Perjalanan',
-      'description': 'Sedang diantar ke pelanggan',
+      'status': DeliveryStatus.onWay,
+      'label': 'Diantar',
+      'description': 'Dalam perjalanan',
       'icon': Icons.directions_bike,
-      'color': Colors.purple,
+      'color': Colors.teal,
       'animation': 'assets/animations/diantar.json'
     },
     {
-      'status': 'delivered',
-      'label': 'Selesai Diantar',
-      'description': 'Pesanan sudah sampai',
+      'status': DeliveryStatus.delivered,
+      'label': 'Selesai',
+      'description': 'Pesanan terkirim',
       'icon': Icons.check_circle,
       'color': Colors.green,
       'animation': 'assets/animations/pesanan_selesai.json'
@@ -221,8 +253,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
       _startAnimations();
 
       // Handle initial status for pulse animation
-      if (_orderData.isNotEmpty) {
-        _handleInitialDeliveryStatus(_getDeliveryStatus());
+      if (_currentOrder != null) {
+        _handleInitialStatuses();
       }
 
       // Start status polling
@@ -289,7 +321,6 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         print('   - Request ID: ${requestData['id']}');
         print('   - Order ID: ${_orderData['id']}');
         print('   - Request Status: ${requestData['status']}');
-        print('   - Delivery Status: ${_getDeliveryStatus()}');
       } else {
         throw Exception('Request data not found or empty response');
       }
@@ -299,7 +330,6 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     }
   }
 
-  // ✅ FIXED: Process request data structure sesuai backend response
   void _processRequestData(Map<String, dynamic> requestData) {
     try {
       // Extract order data from request
@@ -308,18 +338,31 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
       // ✅ CRITICAL: Safe conversion before creating OrderModel
       final safeOrderData = _safeMapConversion(_orderData);
 
-      // Ensure proper data structure
+      // ✅ UPDATED: Ensure proper dual status structure
       safeOrderData['order_status'] =
           safeOrderData['order_status'] ?? 'pending';
       safeOrderData['delivery_status'] =
           safeOrderData['delivery_status'] ?? 'pending';
-      safeOrderData['total_amount'] = safeOrderData['total_amount'] ?? 0.0;
-      safeOrderData['delivery_fee'] = safeOrderData['delivery_fee'] ?? 0.0;
+
+      // ✅ FIX: Safe numeric conversion untuk mencegah type casting error
+      safeOrderData['total_amount'] = _safeParseDouble(safeOrderData['total_amount']);
+      safeOrderData['delivery_fee'] = _safeParseDouble(safeOrderData['delivery_fee']);
+      safeOrderData['destination_latitude'] = _safeParseDouble(safeOrderData['destination_latitude']);
+      safeOrderData['destination_longitude'] = _safeParseDouble(safeOrderData['destination_longitude']);
+
+      // ✅ FIX: Safe conversion untuk ID fields
+      safeOrderData['id'] = _safeParseInt(safeOrderData['id']);
+      safeOrderData['customer_id'] = _safeParseInt(safeOrderData['customer_id']);
+      safeOrderData['store_id'] = _safeParseInt(safeOrderData['store_id']);
+      safeOrderData['driver_id'] = safeOrderData['driver_id'] != null ?
+      _safeParseInt(safeOrderData['driver_id']) : null;
 
       // Create OrderModel for status card
       try {
         _currentOrder = OrderModel.fromJson(safeOrderData);
         print('✅ HistoryDriverDetail: OrderModel created successfully');
+        print('   - Order Status: ${_currentOrder!.orderStatus}');
+        print('   - Delivery Status: ${_currentOrder!.deliveryStatus}');
       } catch (e) {
         print('⚠️ HistoryDriverDetail: Error creating OrderModel: $e');
         // Continue without OrderModel, using raw data
@@ -363,10 +406,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
             item['image_url'] = ImageService.getImageUrl(item['image_url']);
           }
 
-          // Ensure required fields
+          // ✅ FIX: Safe conversion untuk item fields
           item['name'] = item['name'] ?? 'Unknown Item';
-          item['quantity'] = item['quantity'] ?? 1;
-          item['price'] = item['price'] ?? 0.0;
+          item['quantity'] = _safeParseInt(item['quantity']);
+          item['price'] = _safeParseDouble(item['price']);
         }
       }
 
@@ -407,26 +450,49 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     });
   }
 
-  // ✅ FIXED: Handle delivery status untuk driver flow
-  void _handleInitialDeliveryStatus(String deliveryStatus) {
-    if (['rejected'].contains(deliveryStatus)) {
+  // ✅ UPDATED: Handle initial statuses untuk dual status
+  void _handleInitialStatuses() {
+    final orderStatus = _currentOrder!.orderStatus;
+    final deliveryStatus = _currentOrder!.deliveryStatus;
+
+    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(orderStatus)) {
       _playCancelSound();
-    } else if (deliveryStatus == 'pending') {
+    } else if (orderStatus == OrderStatus.pending && deliveryStatus == DeliveryStatus.pending) {
       _pulseController.repeat(reverse: true);
     }
+
+    // Store previous statuses for change detection
+    _previousOrderStatus = orderStatus;
+    _previousDeliveryStatus = deliveryStatus;
   }
 
-  void _handleDeliveryStatusChange(String newDeliveryStatus) {
-    if (['rejected'].contains(newDeliveryStatus)) {
-      _playCancelSound();
-      _pulseController.stop();
-    } else {
-      _playStatusChangeSound();
-      if (newDeliveryStatus == 'pending') {
-        _pulseController.repeat(reverse: true);
-      } else {
+  // ✅ UPDATED: Handle status changes untuk dual status
+  void _handleStatusChanges() {
+    final newOrderStatus = _currentOrder!.orderStatus;
+    final newDeliveryStatus = _currentOrder!.deliveryStatus;
+
+    // Check for order status changes
+    if (_previousOrderStatus != newOrderStatus) {
+      if ([OrderStatus.cancelled, OrderStatus.rejected].contains(newOrderStatus)) {
+        _playCancelSound();
         _pulseController.stop();
+      } else {
+        _playStatusChangeSound();
       }
+      _previousOrderStatus = newOrderStatus;
+    }
+
+    // Check for delivery status changes
+    if (_previousDeliveryStatus != newDeliveryStatus) {
+      _playStatusChangeSound();
+      _previousDeliveryStatus = newDeliveryStatus;
+    }
+
+    // Update pulse animation based on current statuses
+    if (newOrderStatus == OrderStatus.pending && newDeliveryStatus == DeliveryStatus.pending) {
+      _pulseController.repeat(reverse: true);
+    } else {
+      _pulseController.stop();
     }
   }
 
@@ -434,7 +500,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     _statusUpdateTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (mounted &&
           widget.orderId != null &&
-          !_isDeliveryCompleted()) {
+          _currentOrder != null &&
+          !_currentOrder!.orderStatus.isCompleted) {
         print('🔄 HistoryDriverDetail: Polling status update...');
         _loadRequestData();
       }
@@ -469,23 +536,9 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     super.dispose();
   }
 
-  // ✅ FIXED: Delivery status helpers
-  String _getDeliveryStatus() {
-    return _orderData['delivery_status']?.toString().toLowerCase() ?? 'pending';
-  }
-
-  String _getOrderStatus() {
-    return _orderData['order_status']?.toString().toLowerCase() ?? 'pending';
-  }
-
-  bool _isDeliveryCompleted() {
-    final deliveryStatus = _getDeliveryStatus();
-    return ['delivered', 'rejected'].contains(deliveryStatus);
-  }
-
-  // ✅ INTEGRATED DRIVER ORDER STATUS CARD: Built directly into the page dengan delivery status focus
+  // ✅ UPDATED: Driver Order Status Card with dual status tracking
   Widget _buildDriverOrderStatusCard() {
-    if (_orderData.isEmpty) {
+    if (_currentOrder == null) {
       return Container(
         margin: const EdgeInsets.only(bottom: 20),
         padding: const EdgeInsets.all(20),
@@ -523,8 +576,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     }
 
     final currentDeliveryStatusInfo = _getCurrentDeliveryStatusInfo();
-    final currentDeliveryStatus = _getDeliveryStatus();
-    final currentIndex = _getCurrentDeliveryStatusIndex();
+    final currentOrderStatus = _currentOrder!.orderStatus;
+    final currentDeliveryStatus = _currentOrder!.deliveryStatus;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
@@ -581,7 +634,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                           ),
                         ),
                         Text(
-                          'Order #${_orderData['id']}',
+                          'Order #${_currentOrder!.id}',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.white.withOpacity(0.9),
@@ -591,7 +644,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                       ],
                     ),
                   ),
-                  if (_customerData != null)
+                  if (_currentOrder!.customer != null)
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -604,11 +657,12 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                           CircleAvatar(
                             radius: 12,
                             backgroundColor: Colors.white.withOpacity(0.2),
-                            child: _customerData!['avatar'] != null &&
-                                _customerData!['avatar']!.isNotEmpty
+                            child: _currentOrder!.customer!.avatar != null &&
+                                _currentOrder!.customer!.avatar!.isNotEmpty
                                 ? ClipOval(
                               child: ImageService.displayImage(
-                                imageSource: _customerData!['avatar']!,
+                                imageSource:
+                                _currentOrder!.customer!.avatar!,
                                 width: 24,
                                 height: 24,
                                 fit: BoxFit.cover,
@@ -623,7 +677,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _customerData!['name'] ?? 'Customer',
+                            _currentOrder!.customer!.name,
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 12,
@@ -643,8 +697,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  // Animation
-                  if (currentDeliveryStatus == 'pending')
+                  // Animation - focus on delivery status
+                  if (currentDeliveryStatus == DeliveryStatus.pending)
                     AnimatedBuilder(
                       animation: _pulseAnimation,
                       builder: (context, child) {
@@ -666,98 +720,28 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                       child: Lottie.asset(
                         currentDeliveryStatusInfo['animation'],
                         repeat: ![
-                          'delivered',
-                          'rejected'
+                          DeliveryStatus.delivered,
                         ].contains(currentDeliveryStatus),
                       ),
                     ),
 
                   const SizedBox(height: 20),
 
-                  // ✅ FIXED: Delivery Status Timeline (fokus pada delivery status driver)
-                  if (!['rejected'].contains(currentDeliveryStatus))
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Row(
-                        children:
-                        List.generate(_deliveryStatusTimeline.length, (index) {
-                          final isActive = index <= currentIndex;
-                          final isCurrent = index == currentIndex;
-                          final isLast = index == _deliveryStatusTimeline.length - 1;
-                          final statusItem = _deliveryStatusTimeline[index];
+                  // ✅ UPDATED: Dual Status Timeline - Order Progress
+                  if (![OrderStatus.cancelled, OrderStatus.rejected]
+                      .contains(currentOrderStatus))
+                    _buildOrderStatusTimeline(),
 
-                          return Expanded(
-                            child: Row(
-                              children: [
-                                Column(
-                                  children: [
-                                    AnimatedContainer(
-                                      duration:
-                                      const Duration(milliseconds: 300),
-                                      width: isCurrent ? 32 : 24,
-                                      height: isCurrent ? 32 : 24,
-                                      decoration: BoxDecoration(
-                                        color: isActive
-                                            ? statusItem['color']
-                                            : Colors.grey[300],
-                                        shape: BoxShape.circle,
-                                        boxShadow: isCurrent
-                                            ? [
-                                          BoxShadow(
-                                            color: statusItem['color']
-                                                .withOpacity(0.4),
-                                            blurRadius: 8,
-                                            spreadRadius: 2,
-                                          ),
-                                        ]
-                                            : [],
-                                      ),
-                                      child: Icon(
-                                        statusItem['icon'],
-                                        color: Colors.white,
-                                        size: isCurrent ? 16 : 12,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      statusItem['label'],
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isActive
-                                            ? statusItem['color']
-                                            : Colors.grey,
-                                        fontWeight: isCurrent
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
-                                        fontFamily: GlobalStyle.fontFamily,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ],
-                                ),
-                                if (!isLast)
-                                  Expanded(
-                                    child: Container(
-                                      height: 2,
-                                      margin: const EdgeInsets.only(bottom: 20),
-                                      decoration: BoxDecoration(
-                                        color: index < currentIndex
-                                            ? _deliveryStatusTimeline[index]['color']
-                                            : Colors.grey[300],
-                                        borderRadius: BorderRadius.circular(1),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
+                  const SizedBox(height: 16),
+
+                  // ✅ NEW: Delivery Status Timeline
+                  if (![OrderStatus.cancelled, OrderStatus.rejected]
+                      .contains(currentOrderStatus))
+                    _buildDeliveryStatusTimeline(),
 
                   const SizedBox(height: 20),
 
-                  // Status Message
+                  // Status Message - focus on delivery status
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
@@ -834,8 +818,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                     ),
                   ),
 
-                  // Earnings info untuk completed delivery
-                  if (currentDeliveryStatus == 'delivered')
+                  // Earnings info for completed deliveries
+                  if (currentDeliveryStatus == DeliveryStatus.delivered)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Container(
@@ -872,17 +856,217 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     );
   }
 
-  // ✅ FIXED: Get current delivery status info
+  // ✅ NEW: Build order status timeline (toko progress)
+  Widget _buildOrderStatusTimeline() {
+    final currentOrderStatus = _currentOrder!.orderStatus;
+    final currentOrderIndex = _getCurrentOrderStatusIndex();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Progress Toko',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[700],
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            children: List.generate(_orderStatusTimeline.length, (index) {
+              final isActive = index <= currentOrderIndex;
+              final isCurrent = index == currentOrderIndex;
+              final isLast = index == _orderStatusTimeline.length - 1;
+              final statusItem = _orderStatusTimeline[index];
+
+              return Expanded(
+                child: Row(
+                  children: [
+                    Column(
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          width: isCurrent ? 28 : 20,
+                          height: isCurrent ? 28 : 20,
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? statusItem['color']
+                                : Colors.grey[300],
+                            shape: BoxShape.circle,
+                            boxShadow: isCurrent
+                                ? [
+                              BoxShadow(
+                                color: statusItem['color']
+                                    .withOpacity(0.4),
+                                blurRadius: 6,
+                                spreadRadius: 1,
+                              ),
+                            ]
+                                : [],
+                          ),
+                          child: Icon(
+                            statusItem['icon'],
+                            color: Colors.white,
+                            size: isCurrent ? 14 : 10,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          statusItem['label'],
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: isActive
+                                ? statusItem['color']
+                                : Colors.grey,
+                            fontWeight: isCurrent
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                    if (!isLast)
+                      Expanded(
+                        child: Container(
+                          height: 2,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: index < currentOrderIndex
+                                ? _orderStatusTimeline[index]['color']
+                                : Colors.grey[300],
+                            borderRadius: BorderRadius.circular(1),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ NEW: Build delivery status timeline (driver progress)
+  Widget _buildDeliveryStatusTimeline() {
+    final currentDeliveryStatus = _currentOrder!.deliveryStatus;
+    final currentDeliveryIndex = _getCurrentDeliveryStatusIndex();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Progress Pengiriman',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[700],
+            fontFamily: GlobalStyle.fontFamily,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            children: List.generate(_deliveryStatusTimeline.length, (index) {
+              final isActive = index <= currentDeliveryIndex;
+              final isCurrent = index == currentDeliveryIndex;
+              final isLast = index == _deliveryStatusTimeline.length - 1;
+              final statusItem = _deliveryStatusTimeline[index];
+
+              return Expanded(
+                child: Row(
+                  children: [
+                    Column(
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          width: isCurrent ? 28 : 20,
+                          height: isCurrent ? 28 : 20,
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? statusItem['color']
+                                : Colors.grey[300],
+                            shape: BoxShape.circle,
+                            boxShadow: isCurrent
+                                ? [
+                              BoxShadow(
+                                color: statusItem['color']
+                                    .withOpacity(0.4),
+                                blurRadius: 6,
+                                spreadRadius: 1,
+                              ),
+                            ]
+                                : [],
+                          ),
+                          child: Icon(
+                            statusItem['icon'],
+                            color: Colors.white,
+                            size: isCurrent ? 14 : 10,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          statusItem['label'],
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: isActive
+                                ? statusItem['color']
+                                : Colors.grey,
+                            fontWeight: isCurrent
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                    if (!isLast)
+                      Expanded(
+                        child: Container(
+                          height: 2,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: index < currentDeliveryIndex
+                                ? _deliveryStatusTimeline[index]['color']
+                                : Colors.grey[300],
+                            borderRadius: BorderRadius.circular(1),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ UPDATED: Get current delivery status info
   Map<String, dynamic> _getCurrentDeliveryStatusInfo() {
-    final currentDeliveryStatus = _getDeliveryStatus();
+    if (_currentOrder == null) {
+      return _deliveryStatusTimeline[0];
+    }
+
+    final currentDeliveryStatus = _currentOrder!.deliveryStatus;
 
     // Handle rejected status
-    if (currentDeliveryStatus == 'rejected') {
+    if (currentDeliveryStatus == DeliveryStatus.rejected) {
       return {
-        'status': 'rejected',
+        'status': DeliveryStatus.rejected,
         'label': 'Ditolak',
-        'description': 'Pengantaran ditolak atau dibatalkan',
-        'icon': Icons.cancel_outlined,
+        'description': 'Pengiriman ditolak',
+        'icon': Icons.block,
         'color': Colors.red,
         'animation': 'assets/animations/cancel.json'
       };
@@ -894,17 +1078,28 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     );
   }
 
+  int _getCurrentOrderStatusIndex() {
+    if (_currentOrder == null) return 0;
+    final currentStatus = _currentOrder!.orderStatus;
+    return _orderStatusTimeline
+        .indexWhere((item) => item['status'] == currentStatus);
+  }
+
   int _getCurrentDeliveryStatusIndex() {
-    final currentDeliveryStatus = _getDeliveryStatus();
+    if (_currentOrder == null) return 0;
+    final currentStatus = _currentOrder!.deliveryStatus;
     return _deliveryStatusTimeline
-        .indexWhere((item) => item['status'] == currentDeliveryStatus);
+        .indexWhere((item) => item['status'] == currentStatus);
   }
 
   double _calculateEstimatedEarnings() {
-    if (_orderData.isEmpty) return 0.0;
-    final deliveryFee = double.tryParse(_orderData['delivery_fee']?.toString() ?? '0') ?? 0.0;
-    const double commissionRate = 0.8; // Driver gets 80% of delivery fee
-    return deliveryFee * commissionRate;
+    if (_currentOrder == null) return 0.0;
+    const double baseDeliveryFee = 5000.0;
+    const double commissionRate = 0.8;
+
+    // ✅ FIX: Safe conversion untuk delivery fee
+    final deliveryFee = _safeParseDouble(_currentOrder!.deliveryFee);
+    return baseDeliveryFee + (deliveryFee * commissionRate);
   }
 
   // ✅ ADD: Helper method untuk mendapatkan info lokasi
@@ -931,19 +1126,27 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     return 'Lokasi tujuan belum tersedia';
   }
 
-  // ✅ FIXED: Enhanced status mapping sesuai delivery status flow
+  // ✅ UPDATED: Enhanced status mapping sesuai backend
   String _getStatusButtonText(String? status) {
     switch (status?.toLowerCase()) {
       case 'pending':
         return 'Menunggu Konfirmasi';
+      case 'confirmed':
+        return 'Pesanan Dikonfirmasi';
+      case 'preparing':
+        return 'Pesanan Sedang Diproses';
+      case 'ready_for_pickup':
+        return 'Pesanan Siap Diambil';
       case 'picked_up':
         return 'Pesanan Sudah Diambil';
       case 'on_way':
         return 'Sedang Diantar';
       case 'delivered':
-        return 'Pengantaran Selesai';
+        return 'Pesanan Selesai';
+      case 'cancelled':
+        return 'Pesanan Dibatalkan';
       case 'rejected':
-        return 'Pengantaran Ditolak';
+        return 'Pesanan Ditolak';
       default:
         return 'Status Tidak Diketahui';
     }
@@ -953,12 +1156,19 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     switch (status?.toLowerCase()) {
       case 'pending':
         return Colors.orange;
+      case 'confirmed':
+        return Colors.blue;
+      case 'preparing':
+        return Colors.indigo;
+      case 'ready_for_pickup':
+        return Colors.purple;
       case 'picked_up':
         return Colors.blue;
       case 'on_way':
-        return Colors.purple;
+        return Colors.teal;
       case 'delivered':
         return Colors.green;
+      case 'cancelled':
       case 'rejected':
         return Colors.red;
       default:
@@ -997,8 +1207,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
   Widget _buildOrderInfoCard() {
     if (_orderData.isEmpty) return const SizedBox.shrink();
 
-    final orderStatus = _getOrderStatus();
-    final deliveryStatus = _getDeliveryStatus();
+    final orderStatus = _orderData['order_status']?.toString() ?? 'pending';
+    final deliveryStatus = _orderData['delivery_status']?.toString() ?? 'pending';
     final requestStatus = _requestData['status']?.toString() ?? 'pending';
     final createdAt = _orderData['created_at']?.toString() ?? '';
     final estimatedPickupTime =
@@ -1074,6 +1284,39 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                     _getStatusButtonText(requestStatus),
                     style: TextStyle(
                       color: _getStatusColor(requestStatus),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Status Order',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(orderStatus).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _getStatusColor(orderStatus).withOpacity(0.3),
+                    ),
+                  ),
+                  child: Text(
+                    _getStatusButtonText(orderStatus),
+                    style: TextStyle(
+                      color: _getStatusColor(orderStatus),
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
                     ),
@@ -1531,8 +1774,9 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
   Widget _buildItemsCard() {
     if (_orderItems.isEmpty) return const SizedBox.shrink();
 
-    final totalAmount = ((_orderData['total_amount'] as num?) ?? 0).toDouble();
-    final deliveryFee = ((_orderData['delivery_fee'] as num?) ?? 0).toDouble();
+    // ✅ FIX: Safe numeric conversion untuk total amounts
+    final totalAmount = _safeParseDouble(_orderData['total_amount']);
+    final deliveryFee = _safeParseDouble(_orderData['delivery_fee']);
     final subtotal = totalAmount - deliveryFee;
 
     return _buildCard(
@@ -1573,8 +1817,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
             const SizedBox(height: 20),
             ..._orderItems.map<Widget>((item) {
               final itemName = item['name']?.toString() ?? 'Unknown Item';
-              final quantity = item['quantity'] ?? 1;
-              final price = ((item['price'] as num?) ?? 0).toDouble();
+              final quantity = _safeParseInt(item['quantity']);
+              final price = _safeParseDouble(item['price']);
               final imageUrl = item['image_url']?.toString() ?? '';
               final totalPrice = price * quantity;
 
@@ -1737,70 +1981,85 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     );
   }
 
-  // ✅ FIXED: Enhanced action buttons berdasarkan delivery status flow sesuai requirement
+  // ✅ UPDATED: Enhanced action buttons sesuai alur requirement
   Widget _buildActionButtons() {
     final requestStatus = _requestData['status']?.toString() ?? 'pending';
-    final deliveryStatus = _getDeliveryStatus();
-    final orderStatus = _getOrderStatus();
+    final orderStatus = _orderData['order_status']?.toString() ?? 'pending';
+    final deliveryStatus = _orderData['delivery_status']?.toString() ?? 'pending';
 
-    print('🔍 Action Buttons Debug:');
+    print('🔄 Building action buttons:');
     print('   - Request Status: $requestStatus');
-    print('   - Delivery Status: $deliveryStatus');
     print('   - Order Status: $orderStatus');
+    print('   - Delivery Status: $deliveryStatus');
 
-    // ✅ SESUAI REQUIREMENT: If request is pending, show approve/reject buttons
+    // ✅ ALUR 1: Request masih pending - show accept/reject buttons
     if (requestStatus == 'pending') {
-      return _buildCard(
-        index: 4,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Colors.red, Color(0xFFF44336)],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.red.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: _isRespondingRequest
-                        ? null
-                        : () => _respondToRequest('reject'),
-                    child: Center(
-                      child: Icon(
-                        Icons.close,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                    ),
-                  ),
-                ),
+      // Driver bisa accept jika:
+      // 1. delivery_status: pending dan order_status: pending, ATAU
+      // 2. delivery_status: pending dan order_status: preparing
+      final canAccept = (deliveryStatus == 'pending') &&
+          (orderStatus == 'pending' || orderStatus == 'preparing');
+
+      if (canAccept) {
+        return _buildRequestResponseButtons();
+      } else {
+        return _buildInfoCard('Request sudah tidak dapat diproses', Colors.grey);
+      }
+    }
+
+    // ✅ ALUR 2: Request accepted - show delivery action buttons
+    if (requestStatus == 'accepted') {
+      return _buildDeliveryActionButtons(orderStatus, deliveryStatus);
+    }
+
+    // ✅ ALUR 3: Request rejected/expired - show status only
+    return _buildInfoCard(
+      requestStatus == 'rejected' ? 'Request Ditolak' : 'Request Kedaluwarsa',
+      Colors.red,
+    );
+  }
+
+  // ✅ NEW: Build request response buttons (accept/reject)
+  Widget _buildRequestResponseButtons() {
+    return _buildCard(
+      index: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Request Pengantaran',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: GlobalStyle.fontColor,
+                fontFamily: GlobalStyle.fontFamily,
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Container(
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Pesanan ini membutuhkan konfirmasi dari Anda. Terima atau tolak request ini.',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  width: 50,
                   height: 50,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Colors.green, Color(0xFF4CAF50)],
+                      colors: [Colors.red, Color(0xFFF44336)],
                     ),
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.green.withOpacity(0.3),
+                        color: Colors.red.withOpacity(0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 3),
                       ),
@@ -1812,174 +2071,221 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                       borderRadius: BorderRadius.circular(12),
                       onTap: _isRespondingRequest
                           ? null
-                          : () => _respondToRequest('accept'),
+                          : () => _respondToRequest('reject'),
                       child: Center(
-                        child: _isRespondingRequest
-                            ? SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white),
-                          ),
-                        )
-                            : Text(
-                          'Terima Request',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            fontFamily: GlobalStyle.fontFamily,
+                        child: Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Container(
+                    height: 50,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Colors.green, Color(0xFF4CAF50)],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.green.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _isRespondingRequest
+                            ? null
+                            : () => _respondToRequest('accept'),
+                        child: Center(
+                          child: _isRespondingRequest
+                              ? SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white),
+                            ),
+                          )
+                              : Text(
+                            'Terima Request',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ),
+      ),
+    );
+  }
+
+  // ✅ NEW: Build delivery action buttons based on status
+  Widget _buildDeliveryActionButtons(String orderStatus, String deliveryStatus) {
+    print('🚚 Building delivery action buttons:');
+    print('   - Order Status: $orderStatus');
+    print('   - Delivery Status: $deliveryStatus');
+
+    // ✅ ALUR: delivery_status: picked_up + order_status: ready_for_pickup = Mulai Pengantaran
+    if (deliveryStatus == 'picked_up' && orderStatus == 'ready_for_pickup') {
+      return _buildActionButton(
+        title: 'Mulai Pengantaran',
+        description: 'Ubah status menjadi "Dalam Perjalanan"',
+        buttonText: 'Mulai Pengantaran',
+        buttonColor: Colors.blue,
+        onPressed: () => _updateDeliveryStatus('on_way'),
       );
     }
 
-    // ✅ SESUAI REQUIREMENT: If request is accepted, show delivery status update buttons
-    if (requestStatus == 'accepted') {
-      return _buildDeliveryStatusUpdateButtons(deliveryStatus, orderStatus);
+    // ✅ ALUR: delivery_status: on_way = Selesaikan Pengantaran
+    if (deliveryStatus == 'on_way') {
+      return _buildActionButton(
+        title: 'Selesaikan Pengantaran',
+        description: 'Tandai pesanan sebagai terkirim',
+        buttonText: 'Pengantaran Selesai',
+        buttonColor: Colors.green,
+        onPressed: () => _updateDeliveryStatus('delivered'),
+      );
     }
 
-    // No action buttons for rejected/expired requests
-    return const SizedBox.shrink();
+    // ✅ ALUR: delivery_status: delivered = Completed
+    if (deliveryStatus == 'delivered') {
+      return _buildInfoCard('Pengantaran Selesai', Colors.green);
+    }
+
+    // ✅ ALUR: Waiting for store or other statuses
+    return _buildInfoCard(
+      _getWaitingMessage(orderStatus, deliveryStatus),
+      Colors.orange,
+    );
   }
 
-  // ✅ FIXED: Delivery status update buttons berdasarkan flow yang dijelaskan user
-  Widget _buildDeliveryStatusUpdateButtons(String deliveryStatus, String orderStatus) {
-    String buttonText = _getStatusButtonText(deliveryStatus);
-    Color statusColor = _getStatusColor(deliveryStatus);
-    bool canUpdate = false;
-    String? nextDeliveryStatus;
-    String actionText = '';
-
-    print('🔍 Delivery Status Button Logic:');
-    print('   - Current Delivery Status: $deliveryStatus');
-    print('   - Current Order Status: $orderStatus');
-
-    switch (deliveryStatus.toLowerCase()) {
-      case 'pending':
-      // Driver tidak bisa update dari pending, harus tunggu toko set ke picked_up
-        canUpdate = false;
-        buttonText = 'Menunggu Toko Siapkan Pesanan';
-        break;
-
-      case 'picked_up':
-      // ✅ SESUAI REQUIREMENT: Driver bisa tekan "Mulai Pengantaran" hanya jika order_status ready_for_pickup
-        if (orderStatus.toLowerCase() == 'ready_for_pickup') {
-          canUpdate = true;
-          nextDeliveryStatus = 'on_way';
-          actionText = 'Mulai Pengantaran';
-          buttonText = actionText;
-        } else {
-          canUpdate = false;
-          buttonText = 'Menunggu Pesanan Siap Diambil';
-        }
-        break;
-
-      case 'on_way':
-      // ✅ SESUAI REQUIREMENT: Driver bisa tekan "Pengantaran Selesai"
-        canUpdate = true;
-        nextDeliveryStatus = 'delivered';
-        actionText = 'Pengantaran Selesai';
-        buttonText = actionText;
-        break;
-
-      case 'delivered':
-      case 'rejected':
-        canUpdate = false;
-        buttonText = deliveryStatus == 'delivered' ? 'Pengantaran Selesai' : 'Pengantaran Ditolak';
-        break;
-
-      default:
-        canUpdate = false;
-    }
-
-    if (!canUpdate) {
-      return _buildCard(
-        index: 4,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Container(
-            width: double.infinity,
-            height: 50,
-            decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: statusColor.withOpacity(0.3)),
+  // ✅ NEW: Build action button helper
+  Widget _buildActionButton({
+    required String title,
+    required String description,
+    required String buttonText,
+    required Color buttonColor,
+    required VoidCallback onPressed,
+  }) {
+    return _buildCard(
+      index: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: GlobalStyle.fontColor,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
             ),
-            child: Center(
-              child: Text(
-                buttonText,
-                style: TextStyle(
-                  color: statusColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  fontFamily: GlobalStyle.fontFamily,
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [buttonColor, buttonColor.withOpacity(0.8)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: buttonColor.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _isUpdatingStatus ? null : onPressed,
+                  child: Center(
+                    child: _isUpdatingStatus
+                        ? SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor:
+                        AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                        : Text(
+                      buttonText,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
+  // ✅ NEW: Build info card for status display
+  Widget _buildInfoCard(String message, Color color) {
     return _buildCard(
       index: 4,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Container(
           width: double.infinity,
-          height: 50,
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [statusColor, statusColor.withOpacity(0.8)],
-            ),
+            color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: statusColor.withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
+            border: Border.all(color: color.withOpacity(0.3)),
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: _isUpdatingStatus
-                  ? null
-                  : () => _updateDeliveryStatus(nextDeliveryStatus!),
-              child: Center(
-                child: _isUpdatingStatus
-                    ? SizedBox(
-                  height: 24,
-                  width: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.5,
-                    valueColor:
-                    AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-                    : Text(
-                  actionText,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-              ),
+          child: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              fontFamily: GlobalStyle.fontFamily,
             ),
           ),
         ),
@@ -1987,7 +2293,22 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     );
   }
 
-  // ✅ FIXED: Enhanced request response menggunakan DriverRequestService.respondToDriverRequest
+  // ✅ NEW: Get waiting message based on statuses
+  String _getWaitingMessage(String orderStatus, String deliveryStatus) {
+    if (orderStatus == 'pending') {
+      return 'Menunggu konfirmasi toko';
+    } else if (orderStatus == 'confirmed') {
+      return 'Toko sedang menyiapkan pesanan';
+    } else if (orderStatus == 'preparing') {
+      return 'Pesanan sedang diproses toko';
+    } else if (orderStatus == 'ready_for_pickup' && deliveryStatus == 'pending') {
+      return 'Pesanan siap diambil - Menunggu pickup';
+    } else {
+      return 'Menunggu update status';
+    }
+  }
+
+  // ✅ UPDATED: Enhanced request response menggunakan DriverRequestService.respondToDriverRequest
   Future<void> _respondToRequest(String action) async {
     if (_isRespondingRequest) return;
 
@@ -2018,19 +2339,20 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
       await _loadRequestData();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              action == 'accept'
-                  ? 'Request berhasil diterima'
-                  : 'Request berhasil ditolak',
+        if (action == 'accept') {
+          // ✅ ALUR: Show success popup with contact customer button
+          _showAcceptSuccessDialog();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Request berhasil ditolak'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
-            backgroundColor: action == 'accept' ? Colors.green : Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
+          );
+        }
       }
 
       // Play sound
@@ -2057,7 +2379,120 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     }
   }
 
-  // ✅ FIXED: Enhanced delivery status update menggunakan tracking service
+  // ✅ NEW: Show accept success dialog with contact customer option
+  void _showAcceptSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.asset(
+                  'assets/animations/diproses.json',
+                  width: 150,
+                  height: 150,
+                  repeat: false,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Request Diterima!',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Order #${widget.orderId}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Total: ${GlobalStyle.formatRupiah((_orderData['total_amount'] as num?)?.toDouble() ?? 0)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: GlobalStyle.primaryColor,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.grey[600],
+                          side: BorderSide(color: Colors.grey[300]!),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Text(
+                          'Tutup',
+                          style: TextStyle(
+                            fontFamily: GlobalStyle.fontFamily,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          if (_customerData?['phone'] != null) {
+                            _openWhatsApp(_customerData!['phone']);
+                          }
+                        },
+                        child: Text(
+                          'Contact Customer',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontFamily: GlobalStyle.fontFamily,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _updateDeliveryStatus(String deliveryStatus) async {
     if (_isUpdatingStatus) return;
 
@@ -2066,7 +2501,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     });
 
     try {
-      print('📝 HistoryDriverDetail: Updating delivery status to: $deliveryStatus');
+      print(' HistoryDriverDetail: Updating delivery status to: $deliveryStatus');
 
       // ✅ FIXED: Validate driver access
       final hasDriverAccess = await AuthService.hasRole('driver');
@@ -2074,14 +2509,37 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         throw Exception('Access denied: Driver authentication required');
       }
 
-      // ✅ SESUAI REQUIREMENT: Use tracking service for delivery updates
+      // ✅ FIX: Ambil current order status untuk parameter yang required
+      String currentOrderStatus = 'pending';
+      if (_currentOrder != null) {
+        currentOrderStatus = _currentOrder!.orderStatus.value;
+      } else if (_orderData['order_status'] != null) {
+        currentOrderStatus = _orderData['order_status'].toString();
+      }
+
+      // ✅ FIXED: Update delivery status dengan orderStatus parameter yang required
+      await OrderService.updateOrderStatus(
+        orderId: widget.orderId,
+        orderStatus: currentOrderStatus,  // ✅ ADD: Parameter yang missing
+        deliveryStatus: deliveryStatus,
+        notes: 'Delivery status diupdate oleh driver ke $deliveryStatus',
+      );
+
+      // Use tracking service for delivery tracking
       if (deliveryStatus == 'on_way') {
-        await TrackingService.startDelivery(widget.orderId);
-        print('✅ TrackingService: Delivery started (on_way)');
+        try {
+          await TrackingService.startDelivery(widget.orderId);
+        } catch (e) {
+          print('⚠️ TrackingService error (non-critical): $e');
+        }
       } else if (deliveryStatus == 'delivered') {
-        await TrackingService.completeDelivery(widget.orderId);
-        print('✅ TrackingService: Delivery completed');
-        _showCompletionDialog();
+        try {
+          await TrackingService.completeDelivery(widget.orderId);
+          _showCompletionDialog();
+        } catch (e) {
+          print('⚠️ TrackingService error (non-critical): $e');
+          _showCompletionDialog();
+        }
       }
 
       // Refresh data
@@ -2091,7 +2549,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Status berhasil diupdate ke ${_getStatusButtonText(deliveryStatus)}'),
+                'Status pengiriman berhasil diupdate ke ${_getStatusButtonText(deliveryStatus)}'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
             shape:
@@ -2109,7 +2567,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal mengupdate status: $e'),
+            content: Text('Gagal mengupdate status pengiriman: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
@@ -2206,6 +2664,32 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         );
       },
     );
+  }
+
+  // ✅ ADD: Helper method untuk safe numeric conversion
+  static double _safeParseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      final parsed = double.tryParse(value);
+      return parsed ?? 0.0;
+    }
+    if (value is num) return value.toDouble();
+    return 0.0;
+  }
+
+// ✅ ADD: Helper method untuk safe integer conversion
+  static int _safeParseInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) {
+      final parsed = int.tryParse(value);
+      return parsed ?? 0;
+    }
+    if (value is num) return value.toInt();
+    return 0;
   }
 
   Future<void> _openWhatsApp(String phoneNumber) async {
