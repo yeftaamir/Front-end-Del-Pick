@@ -46,7 +46,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             debuggable false
             jniDebuggable false
-            renderscriptDebuggable false
+//            renderscriptDebuggable false
             zipAlignEnabled true
             crunchPngs true
         }

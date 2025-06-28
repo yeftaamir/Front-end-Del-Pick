@@ -15,6 +15,7 @@ import 'dart:async';
 // Import updated services
 import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class HomeStore extends StatefulWidget {
@@ -1093,14 +1094,16 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       // Close loading dialog
       if (mounted) Navigator.of(context).pop();
 
-      // ✅ PERBAIKAN: HAPUS processed orders logic untuk auto refresh
-      // Hanya hapus dari UI untuk responsiveness, tapi biarkan auto refresh handle data real
+      // ✅ PERBAIKAN: Hapus dari pending orders dengan immediate update
       setState(() {
         _pendingOrders
             .removeWhere((order) => order['id']?.toString() == orderId);
       });
 
-      // ✅ PERBAIKAN: Force refresh KEDUA tab untuk reflect perubahan status
+      // ✅ PERBAIKAN: Refresh data dengan delay untuk memastikan backend sudah update
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Force refresh both tabs tanpa mengganggu pagination
       await Future.wait([
         _loadPendingOrders(isRefresh: true),
         _loadActiveOrders(isRefresh: true),
@@ -1132,6 +1135,10 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           );
         }
       }
+
+      // ✅ TAMBAHAN: Trigger global refresh untuk history store jika sedang aktif
+      // Ini bisa dilakukan dengan event bus atau shared preferences
+      await _notifyHistoryStoreRefresh();
     } catch (e) {
       // Close loading dialog if still open
       if (mounted) Navigator.of(context).pop();
@@ -1157,11 +1164,23 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         );
       }
 
-      // ✅ PERBAIKAN: Refresh kedua tab on error juga
+      // Refresh on error
       await Future.wait([
         _loadPendingOrders(isRefresh: true),
         _loadActiveOrders(isRefresh: true),
       ]);
+    }
+  }
+
+  Future<void> _notifyHistoryStoreRefresh() async {
+    try {
+      // Simpan timestamp terakhir update untuk history store
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'last_order_update', DateTime.now().toIso8601String());
+      print('📡 HomeStore: Notified history store to refresh');
+    } catch (e) {
+      print('⚠️ HomeStore: Failed to notify history store: $e');
     }
   }
 

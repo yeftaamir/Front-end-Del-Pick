@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/customer_service.dart';
 import 'package:del_pick/Services/image_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class HistoryStorePage extends StatefulWidget {
   static const String route = '/Store/HistoryStore';
@@ -23,7 +25,11 @@ class HistoryStorePage extends StatefulWidget {
 }
 
 class _HistoryStorePageState extends State<HistoryStorePage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
+  // ✅ TAMBAHAN: Timer untuk check updates
+  Timer? _updateCheckTimer;
+  String? _lastUpdateTime;
+
   int _currentIndex = 2; // History tab selected
   late TabController _tabController;
 
@@ -61,18 +67,19 @@ class _HistoryStorePageState extends State<HistoryStorePage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _tabController = TabController(length: _tabs.length, vsync: this);
-
-    // Initialize with empty controllers and animations
     _cardControllers = [];
     _cardAnimations = [];
 
-    // Initialize and validate authentication
     _initializeAndValidate();
+
+    //Start checking for updates setiap 10 detik
+    _startUpdateChecker();
   }
 
-  // ✅ FIXED: Enhanced initialization dengan autentikasi yang benar
+  /// Enhanced initialization dengan autentikasi yang benar
   Future<void> _initializeAndValidate() async {
     try {
       setState(() {
@@ -123,7 +130,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
     }
   }
 
-  // ✅ ENHANCED: Simplified order history fetching - focus on displaying all orders
+  /// Simplified order history fetching - focus on displaying all orders
   Future<void> _fetchOrderHistory({bool isRefresh = false}) async {
     try {
       if (isRefresh) {
@@ -131,7 +138,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
           _currentPage = 1;
           _hasMoreData = true;
           _isLoading = true;
-          _orders.clear(); // ✅ Clear existing orders on refresh
+          _orders.clear();
         });
       } else if (!_hasMoreData) {
         return;
@@ -146,50 +153,47 @@ class _HistoryStorePageState extends State<HistoryStorePage>
       print(
           '📋 HistoryStore: Loading order history (page: $_currentPage, refresh: $isRefresh)...');
 
-      // ✅ FIXED: Validate store access before loading orders
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
       }
 
-      // ✅ FIXED: Use OrderService.getOrdersByStore dengan pagination yang benar
+      // ✅ PERBAIKAN: Gunakan timestamp yang fresh untuk memastikan data terbaru
       final response = await OrderService.getOrdersByStore(
         page: _currentPage,
-        limit: 20,
-        sortBy: 'created_at',
+        limit: isRefresh ? 50 : 20, // Ambil lebih banyak saat refresh
+        sortBy:
+            'updated_at', // ✅ UBAH: Sort by updated_at untuk pesanan yang baru diproses
         sortOrder: 'desc',
+        timestamp: DateTime.now().millisecondsSinceEpoch, // Force fresh data
       );
 
-      print('🔍 HistoryStore: Raw response received:');
-      print('   - Response type: ${response.runtimeType}');
-      print('   - Response keys: ${response.keys.toList()}');
-
-      // ✅ SIMPLIFIED: Process response sesuai struktur backend baru
       final ordersList =
           List<Map<String, dynamic>>.from(response['orders'] ?? []);
       final totalPages = response['totalPages'] ?? 1;
       final totalItems = response['totalItems'] ?? 0;
 
       print('📋 HistoryStore: Retrieved ${ordersList.length} orders');
-      print('   - Total Pages: $totalPages');
       print('   - Total Items: $totalItems');
-      print('   - Orders IDs: ${ordersList.map((o) => o['id']).toList()}');
 
-      // ✅ SIMPLIFIED: Process orders data dengan minimal processing untuk avoid error
+      // ✅ TAMBAHAN: Log status distribusi untuk debugging
+      final statusCount = <String, int>{};
+      for (var order in ordersList) {
+        final status = order['order_status']?.toString() ?? 'unknown';
+        statusCount[status] = (statusCount[status] ?? 0) + 1;
+      }
+      print('   - Status distribution: $statusCount');
+
       List<Map<String, dynamic>> processedOrders = [];
-
       for (var orderJson in ordersList) {
         try {
-          // ✅ SIMPLIFIED: Minimal processing to avoid data loss
           Map<String, dynamic> processedOrder =
               _processOrderDataSimplified(orderJson);
           processedOrders.add(processedOrder);
-          print(
-              '✅ Processed order: ${processedOrder['id']} - ${processedOrder['order_status']}');
         } catch (e) {
           print(
               '⚠️ HistoryStore: Error processing order ${orderJson['id']}: $e');
-          // ✅ Add with minimal data if processing fails
+          // Add minimal data on error
           processedOrders.add({
             'id': orderJson['id']?.toString() ?? '',
             'order_status': orderJson['order_status'] ?? 'pending',
@@ -197,6 +201,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
             'total_amount': _parseDouble(orderJson['total_amount']) ?? 0.0,
             'delivery_fee': _parseDouble(orderJson['delivery_fee']) ?? 0.0,
             'created_at': DateTime.now(),
+            'updated_at': DateTime.now(), // ✅ TAMBAHAN
             'customer': {
               'id': orderJson['customer_id']?.toString() ?? '',
               'name': 'Unknown Customer',
@@ -224,13 +229,16 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         _isLoading = false;
         _isLoadingMore = false;
 
-        // Initialize animation controllers for new orders
         _initializeAnimations();
       });
 
       print('✅ HistoryStore: Order history loaded successfully');
       print('   - Total orders in state: ${_orders.length}');
-      print('   - Order IDs in state: ${_orders.map((o) => o['id']).toList()}');
+
+      // ✅ TAMBAHAN: Update last refresh time
+      final prefs = await SharedPreferences.getInstance();
+      _lastUpdateTime = DateTime.now().toIso8601String();
+      await prefs.setString('last_history_refresh', _lastUpdateTime!);
     } catch (e) {
       print('❌ HistoryStore: Error loading order history: $e');
       setState(() {
@@ -242,26 +250,26 @@ class _HistoryStorePageState extends State<HistoryStorePage>
     }
   }
 
-  // ✅ SIMPLIFIED: Minimal order data processing to ensure all orders are displayed
+  ///Minimal order data processing to ensure all orders are displayed
   Map<String, dynamic> _processOrderDataSimplified(
       Map<String, dynamic> orderJson) {
     try {
       print(
           '🔄 HistoryStore: Processing order ${orderJson['id']} (simplified)...');
 
-      // ✅ Basic data extraction without external API calls
       final orderId = orderJson['id']?.toString() ?? '';
       final customerId = orderJson['customer_id']?.toString();
       final driverId = orderJson['driver_id']?.toString();
       final orderStatus = orderJson['order_status'] ?? 'pending';
       final deliveryStatus = orderJson['delivery_status'] ?? 'pending';
 
-      // ✅ Safe parsing of numeric values
       final totalAmount = _parseDouble(orderJson['total_amount']) ?? 0.0;
       final deliveryFee = _parseDouble(orderJson['delivery_fee']) ?? 0.0;
 
       // Parse dates safely
       DateTime orderDate = DateTime.now();
+      DateTime updatedDate = DateTime.now();
+
       if (orderJson['created_at'] != null) {
         try {
           orderDate = DateTime.parse(orderJson['created_at']);
@@ -270,7 +278,17 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         }
       }
 
-      // ✅ SIMPLIFIED: Use placeholder customer data without API call
+      // ✅ TAMBAHAN: Parse updated_at
+      if (orderJson['updated_at'] != null) {
+        try {
+          updatedDate = DateTime.parse(orderJson['updated_at']);
+        } catch (e) {
+          print('⚠️ Error parsing updated date: $e');
+          updatedDate = orderDate;
+        }
+      }
+
+      // Customer data
       Map<String, dynamic> customerData = {
         'id': customerId ?? '',
         'name': 'Customer #$customerId',
@@ -278,7 +296,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         'avatar': '',
       };
 
-      // ✅ SIMPLIFIED: Use placeholder driver data without API call
+      // Driver data
       Map<String, dynamic>? driverData;
       if (driverId != null && driverId.isNotEmpty && driverId != 'null') {
         driverData = {
@@ -290,7 +308,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         };
       }
 
-      // ✅ Process tracking updates (dari JSON string ke List)
+      // Process tracking updates
       List<Map<String, dynamic>> trackingUpdates = [];
       if (orderJson['tracking_updates'] != null) {
         try {
@@ -308,7 +326,6 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         }
       }
 
-      // ✅ Return processed order dengan struktur yang konsisten
       final processedOrder = {
         'id': orderId,
         'order_status': orderStatus,
@@ -320,17 +337,9 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         'estimated_delivery_time': orderJson['estimated_delivery_time'],
         'actual_delivery_time': orderJson['actual_delivery_time'],
         'created_at': orderDate,
-        'updated_at': orderJson['updated_at'] != null
-            ? DateTime.parse(orderJson['updated_at'])
-            : orderDate,
-
-        // Customer information
+        'updated_at': updatedDate, // ✅ TAMBAHAN: Include updated_at
         'customer': customerData,
-
-        // Driver information
         'driver': driverData,
-
-        // Additional data
         'tracking_updates': trackingUpdates,
         'notes': orderJson['notes'] ?? '',
       };
@@ -346,6 +355,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         'total_amount': _parseDouble(orderJson['total_amount']) ?? 0.0,
         'delivery_fee': _parseDouble(orderJson['delivery_fee']) ?? 0.0,
         'created_at': DateTime.now(),
+        'updated_at': DateTime.now(), // ✅ TAMBAHAN
         'customer': {
           'id': orderJson['customer_id']?.toString() ?? '',
           'name': 'Unknown Customer',
@@ -359,7 +369,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
     }
   }
 
-  // Helper function to parse double values
+  /// Helper function to parse double values
   double? _parseDouble(dynamic value) {
     if (value == null) return null;
     if (value is double) return value;
@@ -407,8 +417,47 @@ class _HistoryStorePageState extends State<HistoryStorePage>
     }
   }
 
+  void _startUpdateChecker() {
+    _updateCheckTimer =
+        Timer.periodic(const Duration(seconds: 10), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final lastUpdate = prefs.getString('last_order_update');
+
+        if (lastUpdate != null && lastUpdate != _lastUpdateTime) {
+          print(
+              '🔄 HistoryStore: Detected update from HomeStore, refreshing...');
+          _lastUpdateTime = lastUpdate;
+          await _fetchOrderHistory(isRefresh: true);
+        }
+      } catch (e) {
+        print('⚠️ HistoryStore: Error checking updates: $e');
+      }
+    });
+  }
+
+  //Handle app lifecycle untuk refresh saat kembali ke foreground
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      print('📱 HistoryStore: App resumed, checking for updates...');
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _fetchOrderHistory(isRefresh: true);
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _updateCheckTimer?.cancel();
     _tabController.dispose();
     for (var controller in _cardControllers) {
       controller.dispose();
