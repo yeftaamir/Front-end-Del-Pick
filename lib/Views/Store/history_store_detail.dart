@@ -58,7 +58,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   final Color _secondaryColor = const Color(0xFF9C27B0);
 
   // Standardized status timeline (same as customer)
-// ✅ PERBAIKAN: Status timeline yang sesuai dengan backend
   final List<Map<String, dynamic>> _statusTimeline = [
     {
       'status': OrderStatus.pending,
@@ -69,8 +68,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       'animation': 'assets/animations/diambil.json'
     },
     {
-      'status':
-          OrderStatus.preparing, // ✅ LANGSUNG KE PREPARING, TIDAK ADA CONFIRMED
+      'status': OrderStatus.preparing,
       'label': 'Disiapkan',
       'description': 'Mempersiapkan pesanan',
       'icon': Icons.restaurant_menu,
@@ -87,7 +85,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     },
     {
       'status': OrderStatus.onDelivery,
-      'label': 'Diantar',
+      'label':
+          'Sedang Diantarkan', // ✅ UBAH: dari "Diantar" jadi "Sedang Diantarkan"
       'description': 'Dalam perjalanan',
       'icon': Icons.local_shipping,
       'color': Colors.teal,
@@ -95,7 +94,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     },
     {
       'status': OrderStatus.delivered,
-      'label': 'Selesai',
+      'label':
+          'Pengantaran Selesai', // ✅ UBAH: dari "Selesai" jadi "Pengantaran Selesai"
       'description': 'Pesanan terkirim',
       'icon': Icons.done_all,
       'color': Colors.green,
@@ -614,13 +614,13 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       case OrderStatus.confirmed:
         return 'Dikonfirmasi';
       case OrderStatus.preparing:
-        return 'Sedang Disiapkan';
+        return 'Disiapkan'; // ✅ TETAP
       case OrderStatus.readyForPickup:
-        return 'Siap Diambil';
+        return 'Siap Diambil'; // ✅ TETAP
       case OrderStatus.onDelivery:
-        return 'Sedang Diantar';
+        return 'Sedang Diantarkan'; // ✅ UBAH: dari "Sedang Diantar"
       case OrderStatus.delivered:
-        return 'Selesai';
+        return 'Pengantaran Selesai'; // ✅ UBAH: dari "Selesai"
       case OrderStatus.cancelled:
         return 'Dibatalkan';
       case OrderStatus.rejected:
@@ -630,7 +630,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-// ✅ PERBAIKAN 6: Update _getStatusColor() sesuai enum yang baru
+  // Update _getStatusColor() sesuai enum yang baru
   Color _getStatusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
@@ -1116,7 +1116,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
-// ✅ PERBAIKAN: Method _getCurrentStatusInfo() yang benar
   Map<String, dynamic> _getCurrentStatusInfo() {
     if (_orderDetail == null) {
       return _statusTimeline[0];
@@ -1152,7 +1151,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       };
     }
 
-    // ✅ PERBAIKAN: Langsung gunakan order_status dari backend
+    // ✅ PERBAIKAN: Mapping status yang benar
     for (int i = 0; i < _statusTimeline.length; i++) {
       final item = _statusTimeline[i];
       if (item['status'] == currentStatus) {
@@ -1759,7 +1758,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
     switch (orderStatus) {
       case OrderStatus.pending:
-        // ✅ PERBAIKAN: Hanya tampilkan tombol approve/reject untuk pending
+        // Tombol approve/reject untuk pending
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1850,7 +1849,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.preparing:
-        // ✅ PERBAIKAN: Tombol untuk siap diambil langsung dari preparing
+        // ✅ BARU: Tombol "Siap Diambil"
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1906,7 +1905,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.readyForPickup:
-        // ✅ TETAP: Menunggu driver
+        // ✅ BARU: Tombol "Pesanan Diambil"
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1916,7 +1915,63 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               height: 50,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.orange, Colors.orange.withOpacity(0.8)],
+                  colors: [Colors.indigo, Colors.indigo.withOpacity(0.8)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.indigo.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _isUpdatingStatus
+                      ? null
+                      : () => _updateOrderStatus(OrderStatus.onDelivery),
+                  child: Center(
+                    child: _isUpdatingStatus
+                        ? SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : Text(
+                            'Pesanan Diambil',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+      case OrderStatus.onDelivery:
+        // ✅ BARU: Tampilan "Sedang Diantarkan" - TIDAK ADA BUTTON
+        return _buildCard(
+          index: 3,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Container(
+              width: double.infinity,
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.teal, Colors.teal.withOpacity(0.8)],
                 ),
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -1924,17 +1979,47 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    ),
+                    Icon(Icons.local_shipping, color: Colors.white, size: 20),
                     const SizedBox(width: 12),
                     Text(
-                      'Menunggu Driver',
+                      'Pesanan Sedang Diantarkan',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+      case OrderStatus.delivered:
+        // ✅ BARU: Tampilan "Pengantaran Selesai" - TIDAK ADA BUTTON
+        return _buildCard(
+          index: 3,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Container(
+              width: double.infinity,
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.green, Colors.green.withOpacity(0.8)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.white, size: 20),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Pengantaran Selesai',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -1950,7 +2035,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       default:
-        // ✅ TETAP: Untuk status onDelivery, delivered, cancelled, rejected - tidak ada tombol
+        // Untuk status cancelled/rejected - tidak ada tombol
         return const SizedBox.shrink();
     }
   }
