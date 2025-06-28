@@ -53,17 +53,16 @@ class _HistoryStorePageState extends State<HistoryStorePage>
   Map<String, dynamic>? _userData;
   Map<String, dynamic>? _storeData;
 
-  // Updated tab categories based on new status mapping
+  //tab categories based on new status mapping
   final List<String> _tabs = [
     'Semua',
     'Menunggu',
-    'Dikonfirmasi',
     'Disiapkan',
+    'Siap Diambil',
     'Diantar',
     'Selesai',
     'Dibatalkan'
   ];
-
   @override
   void initState() {
     super.initState();
@@ -278,7 +277,6 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         }
       }
 
-      // ✅ TAMBAHAN: Parse updated_at
       if (orderJson['updated_at'] != null) {
         try {
           updatedDate = DateTime.parse(orderJson['updated_at']);
@@ -288,7 +286,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         }
       }
 
-      // Customer data
+      // ✅ PERBAIKAN: Enhanced customer data processing
       Map<String, dynamic> customerData = {
         'id': customerId ?? '',
         'name': 'Customer #$customerId',
@@ -296,7 +294,22 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         'avatar': '',
       };
 
-      // Driver data
+      // ✅ TAMBAHAN: Process customer data jika ada
+      if (orderJson['customer'] != null) {
+        try {
+          final customerInfo = orderJson['customer'];
+          if (customerInfo is Map) {
+            customerData['name'] =
+                customerInfo['name'] ?? 'Customer #$customerId';
+            customerData['phone'] = customerInfo['phone'] ?? '-';
+            customerData['avatar'] = customerInfo['avatar'] ?? '';
+          }
+        } catch (e) {
+          print('⚠️ Error processing customer data: $e');
+        }
+      }
+
+      // ✅ PERBAIKAN: Enhanced driver data processing
       Map<String, dynamic>? driverData;
       if (driverId != null && driverId.isNotEmpty && driverId != 'null') {
         driverData = {
@@ -306,23 +319,51 @@ class _HistoryStorePageState extends State<HistoryStorePage>
           'avatar': '',
           'status': 'active',
         };
+
+        // ✅ TAMBAHAN: Process driver data jika ada
+        if (orderJson['driver'] != null) {
+          try {
+            final driverInfo = orderJson['driver'];
+            if (driverInfo is Map) {
+              // Handle nested user data
+              final userData = driverInfo['user'];
+              if (userData is Map) {
+                driverData['name'] = userData['name'] ?? 'Driver #$driverId';
+                driverData['phone'] = userData['phone'] ?? '-';
+                driverData['avatar'] = userData['avatar'] ?? '';
+              } else {
+                driverData['name'] = driverInfo['name'] ?? 'Driver #$driverId';
+                driverData['phone'] = driverInfo['phone'] ?? '-';
+                driverData['avatar'] = driverInfo['avatar'] ?? '';
+              }
+            }
+          } catch (e) {
+            print('⚠️ Error processing driver data: $e');
+          }
+        }
       }
 
-      // Process tracking updates
+      // ✅ PERBAIKAN: Process tracking updates dengan safe conversion
       List<Map<String, dynamic>> trackingUpdates = [];
       if (orderJson['tracking_updates'] != null) {
         try {
-          if (orderJson['tracking_updates'] is String) {
-            final decoded = jsonDecode(orderJson['tracking_updates']);
-            if (decoded is List) {
-              trackingUpdates = List<Map<String, dynamic>>.from(decoded);
+          final trackingData = orderJson['tracking_updates'];
+          if (trackingData is String) {
+            if (trackingData.isNotEmpty && trackingData != 'null') {
+              final decoded = jsonDecode(trackingData);
+              if (decoded is List) {
+                trackingUpdates = List<Map<String, dynamic>>.from(decoded.map(
+                    (item) =>
+                        item is Map ? Map<String, dynamic>.from(item) : {}));
+              }
             }
-          } else if (orderJson['tracking_updates'] is List) {
-            trackingUpdates =
-                List<Map<String, dynamic>>.from(orderJson['tracking_updates']);
+          } else if (trackingData is List) {
+            trackingUpdates = List<Map<String, dynamic>>.from(trackingData.map(
+                (item) => item is Map ? Map<String, dynamic>.from(item) : {}));
           }
         } catch (e) {
           print('⚠️ Error parsing tracking updates: $e');
+          trackingUpdates = [];
         }
       }
 
@@ -337,7 +378,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         'estimated_delivery_time': orderJson['estimated_delivery_time'],
         'actual_delivery_time': orderJson['actual_delivery_time'],
         'created_at': orderDate,
-        'updated_at': updatedDate, // ✅ TAMBAHAN: Include updated_at
+        'updated_at': updatedDate,
         'customer': customerData,
         'driver': driverData,
         'tracking_updates': trackingUpdates,
@@ -347,7 +388,6 @@ class _HistoryStorePageState extends State<HistoryStorePage>
       return processedOrder;
     } catch (e) {
       print('❌ Error processing order data: $e');
-      // Return minimal order data on error
       return {
         'id': orderJson['id']?.toString() ?? '',
         'order_status': orderJson['order_status'] ?? 'pending',
@@ -355,7 +395,7 @@ class _HistoryStorePageState extends State<HistoryStorePage>
         'total_amount': _parseDouble(orderJson['total_amount']) ?? 0.0,
         'delivery_fee': _parseDouble(orderJson['delivery_fee']) ?? 0.0,
         'created_at': DateTime.now(),
-        'updated_at': DateTime.now(), // ✅ TAMBAHAN
+        'updated_at': DateTime.now(),
         'customer': {
           'id': orderJson['customer_id']?.toString() ?? '',
           'name': 'Unknown Customer',
@@ -482,16 +522,16 @@ class _HistoryStorePageState extends State<HistoryStorePage>
           return status == 'pending';
         }).toList();
         break;
-      case 2: // Dikonfirmasi - Confirmed
+      case 2: // Disiapkan - Being prepared (preparing)
         filteredResult = _orders.where((order) {
           final status = order['order_status']?.toString().toLowerCase() ?? '';
-          return status == 'confirmed';
+          return status == 'preparing';
         }).toList();
         break;
-      case 3: // Disiapkan - Being prepared (preparing, ready_for_pickup)
+      case 3: // Siap Diambil - Ready for pickup
         filteredResult = _orders.where((order) {
           final status = order['order_status']?.toString().toLowerCase() ?? '';
-          return ['preparing', 'ready_for_pickup'].contains(status);
+          return status == 'ready_for_pickup';
         }).toList();
         break;
       case 4: // Diantar - On delivery (on_delivery)

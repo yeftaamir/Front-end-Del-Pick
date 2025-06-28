@@ -164,7 +164,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     super.dispose();
   }
 
-  /// ✅ FIXED: Safe type conversion methods (same as customer)
+// ✅ PERBAIKAN: Enhanced safe map conversion
   static Map<String, dynamic> _safeMapConversion(dynamic data) {
     if (data == null) return {};
 
@@ -172,12 +172,49 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       return data;
     } else if (data is Map) {
       return Map<String, dynamic>.from(data.map((key, value) {
-        if (value is Map && value is! Map<String, dynamic>) {
-          value = _safeMapConversion(value);
-        } else if (value is List) {
-          value = _safeListConversion(value);
+        // ✅ PERBAIKAN: Handle nested conversion dengan aman
+        String safeKey = key.toString();
+        dynamic safeValue = value;
+
+        try {
+          if (value is Map && value is! Map<String, dynamic>) {
+            safeValue = _safeMapConversion(value);
+          } else if (value is List) {
+            // ✅ KHUSUS: Handle tracking_updates list
+            if (safeKey == 'tracking_updates') {
+              safeValue = _processTrackingList(value);
+            } else {
+              safeValue = _safeListConversion(value);
+            }
+          } else if (value is String && value.isNotEmpty) {
+            // ✅ PERBAIKAN: Hanya coba parse JSON jika format valid
+            if ((value.startsWith('[') && value.endsWith(']')) ||
+                (value.startsWith('{') && value.endsWith('}'))) {
+              try {
+                final decoded = jsonDecode(value);
+                if (decoded is Map) {
+                  safeValue = _safeMapConversion(decoded);
+                } else if (decoded is List) {
+                  if (safeKey == 'tracking_updates') {
+                    safeValue = _processTrackingList(decoded);
+                  } else {
+                    safeValue = _safeListConversion(decoded);
+                  }
+                }
+              } catch (e) {
+                // Tetap gunakan string original jika parsing gagal
+                print(
+                    '⚠️ JSON parse failed for key "$safeKey": ${e.toString()}');
+                safeValue = value;
+              }
+            }
+          }
+        } catch (e) {
+          print('❌ Error processing key "$safeKey": $e');
+          safeValue = value; // Fallback ke nilai original
         }
-        return MapEntry(key.toString(), value);
+
+        return MapEntry(safeKey, safeValue);
       }));
     }
 
@@ -188,9 +225,113 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     return list.map((item) {
       if (item is Map && item is! Map<String, dynamic>) {
         return _safeMapConversion(item);
+      } else if (item is String) {
+        // ✅ TAMBAHAN: Handle string JSON dalam list
+        try {
+          if (item.startsWith('{') || item.startsWith('[')) {
+            final decoded = jsonDecode(item);
+            if (decoded is Map) {
+              return _safeMapConversion(decoded);
+            } else if (decoded is List) {
+              return _safeListConversion(decoded);
+            }
+          }
+        } catch (e) {
+          print(
+              '⚠️ JSON parse failed in list: ${item.substring(0, item.length > 100 ? 100 : item.length)}...');
+        }
       }
       return item;
     }).toList();
+  }
+
+// ✅ PERBAIKAN UTAMA: Enhanced tracking updates conversion
+  static List<Map<String, dynamic>> _safeTrackingConversion(
+      dynamic trackingData) {
+    print('🔍 Processing tracking data: ${trackingData.runtimeType}');
+
+    if (trackingData == null) return [];
+
+    try {
+      if (trackingData is String) {
+        if (trackingData.isEmpty || trackingData == 'null') return [];
+
+        print('📝 Parsing tracking string length: ${trackingData.length}');
+
+        final decoded = jsonDecode(trackingData);
+        if (decoded is List) {
+          return _processTrackingList(decoded);
+        } else if (decoded is Map) {
+          final safeMap = _safeMapConversion(decoded);
+          return [safeMap];
+        }
+      } else if (trackingData is List) {
+        return _processTrackingList(trackingData);
+      } else if (trackingData is Map) {
+        final safeMap = _safeMapConversion(trackingData);
+        return [safeMap];
+      }
+    } catch (e) {
+      print('❌ Error parsing tracking updates: $e');
+      print(
+          '   Data preview: ${trackingData.toString().substring(0, trackingData.toString().length > 300 ? 300 : trackingData.toString().length)}...');
+    }
+
+    return [];
+  }
+
+// ✅ TAMBAHAN: Method khusus untuk memproses tracking list
+  static List<Map<String, dynamic>> _processTrackingList(
+      List<dynamic> trackingList) {
+    List<Map<String, dynamic>> result = [];
+
+    print('🔧 Processing tracking list with ${trackingList.length} items');
+
+    for (int i = 0; i < trackingList.length; i++) {
+      final item = trackingList[i];
+
+      // ✅ FILTER: Hanya proses item yang merupakan Map atau string JSON valid
+      if (item is Map) {
+        try {
+          final safeMap = _safeMapConversion(item);
+          // ✅ VALIDASI: Pastikan item memiliki struktur tracking yang valid
+          if (safeMap.containsKey('timestamp') ||
+              safeMap.containsKey('status') ||
+              safeMap.containsKey('message')) {
+            result.add(safeMap);
+            print(
+                '✅ Added valid tracking item: ${safeMap['status'] ?? 'unknown'}');
+          }
+        } catch (e) {
+          print('⚠️ Skipped invalid map item at index $i: $e');
+        }
+      } else if (item is String && item.length > 10) {
+        // ✅ FILTER: Hanya coba parse string yang cukup panjang untuk menjadi JSON
+        try {
+          if (item.trim().startsWith('{') && item.trim().endsWith('}')) {
+            final decoded = jsonDecode(item);
+            if (decoded is Map) {
+              final safeMap = _safeMapConversion(decoded);
+              if (safeMap.containsKey('timestamp') ||
+                  safeMap.containsKey('status') ||
+                  safeMap.containsKey('message')) {
+                result.add(safeMap);
+                print(
+                    '✅ Added valid tracking item from string: ${safeMap['status'] ?? 'unknown'}');
+              }
+            }
+          }
+        } catch (e) {
+          // Ignore invalid JSON strings
+          print('⚠️ Skipped invalid string item at index $i');
+        }
+      }
+      // ✅ SKIP: Abaikan item lain seperti karakter tunggal
+    }
+
+    print(
+        '✅ Processed tracking list: ${result.length} valid items from ${trackingList.length} total');
+    return result;
   }
 
   // ✅ FIXED: Enhanced validation and data loading menggunakan getRoleSpecificData
@@ -283,59 +424,139 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-  // ✅ FIXED: Enhanced order data loading using OrderService.getOrderById
+// ✅ PERBAIKAN: Gunakan null-safe operator untuk trackingUpdates
   Future<void> _loadOrderData() async {
     try {
       print(
           '📋 HistoryStoreDetail: Loading order data for ID: ${widget.orderId}');
 
-      // ✅ FIXED: Additional validation before API call
       final isAuthenticated = await AuthService.isAuthenticated();
       if (!isAuthenticated) {
         throw Exception('User not authenticated');
       }
 
-      // ✅ FIXED: Get order detail using OrderService.getOrderById
       final rawOrderData = await OrderService.getOrderById(widget.orderId);
 
       if (rawOrderData.isNotEmpty) {
-        // ✅ FIXED: Convert all nested maps safely before creating OrderModel
-        final safeOrderData = _safeMapConversion(rawOrderData);
+        print('📊 Raw order data keys: ${rawOrderData.keys.toList()}');
 
-        print('✅ HistoryStoreDetail: Order data converted safely');
-        print('   - Safe data type: ${safeOrderData.runtimeType}');
-        print('   - Safe data keys: ${safeOrderData.keys.toList()}');
+        // ✅ PERBAIKAN: Handle tracking_updates dengan cara yang lebih aman
+        Map<String, dynamic> processedOrderData =
+            Map<String, dynamic>.from(rawOrderData);
 
-        // ✅ Process the order data with enhanced structure and safe conversion
-        _orderDetail = OrderModel.fromJson(safeOrderData);
+        // ✅ Debug tracking data sebelum diproses
+        if (processedOrderData.containsKey('tracking_updates')) {
+          final trackingData = processedOrderData['tracking_updates'];
+          print('📊 Original tracking data type: ${trackingData.runtimeType}');
+          print(
+              '📊 Original tracking data length: ${trackingData is List ? trackingData.length : 'not a list'}');
 
-        print('✅ HistoryStoreDetail: Order data loaded successfully');
-        print('   - Order ID: ${_orderDetail!.id}');
-        print('   - Order Status: ${_orderDetail!.orderStatus.name}');
-        print('   - Customer: ${_orderDetail!.customer?.name}');
-        print('   - Driver ID: ${_orderDetail?.driverId}');
-        print('   - Items count: ${_orderDetail!.items.length}');
+          // ✅ Process tracking updates secara khusus
+          final processedTracking = _safeTrackingConversion(trackingData);
+          processedOrderData['tracking_updates'] = processedTracking;
 
-        // ✅ Start status tracking if order is not completed
-        if (!_orderDetail!.orderStatus.isCompleted) {
-          _startStatusTracking();
+          print(
+              '✅ Final processed tracking: ${processedTracking.length} valid items');
         }
 
-        // ✅ Handle initial status
-        _handleInitialStatus(_orderDetail!.orderStatus);
+        // ✅ Safe conversion untuk semua data
+        final safeOrderData = _safeMapConversion(processedOrderData);
 
-        // ✅ Store previous status for change detection
-        _previousStatus = _orderDetail!.orderStatus;
+        print('✅ HistoryStoreDetail: Order data converted safely');
+
+        // ✅ TAMBAHAN: Validasi dan sanitasi data sebelum membuat OrderModel
+        try {
+          // Validasi customer data
+          if (safeOrderData['customer'] != null) {
+            if (safeOrderData['customer'] is! Map<String, dynamic>) {
+              print(
+                  '⚠️ Converting customer data type: ${safeOrderData['customer'].runtimeType}');
+              safeOrderData['customer'] =
+                  _safeMapConversion(safeOrderData['customer']);
+            }
+          }
+
+          // Validasi store data
+          if (safeOrderData['store'] != null) {
+            if (safeOrderData['store'] is! Map<String, dynamic>) {
+              print(
+                  '⚠️ Converting store data type: ${safeOrderData['store'].runtimeType}');
+              safeOrderData['store'] =
+                  _safeMapConversion(safeOrderData['store']);
+            }
+          }
+
+          // Validasi driver data
+          if (safeOrderData['driver'] != null) {
+            if (safeOrderData['driver'] is! Map<String, dynamic>) {
+              print(
+                  '⚠️ Converting driver data type: ${safeOrderData['driver'].runtimeType}');
+              safeOrderData['driver'] =
+                  _safeMapConversion(safeOrderData['driver']);
+            }
+          }
+
+          // Validasi items data
+          if (safeOrderData['items'] != null) {
+            if (safeOrderData['items'] is! List) {
+              if (safeOrderData['items'] is String) {
+                try {
+                  safeOrderData['items'] = jsonDecode(safeOrderData['items']);
+                } catch (e) {
+                  print('⚠️ Failed to parse items JSON: $e');
+                  safeOrderData['items'] = [];
+                }
+              } else {
+                print(
+                    '⚠️ Converting items to list from: ${safeOrderData['items'].runtimeType}');
+                safeOrderData['items'] = [];
+              }
+            }
+          }
+
+          // ✅ Create OrderModel dengan data yang sudah aman
+          _orderDetail = OrderModel.fromJson(safeOrderData);
+
+          print('✅ HistoryStoreDetail: Order data loaded successfully');
+          print('   - Order ID: ${_orderDetail!.id}');
+          print('   - Order Status: ${_orderDetail!.orderStatus.name}');
+          print('   - Customer: ${_orderDetail!.customer?.name}');
+          print('   - Driver ID: ${_orderDetail?.driverId}');
+          print('   - Items count: ${_orderDetail!.items.length}');
+          // ✅ PERBAIKAN: Gunakan null-safe operator
+          print(
+              '   - Tracking updates: ${_orderDetail!.trackingUpdates?.length ?? 0}');
+
+          // ✅ Start status tracking if order is not completed
+          if (!_orderDetail!.orderStatus.isCompleted) {
+            _startStatusTracking();
+          }
+
+          _handleInitialStatus(_orderDetail!.orderStatus);
+          _previousStatus = _orderDetail!.orderStatus;
+        } catch (orderModelError) {
+          print('❌ Error creating OrderModel: $orderModelError');
+          print('   Safe order data keys: ${safeOrderData.keys.toList()}');
+
+          // ✅ Debug setiap field yang bermasalah
+          safeOrderData.forEach((key, value) {
+            print(
+                '   - $key: ${value.runtimeType} = ${value.toString().length > 100 ? '${value.toString().substring(0, 100)}...' : value.toString()}');
+          });
+
+          throw Exception('Failed to create OrderModel: $orderModelError');
+        }
       } else {
         throw Exception('Order not found or empty response');
       }
     } catch (e) {
       print('❌ HistoryStoreDetail: Error loading order data: $e');
+      print('   Stack trace: ${StackTrace.current}');
       throw Exception('Failed to load order: $e');
     }
   }
 
-  // ✅ UPDATED: Enhanced status tracking
+// ✅ PERBAIKAN: Enhanced status tracking dengan null-safe operators
   void _startStatusTracking() {
     if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
       print(
@@ -357,7 +578,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       try {
         print('📡 HistoryStoreDetail: Checking order status update...');
 
-        // ✅ Enhanced session validation
         final isAuthenticated = await AuthService.isAuthenticated();
         if (!isAuthenticated) {
           print(
@@ -373,10 +593,20 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           return;
         }
 
-        // ✅ Get updated order data with safe conversion
+        // ✅ Get updated order data dengan enhanced error handling
         final rawUpdatedOrderData =
             await OrderService.getOrderById(widget.orderId);
-        final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
+
+        // ✅ Process tracking data before safe conversion
+        Map<String, dynamic> processedData =
+            Map<String, dynamic>.from(rawUpdatedOrderData);
+        if (processedData.containsKey('tracking_updates')) {
+          final trackingData = processedData['tracking_updates'];
+          final processedTracking = _safeTrackingConversion(trackingData);
+          processedData['tracking_updates'] = processedTracking;
+        }
+
+        final safeUpdatedOrderData = _safeMapConversion(processedData);
         final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
 
         if (mounted) {
@@ -386,18 +616,19 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           print('   - Previous: ${_previousStatus?.name}');
           print('   - Current: ${updatedOrder.orderStatus.name}');
           print('   - Changed: $statusChanged');
+          // ✅ PERBAIKAN: Gunakan null-safe operator untuk tracking updates
+          print(
+              '   - Tracking updates: ${updatedOrder.trackingUpdates?.length ?? 0}');
 
           setState(() {
             _orderDetail = updatedOrder;
           });
 
-          // ✅ Handle status change notifications
           if (statusChanged) {
             _handleStatusChange(_previousStatus, updatedOrder.orderStatus);
             _previousStatus = updatedOrder.orderStatus;
           }
 
-          // ✅ Stop tracking if order is completed
           if (updatedOrder.orderStatus.isCompleted) {
             print('✅ HistoryStoreDetail: Order completed, stopping tracking');
             timer.cancel();
@@ -405,7 +636,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         }
       } catch (e) {
         print('❌ HistoryStoreDetail: Error updating order status: $e');
-        // Don't stop tracking on temporary errors
+        // Don't stop tracking on temporary errors, but log them
       }
     });
   }
