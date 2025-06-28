@@ -176,27 +176,75 @@ Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
   }
 }
 
-// ✅ Helper function to safely get order data from different argument types
-Future<Map<String, dynamic>> _getOrderDataSafely(dynamic arguments) async {
-  print('🔍 _getOrderDataSafely: Arguments type: ${arguments.runtimeType}');
-  print('🔍 _getOrderDataSafely: Arguments value: $arguments');
+// ✅ Helper function to determine the initial route based on authentication status
+Future<String> _determineInitialRoute() async {
+  try {
+    print('🔍 Determining initial route...');
 
-  if (arguments is String) {
-    // Case 1: String argument (order ID) - fetch from API
-    print('📡 Fetching order data from API for ID: $arguments');
-    return await _getOrderData(arguments);
-  } else if (arguments is OrderModel) {
-    // Case 2: OrderModel object - convert to JSON
-    print('🔄 Converting OrderModel to JSON');
-    return arguments.toJson();
-  } else if (arguments is Map<String, dynamic>) {
-    // Case 3: Already a Map - return as is
-    print('✅ Using existing Map data');
-    return arguments;
-  } else {
-    // Case 4: Invalid or null arguments
-    throw Exception(
-        'Invalid arguments for HistoryDetailPage: ${arguments.runtimeType}');
+    // Check if user is authenticated and session is valid
+    final isAuthenticated = await AuthService.isAuthenticated();
+    print('🔐 Is authenticated: $isAuthenticated');
+
+    if (!isAuthenticated) {
+      print('❌ User not authenticated or session expired');
+      return LoginPage.route;
+    }
+
+    // Get token info for debugging
+    final tokenInfo = await AuthService.getTokenInfo();
+    print('🎫 Token info: $tokenInfo');
+
+    // Validate session is still valid (not expired after 7 days)
+    final isSessionValid = await AuthService.isSessionValid();
+    print('✅ Session valid: $isSessionValid');
+
+    if (!isSessionValid) {
+      print('⏰ Session expired, clearing token');
+      await TokenService.clearAll();
+      return LoginPage.route;
+    }
+
+    // Get user data to determine role
+    final userData = await AuthService.getUserData();
+    print('👤 User data: ${userData?.keys.toList()}');
+
+    if (userData == null) {
+      print('❌ Invalid user data, clearing token');
+      await TokenService.clearAll();
+      return LoginPage.route;
+    }
+
+    // Determine home route based on user role
+    final role = userData['user']?['role']?.toString().toLowerCase() ?? '';
+    print('🎭 User role: $role');
+
+    switch (role) {
+      case 'customer':
+        print('🛍️ Navigating to Customer Home');
+        return HomePage.route;
+      case 'store':
+      case 'store_owner':
+        print('🏪 Navigating to Store Home');
+        return HomeStore.route;
+      case 'driver':
+        print('🚗 Navigating to Driver Home');
+        return HomeDriverPage.route;
+      case 'admin':
+        print('👑 Navigating to Admin Home');
+        return '/Admin/HomePage';
+      default:
+        print('❓ Unknown role: $role, redirecting to login');
+        return LoginPage.route;
+    }
+  } catch (e) {
+    print('❌ Error determining initial route: $e');
+    // Clear potentially corrupted data
+    try {
+      await TokenService.clearAll();
+    } catch (clearError) {
+      print('⚠️ Error clearing token: $clearError');
+    }
+    return LoginPage.route;
   }
 }
 
@@ -230,7 +278,7 @@ class MyApp extends StatelessWidget {
   Map<String, Widget Function(BuildContext)> _buildRoutes() {
     return {
       // ========== SPLASH & AUTH ROUTES ==========
-      '/': (context) =>
+      SplashScreen.route: (context) =>
           const InternetConnectivityWrapper(child: SplashScreen()),
       LoginPage.route: (context) =>
           const InternetConnectivityWrapper(child: LoginPage()),
@@ -335,7 +383,6 @@ class MyApp extends StatelessWidget {
               context,
               snapshot,
               (orderData) {
-                // Process the order data for driver detail page
                 final String orderIdValue = orderId ?? '';
                 return HistoryDriverDetailPage(orderId: orderIdValue);
               },
@@ -388,14 +435,12 @@ class MyApp extends StatelessWidget {
     };
   }
 
-  // ✅ Helper method to build History Detail Page with consistent error handling
+  // ✅ Helper methods (same as before)
   Widget _buildHistoryDetailPage(dynamic arguments) {
     if (arguments is OrderModel) {
-      // Direct OrderModel passed
       print('✅ Direct OrderModel navigation');
       return HistoryDetailPage(order: arguments);
     } else if (arguments is String) {
-      // String ID passed, fetch data
       print('📡 String ID navigation, will fetch data');
       return FutureBuilder<Map<String, dynamic>>(
         future: _getOrderData(arguments),
@@ -409,7 +454,6 @@ class MyApp extends StatelessWidget {
         ),
       );
     } else {
-      // Invalid arguments
       print(
           '⚠️ Invalid arguments for HistoryDetailPage: ${arguments.runtimeType}');
       return _buildErrorPage(
@@ -419,13 +463,10 @@ class MyApp extends StatelessWidget {
     }
   }
 
-  // ✅ Helper method to build Rating Page with consistent error handling
   Widget _buildRatingPage(dynamic arguments) {
     if (arguments is OrderModel) {
-      // Direct OrderModel passed
       return RatingCustomerPage(order: arguments);
     } else if (arguments is String) {
-      // String ID passed, fetch data
       return FutureBuilder<Map<String, dynamic>>(
         future: _getOrderData(arguments),
         builder: (context, snapshot) => _buildOrderFutureBuilder(
@@ -438,7 +479,6 @@ class MyApp extends StatelessWidget {
         ),
       );
     } else {
-      // Invalid arguments
       return _buildErrorPage(
         'Invalid navigation arguments for rating',
         'Please navigate from a completed order.',
@@ -446,7 +486,6 @@ class MyApp extends StatelessWidget {
     }
   }
 
-  // ✅ Reusable FutureBuilder for order data with consistent error handling
   Widget _buildOrderFutureBuilder(
     BuildContext context,
     AsyncSnapshot<Map<String, dynamic>> snapshot,
@@ -469,7 +508,6 @@ class MyApp extends StatelessWidget {
       final error = snapshot.error.toString();
       print('Error loading order data: $error');
 
-      // Check if it's an authentication error
       if (error.contains('token') || error.contains('authentication')) {
         return _buildAuthErrorPage(context);
       }
@@ -498,7 +536,6 @@ class MyApp extends StatelessWidget {
     }
   }
 
-  // ✅ Reusable error page widget
   Widget _buildErrorPage(
     String title,
     String message, {
@@ -538,9 +575,13 @@ class MyApp extends StatelessWidget {
                 ElevatedButton(
                   onPressed: onRetry ??
                       () {
-                        // Default retry action - just navigate back
-                        Navigator.pop(GlobalNavigatorContext
-                            .navigatorKey.currentContext!);
+                        // Default retry action
+                        if (GlobalNavigatorContext
+                                .navigatorKey.currentContext !=
+                            null) {
+                          Navigator.pop(GlobalNavigatorContext
+                              .navigatorKey.currentContext!);
+                        }
                       },
                   child: const Text('Go Back'),
                 ),
@@ -552,7 +593,6 @@ class MyApp extends StatelessWidget {
     );
   }
 
-  // ✅ Authentication error page
   Widget _buildAuthErrorPage(BuildContext context) {
     return Scaffold(
       body: Center(
@@ -578,16 +618,14 @@ class MyApp extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Your session has expired. Please login again to continue.',
+                'Your session has expired after 7 days. Please login again to continue.',
                 style: TextStyle(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () async {
-                  // Clear all authentication data
                   await TokenService.clearAll();
-                  // Navigate to login page
                   Navigator.pushNamedAndRemoveUntil(
                     context,
                     LoginPage.route,
@@ -605,143 +643,183 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Del Pick',
-      debugShowCheckedModeBanner: false,
-      theme: _buildTheme(),
-      initialRoute: '/', // Start with splash screen
-      routes: _buildRoutes(),
-      navigatorKey:
-          GlobalNavigatorContext.navigatorKey, // For global navigation context
-
-      // ✅ Enhanced route generator with better error handling
-      onGenerateRoute: (RouteSettings settings) {
-        print('🛣️ onGenerateRoute called for: ${settings.name}');
-        print(
-            '🛣️ Arguments: ${settings.arguments} (${settings.arguments.runtimeType})');
-
-        try {
-          switch (settings.name) {
-            // ========== ALL STORES VIEW ==========
-            case AllStoresView.route:
-              final args = settings.arguments;
-              List<StoreModel> stores = [];
-
-              if (args is Map<String, dynamic> && args['stores'] != null) {
-                final storesData = args['stores'];
-                if (storesData is List<StoreModel>) {
-                  stores = storesData;
-                } else if (storesData is List) {
-                  stores = storesData.whereType<StoreModel>().toList();
-                }
-              }
-
-              return MaterialPageRoute(
-                builder: (context) => InternetConnectivityWrapper(
-                  child: AllStoresView(stores: stores),
-                ),
-                settings: settings,
-              );
-
-            // ========== HISTORY DETAIL PAGE ==========
-            case HistoryDetailPage.route:
-              final args = settings.arguments;
-
-              if (args is OrderModel) {
-                print('✅ Direct OrderModel navigation via onGenerateRoute');
-                return MaterialPageRoute(
-                  builder: (context) => InternetConnectivityWrapper(
-                    child: HistoryDetailPage(order: args),
-                  ),
-                  settings: settings,
-                );
-              } else if (args is String) {
-                print('📡 String ID navigation via onGenerateRoute');
-                return MaterialPageRoute(
-                  builder: (context) => InternetConnectivityWrapper(
-                    child: _buildHistoryDetailPage(args),
-                  ),
-                  settings: settings,
-                );
-              }
-              break;
-
-            // ========== CONTACT DRIVER PAGE ==========
-            case ContactDriverPage.route:
-              final args = settings.arguments as Map<String, dynamic>?;
-              if (args != null && args['driver'] != null) {
-                return MaterialPageRoute(
-                  builder: (context) => InternetConnectivityWrapper(
-                    child: ContactDriverPage(
-                      driver: args['driver'],
-                      serviceType: args['serviceType'] ?? 'jastip',
-                    ),
-                  ),
-                  settings: settings,
-                );
-              }
-
-              // Fallback for invalid arguments
-              return MaterialPageRoute(
-                builder: (context) => InternetConnectivityWrapper(
-                  child: _buildErrorPage(
-                    'Driver data not provided',
-                    'Please select a driver from the list',
+    return FutureBuilder<String>(
+      future: _determineInitialRoute(),
+      builder: (context, snapshot) {
+        // Show loading splash while determining route
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return MaterialApp(
+            title: 'Del Pick',
+            debugShowCheckedModeBanner: false,
+            theme: _buildTheme(),
+            home: const InternetConnectivityWrapper(
+              child: Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 20),
+                      Text(
+                        'Loading Del Pick...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                settings: settings,
-              );
-
-            // ========== CONTACT USER PAGE ==========
-            case ContactUserPage.route:
-              final args = settings.arguments as Map<String, dynamic>?;
-              if (args != null && args['orderId'] != null) {
-                return MaterialPageRoute(
-                  builder: (context) => InternetConnectivityWrapper(
-                    child: ContactUserPage(
-                      serviceOrderId: args['orderId'],
-                      serviceOrderData: args['orderData'],
-                    ),
-                  ),
-                  settings: settings,
-                );
-              }
-
-              // Fallback for invalid arguments
-              return MaterialPageRoute(
-                builder: (context) => InternetConnectivityWrapper(
-                  child: _buildErrorPage(
-                    'Order ID not provided',
-                    'Invalid order data for jasa titip',
-                  ),
-                ),
-                settings: settings,
-              );
-
-            default:
-              return null;
-          }
-        } catch (e) {
-          print('❌ Error in onGenerateRoute: $e');
-          return MaterialPageRoute(
-            builder: (context) => InternetConnectivityWrapper(
-              child: _buildErrorPage(
-                'Navigation Error',
-                'An error occurred while navigating: $e',
               ),
             ),
-            settings: settings,
           );
         }
 
-        return null;
-      },
+        // Handle error in route determination
+        if (snapshot.hasError) {
+          print('❌ Error in _determineInitialRoute: ${snapshot.error}');
+          return MaterialApp(
+            title: 'Del Pick',
+            debugShowCheckedModeBanner: false,
+            theme: _buildTheme(),
+            home: const InternetConnectivityWrapper(child: LoginPage()),
+            routes: _buildRoutes(),
+            navigatorKey: GlobalNavigatorContext.navigatorKey,
+          );
+        }
 
-      // ✅ Global error handling
-      builder: (context, child) {
-        // Store the context globally for error handling
-        GlobalNavigatorContext.context = context;
-        return child!;
+        // Get the determined initial route
+        final initialRoute = snapshot.data ?? LoginPage.route;
+        print('🎯 Final initial route: $initialRoute');
+
+        return MaterialApp(
+          title: 'Del Pick',
+          debugShowCheckedModeBanner: false,
+          theme: _buildTheme(),
+          initialRoute: initialRoute,
+          routes: _buildRoutes(),
+          navigatorKey: GlobalNavigatorContext.navigatorKey,
+
+          // ✅ Enhanced route generator
+          onGenerateRoute: (RouteSettings settings) {
+            print('🛣️ onGenerateRoute called for: ${settings.name}');
+            print(
+                '🛣️ Arguments: ${settings.arguments} (${settings.arguments.runtimeType})');
+
+            try {
+              switch (settings.name) {
+                case AllStoresView.route:
+                  final args = settings.arguments;
+                  List<StoreModel> stores = [];
+
+                  if (args is Map<String, dynamic> && args['stores'] != null) {
+                    final storesData = args['stores'];
+                    if (storesData is List<StoreModel>) {
+                      stores = storesData;
+                    } else if (storesData is List) {
+                      stores = storesData.whereType<StoreModel>().toList();
+                    }
+                  }
+
+                  return MaterialPageRoute(
+                    builder: (context) => InternetConnectivityWrapper(
+                      child: AllStoresView(stores: stores),
+                    ),
+                    settings: settings,
+                  );
+
+                case HistoryDetailPage.route:
+                  final args = settings.arguments;
+
+                  if (args is OrderModel) {
+                    return MaterialPageRoute(
+                      builder: (context) => InternetConnectivityWrapper(
+                        child: HistoryDetailPage(order: args),
+                      ),
+                      settings: settings,
+                    );
+                  } else if (args is String) {
+                    return MaterialPageRoute(
+                      builder: (context) => InternetConnectivityWrapper(
+                        child: _buildHistoryDetailPage(args),
+                      ),
+                      settings: settings,
+                    );
+                  }
+                  break;
+
+                case ContactDriverPage.route:
+                  final args = settings.arguments as Map<String, dynamic>?;
+                  if (args != null && args['driver'] != null) {
+                    return MaterialPageRoute(
+                      builder: (context) => InternetConnectivityWrapper(
+                        child: ContactDriverPage(
+                          driver: args['driver'],
+                          serviceType: args['serviceType'] ?? 'jastip',
+                        ),
+                      ),
+                      settings: settings,
+                    );
+                  }
+
+                  return MaterialPageRoute(
+                    builder: (context) => InternetConnectivityWrapper(
+                      child: _buildErrorPage(
+                        'Driver data not provided',
+                        'Please select a driver from the list',
+                      ),
+                    ),
+                    settings: settings,
+                  );
+
+                case ContactUserPage.route:
+                  final args = settings.arguments as Map<String, dynamic>?;
+                  if (args != null && args['orderId'] != null) {
+                    return MaterialPageRoute(
+                      builder: (context) => InternetConnectivityWrapper(
+                        child: ContactUserPage(
+                          serviceOrderId: args['orderId'],
+                          serviceOrderData: args['orderData'],
+                        ),
+                      ),
+                      settings: settings,
+                    );
+                  }
+
+                  return MaterialPageRoute(
+                    builder: (context) => InternetConnectivityWrapper(
+                      child: _buildErrorPage(
+                        'Order ID not provided',
+                        'Invalid order data for jasa titip',
+                      ),
+                    ),
+                    settings: settings,
+                  );
+
+                default:
+                  return null;
+              }
+            } catch (e) {
+              print('❌ Error in onGenerateRoute: $e');
+              return MaterialPageRoute(
+                builder: (context) => InternetConnectivityWrapper(
+                  child: _buildErrorPage(
+                    'Navigation Error',
+                    'An error occurred while navigating: $e',
+                  ),
+                ),
+                settings: settings,
+              );
+            }
+
+            return null;
+          },
+
+          builder: (context, child) {
+            GlobalNavigatorContext.context = context;
+            return child!;
+          },
+        );
       },
     );
   }
