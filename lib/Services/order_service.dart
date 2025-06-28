@@ -11,16 +11,38 @@ class OrderService {
 
   // Optimized const field mappings for ultra-fast processing
   static const _doubleFields = {
-    'total_amount', 'total_price', 'total', 'subtotal', 'delivery_fee',
-    'service_fee', 'price', 'rating', 'latitude', 'longitude', 'distance',
-    'pickup_latitude', 'pickup_longitude', 'destination_latitude',
-    'destination_longitude', 'distance_km', 'distance_meters', 'base_fee'
+    'total_amount',
+    'total_price',
+    'total',
+    'subtotal',
+    'delivery_fee',
+    'service_fee',
+    'price',
+    'rating',
+    'latitude',
+    'longitude',
+    'distance',
+    'pickup_latitude',
+    'pickup_longitude',
+    'destination_latitude',
+    'destination_longitude',
+    'distance_km',
+    'distance_meters',
+    'base_fee'
   };
 
   static const _intFields = {
-    'id', 'customer_id', 'driver_id', 'store_id', 'menu_item_id',
-    'quantity', 'reviews_count', 'review_count', 'total_products',
-    'estimated_duration', 'duration_minutes'
+    'id',
+    'customer_id',
+    'driver_id',
+    'store_id',
+    'menu_item_id',
+    'quantity',
+    'reviews_count',
+    'review_count',
+    'total_products',
+    'estimated_duration',
+    'duration_minutes'
   };
 
   static const _imageFields = {
@@ -125,9 +147,11 @@ class OrderService {
     try {
       // Fast store validation
       final isValid = await _fastValidateStore();
-      if (!isValid) throw Exception('Access denied: Store authentication required');
+      if (!isValid)
+        throw Exception('Access denied: Store authentication required');
 
-      final queryParams = _buildQueryParams(page, limit, status, sortBy, sortOrder);
+      final queryParams =
+          _buildQueryParams(page, limit, status, sortBy, sortOrder);
       if (timestamp != null) {
         queryParams['_t'] = timestamp.toString();
         _log('Force refresh with timestamp: $timestamp');
@@ -198,7 +222,8 @@ class OrderService {
   }) async {
     try {
       final isValid = await _fastValidateStore();
-      if (!isValid) throw Exception('Access denied: Store authentication required');
+      if (!isValid)
+        throw Exception('Access denied: Store authentication required');
 
       if (!{'approve', 'reject'}.contains(action.toLowerCase())) {
         throw Exception('Invalid action. Must be "approve" or "reject"');
@@ -206,7 +231,8 @@ class OrderService {
 
       final body = {
         'action': action.toLowerCase(),
-        if (rejectionReason?.isNotEmpty == true) 'rejection_reason': rejectionReason,
+        if (rejectionReason?.isNotEmpty == true)
+          'rejection_reason': rejectionReason,
       };
 
       final response = await BaseService.apiCall(
@@ -234,32 +260,59 @@ class OrderService {
     String? notes,
   }) async {
     try {
-      // Fast permission check
+      _log('🔄 OrderService: Updating order $orderId to $orderStatus');
+
+      // Validasi permission
       final hasPermission = await _fastCheckStatusPermission(orderStatus);
       if (!hasPermission) {
-        throw Exception('Access denied: Insufficient permissions to update order status to $orderStatus');
+        throw Exception('Access denied: Insufficient permissions');
       }
 
-      final body = {
-        'order_status': orderStatus,
-        if (deliveryStatus != null) 'delivery_status': deliveryStatus,
-        if (notes != null) 'notes': notes,
+      // ✅ PERBAIKI: Body sesuai backend expectation
+      final body = <String, dynamic>{
+        'order_status': orderStatus, // ✅ Backend expect 'order_status'
       };
 
+      if (deliveryStatus != null) body['delivery_status'] = deliveryStatus;
+      if (notes != null) body['notes'] = notes;
+
+      _log('📤 Request body: $body');
+      _log('📍 Endpoint: $_baseEndpoint/$orderId/status');
+
       final response = await BaseService.apiCall(
-        method: 'PATCH',
+        method: 'PATCH', // ✅ Sesuai backend
         endpoint: '$_baseEndpoint/$orderId/status',
         body: body,
         requiresAuth: true,
       );
 
+      _log('📥 Response status: ${response['statusCode'] ?? 'unknown'}');
+      _log('📥 Response data: ${response['data']}');
+
       if (response['data'] != null) {
         _fastProcessOrderData(response['data']);
+        _log('✅ Order status updated successfully');
+        return response['data'];
       }
-      return response['data'] ?? {};
+
+      // ✅ PERBAIKI: Handle response yang tidak memiliki 'data'
+      if (response['message'] != null) {
+        _log('✅ Update successful with message: ${response['message']}');
+        return {'success': true, 'message': response['message']};
+      }
+
+      return response;
     } catch (e) {
-      _log('Update order status error: $e');
-      throw Exception('Failed to update order status: $e');
+      _log('❌ Update order status error: $e');
+      // ✅ PERBAIKI: Re-throw dengan informasi lebih detail
+      if (e.toString().contains('403') || e.toString().contains('Forbidden')) {
+        throw Exception('Access denied: Only store can update order status');
+      } else if (e.toString().contains('404')) {
+        throw Exception('Order not found');
+      } else if (e.toString().contains('400')) {
+        throw Exception('Invalid order status or request');
+      }
+      rethrow;
     }
   }
 
@@ -270,7 +323,8 @@ class OrderService {
   }) async {
     try {
       final isValid = await _fastValidateCustomer();
-      if (!isValid) throw Exception('Access denied: Customer authentication required');
+      if (!isValid)
+        throw Exception('Access denied: Customer authentication required');
 
       final body = {
         'cancellation_reason': cancellationReason ?? 'Cancelled by customer',
@@ -310,7 +364,8 @@ class OrderService {
     try {
       // Fast customer validation
       final isValid = await _fastValidateCustomer();
-      if (!isValid) throw Exception('Access denied: Only customers can create reviews');
+      if (!isValid)
+        throw Exception('Access denied: Only customers can create reviews');
 
       // Fast review validation and cleaning
       final cleanedBody = _fastCleanReviewData(orderReview, driverReview);
@@ -370,7 +425,8 @@ class OrderService {
           'distance_km': distance,
         });
 
-        _log('Delivery fee: Distance ${distance.toStringAsFixed(2)}km, Fee Rp${roundedFee.toStringAsFixed(0)}');
+        _log(
+            'Delivery fee: Distance ${distance.toStringAsFixed(2)}km, Fee Rp${roundedFee.toStringAsFixed(0)}');
       }
 
       return response['data'] ?? {};
@@ -388,10 +444,13 @@ class OrderService {
   }) async {
     try {
       final isValid = await _fastValidateStoreOrAdmin();
-      if (!isValid) throw Exception('Access denied: Only store or admin can view statistics');
+      if (!isValid)
+        throw Exception(
+            'Access denied: Only store or admin can view statistics');
 
       final queryParams = <String, String>{};
-      if (startDate != null) queryParams['startDate'] = startDate.toIso8601String();
+      if (startDate != null)
+        queryParams['startDate'] = startDate.toIso8601String();
       if (endDate != null) queryParams['endDate'] = endDate.toIso8601String();
       if (groupBy != null) queryParams['groupBy'] = groupBy;
 
@@ -576,7 +635,8 @@ class OrderService {
   }
 
   /// Ultra-fast orders response processing
-  static Map<String, dynamic> _fastProcessOrdersResponse(Map<String, dynamic> response) {
+  static Map<String, dynamic> _fastProcessOrdersResponse(
+      Map<String, dynamic> response) {
     if (response['data'] != null && response['data']['orders'] != null) {
       final orders = response['data']['orders'] as List;
       for (var order in orders) {
@@ -585,16 +645,18 @@ class OrderService {
       _log('Retrieved ${orders.length} orders');
     }
 
-    return response['data'] ?? {
-      'orders': [],
-      'totalItems': 0,
-      'totalPages': 0,
-      'currentPage': 1,
-    };
+    return response['data'] ??
+        {
+          'orders': [],
+          'totalItems': 0,
+          'totalPages': 0,
+          'currentPage': 1,
+        };
   }
 
   /// Ultra-fast query params builder
-  static Map<String, String> _buildQueryParams(int page, int limit, String? status, String? sortBy, String? sortOrder) {
+  static Map<String, String> _buildQueryParams(
+      int page, int limit, String? status, String? sortBy, String? sortOrder) {
     final params = {
       'page': page.toString(),
       'limit': limit.toString(),
@@ -608,25 +670,31 @@ class OrderService {
   }
 
   /// Ultra-fast order body creation
-  static Map<String, dynamic> _createOrderBody(String storeId, List<Map<String, dynamic>> items, String? notes) {
+  static Map<String, dynamic> _createOrderBody(
+      String storeId, List<Map<String, dynamic>> items, String? notes) {
     final body = {
       'store_id': int.parse(storeId),
-      'items': items.map((item) => {
-        'menu_item_id': item['id'] ?? item['menu_item_id'] ?? item['itemId'],
-        'quantity': item['quantity'] ?? 1,
-        'notes': item['notes'] ?? '',
-      }).toList(),
+      'items': items
+          .map((item) => {
+                'menu_item_id':
+                    item['id'] ?? item['menu_item_id'] ?? item['itemId'],
+                'quantity': item['quantity'] ?? 1,
+                'notes': item['notes'] ?? '',
+              })
+          .toList(),
     };
     return body;
   }
 
   /// Lightning-fast review data cleaning
-  static Map<String, dynamic> _fastCleanReviewData(Map<String, dynamic> orderReview, Map<String, dynamic> driverReview) {
+  static Map<String, dynamic> _fastCleanReviewData(
+      Map<String, dynamic> orderReview, Map<String, dynamic> driverReview) {
     final orderRating = orderReview['rating'];
     final driverRating = driverReview['rating'];
 
     // Fast validation
-    if ((orderRating == null || orderRating <= 0) && (driverRating == null || driverRating <= 0)) {
+    if ((orderRating == null || orderRating <= 0) &&
+        (driverRating == null || driverRating <= 0)) {
       throw Exception('At least one rating (store or driver) must be provided');
     }
 
@@ -669,7 +737,8 @@ class OrderService {
       AuthService.isAuthenticated(),
       AuthService.getUserRole(),
     ]);
-    return results[0] as bool && (results[1] as String?)?.toLowerCase() == 'customer';
+    return results[0] as bool &&
+        (results[1] as String?)?.toLowerCase() == 'customer';
   }
 
   static Future<bool> _fastValidateStore() async {
@@ -686,11 +755,37 @@ class OrderService {
   }
 
   static Future<bool> _fastCheckStatusPermission(String orderStatus) async {
-    final userRole = await AuthService.getUserRole();
-    if ({'store', 'driver', 'admin'}.contains(userRole?.toLowerCase())) {
-      return true;
+    try {
+      final userRole = await AuthService.getUserRole();
+      _log('🔍 Checking permission: role=$userRole, status=$orderStatus');
+
+      // Store bisa update order_status sesuai alur:
+      // pending -> preparing -> ready_for_pickup (setelah itu backend yang handle)
+      if (userRole?.toLowerCase() == 'store') {
+        final allowedStatuses = [
+          'preparing', // Dari pending -> preparing (approve & mulai siapkan)
+          'ready_for_pickup', // Dari preparing -> ready_for_pickup (siap diambil)
+          'rejected', // Store bisa reject order
+          'cancelled' // Store bisa cancel order (jika diperlukan)
+        ];
+        return allowedStatuses.contains(orderStatus.toLowerCase());
+      }
+
+      // Driver bisa update delivery_status yang mempengaruhi order_status
+      if (userRole?.toLowerCase() == 'driver') {
+        return true; // Biarkan backend yang validasi detail permission driver
+      }
+
+      // Customer hanya bisa cancel
+      if (userRole?.toLowerCase() == 'customer') {
+        return orderStatus.toLowerCase() == 'cancelled';
+      }
+
+      return false;
+    } catch (e) {
+      _log('❌ Permission check error: $e');
+      return false;
     }
-    return userRole?.toLowerCase() == 'customer' && orderStatus.toLowerCase() == 'cancelled';
   }
 
   /// Ultra-fast utility methods
@@ -700,11 +795,14 @@ class OrderService {
 
   static Exception _createOptimizedError(dynamic e) {
     final errorStr = e.toString();
-    if (errorStr.contains('authentication') || errorStr.contains('Access denied')) {
+    if (errorStr.contains('authentication') ||
+        errorStr.contains('Access denied')) {
       return Exception('Authentication required. Please login as customer.');
     } else if (errorStr.contains('validation')) {
-      return Exception('Order validation failed. Please check your order details.');
-    } else if (errorStr.contains('network') || errorStr.contains('connection')) {
+      return Exception(
+          'Order validation failed. Please check your order details.');
+    } else if (errorStr.contains('network') ||
+        errorStr.contains('connection')) {
       return Exception('Network error. Please check your internet connection.');
     } else {
       return Exception('Failed to place order: $errorStr');
@@ -713,15 +811,19 @@ class OrderService {
 
   static Exception _createReviewError(dynamic e) {
     final errorStr = e.toString();
-    if (errorStr.contains('authentication') || errorStr.contains('Access denied')) {
+    if (errorStr.contains('authentication') ||
+        errorStr.contains('Access denied')) {
       return Exception('Authentication required. Please login as customer.');
     } else if (errorStr.contains('rating must be between')) {
-      return Exception('Invalid rating. Please provide ratings between 1-5 stars.');
+      return Exception(
+          'Invalid rating. Please provide ratings between 1-5 stars.');
     } else if (errorStr.contains('At least one rating')) {
       return Exception('Please provide at least one rating (store or driver).');
     } else if (errorStr.contains('Bad request')) {
-      return Exception('Invalid review data. Please check your ratings and try again.');
-    } else if (errorStr.contains('network') || errorStr.contains('connection')) {
+      return Exception(
+          'Invalid review data. Please check your ratings and try again.');
+    } else if (errorStr.contains('network') ||
+        errorStr.contains('connection')) {
       return Exception('Network error. Please check your internet connection.');
     } else {
       return Exception('Failed to submit review');

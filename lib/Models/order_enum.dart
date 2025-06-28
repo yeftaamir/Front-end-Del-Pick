@@ -1,11 +1,5 @@
-// ========================================
-// Order Status Constants
-// ========================================
-
 import 'package:flutter/material.dart';
 
-// ✅ PERBAIKAN OrderEnum untuk match dengan backend
-// ✅ PERBAIKAN FINAL: Sesuai dengan backend models/order.js
 enum OrderStatus {
   pending('pending'),
   confirmed('confirmed'), // ✅ Backend: models/order.js line 30
@@ -70,7 +64,6 @@ enum OrderStatus {
   bool get canCancel => [pending, confirmed].contains(this);
 }
 
-// ✅ PERBAIKAN FINAL: Sesuai dengan backend models/order.js
 enum DeliveryStatus {
   pending('pending'),
   pickedUp('picked_up'), // ✅ Backend: models/order.js line 34
@@ -116,7 +109,6 @@ enum DeliveryStatus {
   }
 }
 
-// ✅ TAMBAHAN: Driver Request Status sesuai backend models/driverRequest.js
 enum DriverRequestStatus {
   pending('pending'),
   accepted('accepted'),
@@ -167,7 +159,6 @@ enum DriverRequestStatus {
   }
 }
 
-// ✅ TAMBAHAN: Driver Status sesuai backend models/driver.js
 enum DriverStatus {
   active('active'),
   inactive('inactive'),
@@ -202,7 +193,6 @@ enum DriverStatus {
   }
 }
 
-// ✅ TAMBAHAN: Store Status sesuai backend models/store.js
 enum StoreStatus {
   active('active'),
   inactive('inactive'),
@@ -237,7 +227,6 @@ enum StoreStatus {
   }
 }
 
-// ✅ TAMBAHAN: Service Order Status sesuai backend models/serviceOrder.js
 enum ServiceOrderStatus {
   pending('pending'),
   driverFound('driver_found'),
@@ -286,7 +275,6 @@ enum ServiceOrderStatus {
   bool get isActive => ![completed, cancelled].contains(this);
 }
 
-// ✅ TAMBAHAN: User Role sesuai backend models/user.js
 enum UserRole {
   admin('admin'),
   customer('customer'),
@@ -325,66 +313,6 @@ enum UserRole {
     }
   }
 }
-// enum OrderStatus {
-//   pending('pending'),
-//   confirmed('confirmed'), // ✅ TAMBAHAN: Backend menggunakan 'confirmed'
-//   preparing('preparing'), // ✅ Backend menggunakan 'preparing'
-//   readyForPickup(
-//       'ready_for_pickup'), // ✅ Backend menggunakan 'ready_for_pickup'
-//   onDelivery('on_delivery'),
-//   delivered('delivered'),
-//   cancelled('cancelled'),
-//   rejected('rejected');
-//
-//   const OrderStatus(this.value);
-//   final String value;
-//
-//   // ✅ PERBAIKAN: Factory constructor untuk parsing dari backend
-//   factory OrderStatus.fromString(String status) {
-//     switch (status.toLowerCase()) {
-//       case 'pending':
-//         return OrderStatus.pending;
-//       case 'confirmed': // ✅ TAMBAHAN: Handle 'confirmed' status
-//         return OrderStatus.confirmed;
-//       case 'preparing':
-//         return OrderStatus.preparing;
-//       case 'ready_for_pickup':
-//         return OrderStatus.readyForPickup;
-//       case 'on_delivery':
-//         return OrderStatus.onDelivery;
-//       case 'delivered':
-//         return OrderStatus.delivered;
-//       case 'cancelled':
-//         return OrderStatus.cancelled;
-//       case 'rejected':
-//         return OrderStatus.rejected;
-//       default:
-//         print('⚠️ Unknown order status: $status, defaulting to pending');
-//         return OrderStatus.pending;
-//     }
-//   }
-//
-//   String get name => value;
-//
-//   bool get isCompleted => [delivered, cancelled, rejected].contains(this);
-//   bool get isActive => ![delivered, cancelled, rejected].contains(this);
-// }
-//
-// enum DeliveryStatus {
-//   pending,
-//   pickedUp,
-//   onWay,
-//   delivered,
-//   rejected,
-// }
-
-// enum DriverRequestStatus {
-//   pending,
-//   accepted,
-//   rejected,
-//   completed,
-//   expired,
-// }
 
 enum PaymentMethod {
   cash,
@@ -396,61 +324,23 @@ enum PaymentStatus {
   failed,
   refunded,
 }
-//
-// enum DriverStatus {
-//   active,
-//   inactive,
-//   busy,
-// }
-//
-// enum StoreStatus {
-//   active,
-//   inactive,
-//   closed,
-// }
-//
-// enum UserRole {
-//   admin,
-//   customer,
-//   store,
-//   driver,
-// }
 
-// Extension methods for OrderStatus
 extension OrderStatusExtension on OrderStatus {
-  String get value {
-    switch (this) {
-      case OrderStatus.pending:
-        return 'pending';
-      case OrderStatus.confirmed:
-        return 'confirmed';
-      case OrderStatus.preparing:
-        return 'preparing';
-      case OrderStatus.readyForPickup:
-        return 'ready_for_pickup';
-      case OrderStatus.onDelivery:
-        return 'on_delivery';
-      case OrderStatus.delivered:
-        return 'delivered';
-      case OrderStatus.cancelled:
-        return 'cancelled';
-      case OrderStatus.rejected:
-        return 'rejected';
-    }
-  }
+  // ✅ FIXED: Gunakan method name yang konsisten dengan enum
+  String get name => value;
 
   String get displayName {
     switch (this) {
       case OrderStatus.pending:
-        return 'Menunggu';
+        return 'Menunggu Konfirmasi';
       case OrderStatus.confirmed:
         return 'Dikonfirmasi';
       case OrderStatus.preparing:
-        return 'Disiapkan';
+        return 'Sedang Diproses';
       case OrderStatus.readyForPickup:
         return 'Siap Diambil';
       case OrderStatus.onDelivery:
-        return 'Diantar';
+        return 'Sedang Diantar';
       case OrderStatus.delivered:
         return 'Selesai';
       case OrderStatus.cancelled:
@@ -481,8 +371,9 @@ extension OrderStatusExtension on OrderStatus {
     }
   }
 
-  static OrderStatus fromString(String value) {
-    switch (value.toLowerCase()) {
+  // ✅ FIXED: Konsistensi method static
+  static OrderStatus fromString(String statusString) {
+    switch (statusString.toLowerCase()) {
       case 'pending':
         return OrderStatus.pending;
       case 'confirmed':
@@ -500,44 +391,37 @@ extension OrderStatusExtension on OrderStatus {
       case 'rejected':
         return OrderStatus.rejected;
       default:
+        print('⚠️ Unknown order status: $statusString, defaulting to pending');
         return OrderStatus.pending;
     }
   }
 
-  bool get isCompleted =>
-      this == OrderStatus.delivered ||
-      this == OrderStatus.cancelled ||
-      this == OrderStatus.rejected;
-
+  bool get isCompleted => [
+        OrderStatus.delivered,
+        OrderStatus.cancelled,
+        OrderStatus.rejected
+      ].contains(this);
   bool get canBeCancelled =>
-      this == OrderStatus.pending || this == OrderStatus.confirmed;
-
+      [OrderStatus.pending, OrderStatus.confirmed].contains(this);
+  bool get canBeUpdatedByStore => [
+        OrderStatus.pending,
+        OrderStatus.confirmed,
+        OrderStatus.preparing,
+        OrderStatus.readyForPickup
+      ].contains(this);
   bool get isActive => !isCompleted;
 }
 
 // Extension methods for DeliveryStatus
 extension DeliveryStatusExtension on DeliveryStatus {
-  String get value {
-    switch (this) {
-      case DeliveryStatus.pending:
-        return 'pending';
-      case DeliveryStatus.pickedUp:
-        return 'picked_up';
-      case DeliveryStatus.onWay:
-        return 'on_way';
-      case DeliveryStatus.delivered:
-        return 'delivered';
-      case DeliveryStatus.rejected:
-        return 'rejected';
-    }
-  }
+  String get name => value;
 
   String get displayName {
     switch (this) {
       case DeliveryStatus.pending:
-        return 'Menunggu';
+        return 'Menunggu Penjemputan';
       case DeliveryStatus.pickedUp:
-        return 'Diambil';
+        return 'Sudah Diambil';
       case DeliveryStatus.onWay:
         return 'Dalam Perjalanan';
       case DeliveryStatus.delivered:
@@ -562,8 +446,8 @@ extension DeliveryStatusExtension on DeliveryStatus {
     }
   }
 
-  static DeliveryStatus fromString(String value) {
-    switch (value.toLowerCase()) {
+  static DeliveryStatus fromString(String statusString) {
+    switch (statusString.toLowerCase()) {
       case 'pending':
         return DeliveryStatus.pending;
       case 'picked_up':
@@ -575,6 +459,8 @@ extension DeliveryStatusExtension on DeliveryStatus {
       case 'rejected':
         return DeliveryStatus.rejected;
       default:
+        print(
+            '⚠️ Unknown delivery status: $statusString, defaulting to pending');
         return DeliveryStatus.pending;
     }
   }

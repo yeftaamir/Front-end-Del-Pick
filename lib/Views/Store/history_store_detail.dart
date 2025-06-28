@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:del_pick/Common/global_style.dart';
@@ -68,6 +67,14 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       'animation': 'assets/animations/diambil.json'
     },
     {
+      'status': OrderStatus.confirmed, // ✅ GUNAKAN confirmed dari enum
+      'label': 'Dikonfirmasi',
+      'description': 'Pesanan diterima store',
+      'icon': Icons.thumb_up,
+      'color': Colors.blue,
+      'animation': 'assets/animations/diambil.json'
+    },
+    {
       'status': OrderStatus.preparing,
       'label': 'Disiapkan',
       'description': 'Mempersiapkan pesanan',
@@ -85,8 +92,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     },
     {
       'status': OrderStatus.onDelivery,
-      'label':
-          'Sedang Diantarkan', // ✅ UBAH: dari "Diantar" jadi "Sedang Diantarkan"
+      'label': 'Diantar',
       'description': 'Dalam perjalanan',
       'icon': Icons.local_shipping,
       'color': Colors.teal,
@@ -94,8 +100,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     },
     {
       'status': OrderStatus.delivered,
-      'label':
-          'Pengantaran Selesai', // ✅ UBAH: dari "Selesai" jadi "Pengantaran Selesai"
+      'label': 'Selesai',
       'description': 'Pesanan terkirim',
       'icon': Icons.done_all,
       'color': Colors.green,
@@ -330,7 +335,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-  // Enhanced status tracking
+  // ✅ UPDATED: Enhanced status tracking
   void _startStatusTracking() {
     if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
       print(
@@ -339,11 +344,10 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
 
     print(
-        '🔄 HistoryStoreDetail: Starting enhanced status tracking for order ${_orderDetail!.id}');
+        '🔄 HistoryStoreDetail: Starting status tracking for order ${_orderDetail!.id}');
 
-    _statusUpdateTimer = Timer.periodic(
-        const Duration(seconds: 3), // ✅ Lebih cepat untuk detect changes
-        (timer) async {
+    _statusUpdateTimer =
+        Timer.periodic(const Duration(seconds: 15), (timer) async {
       if (!mounted) {
         print('⚠️ HistoryStoreDetail: Widget unmounted, stopping timer');
         timer.cancel();
@@ -351,7 +355,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       }
 
       try {
-        print('📡 HistoryStoreDetail: Polling for status changes...');
+        print('📡 HistoryStoreDetail: Checking order status update...');
 
         // ✅ Enhanced session validation
         final isAuthenticated = await AuthService.isAuthenticated();
@@ -362,46 +366,46 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           return;
         }
 
-        // ✅ FORCE refresh tanpa cache
+        final hasValidSession = await AuthService.ensureValidUserData();
+        if (!hasValidSession) {
+          print('❌ HistoryStoreDetail: Invalid session, stopping tracking');
+          timer.cancel();
+          return;
+        }
+
+        // ✅ Get updated order data with safe conversion
         final rawUpdatedOrderData =
             await OrderService.getOrderById(widget.orderId);
+        final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
+        final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
 
-        if (rawUpdatedOrderData.isNotEmpty) {
-          final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
-          final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
+        if (mounted) {
+          final statusChanged = _previousStatus != updatedOrder.orderStatus;
 
-          if (mounted) {
-            final statusChanged = _previousStatus != updatedOrder.orderStatus;
+          print('✅ HistoryStoreDetail: Order status checked');
+          print('   - Previous: ${_previousStatus?.name}');
+          print('   - Current: ${updatedOrder.orderStatus.name}');
+          print('   - Changed: $statusChanged');
 
-            print('📊 Status Check:');
-            print('   - Previous: ${_previousStatus?.name}');
-            print('   - Current: ${updatedOrder.orderStatus.name}');
-            print('   - Changed: $statusChanged');
+          setState(() {
+            _orderDetail = updatedOrder;
+          });
 
-            // ✅ Always update state
-            setState(() {
-              _orderDetail = updatedOrder;
-            });
+          // ✅ Handle status change notifications
+          if (statusChanged) {
+            _handleStatusChange(_previousStatus, updatedOrder.orderStatus);
+            _previousStatus = updatedOrder.orderStatus;
+          }
 
-            // ✅ Handle status change notifications
-            if (statusChanged) {
-              print('🎯 STATUS CHANGED! Updating UI...');
-              _handleStatusChange(_previousStatus, updatedOrder.orderStatus);
-              _previousStatus = updatedOrder.orderStatus;
-
-              // ✅ Force UI rebuild
-              setState(() {});
-            }
-
-            // ✅ Stop tracking if order is completed
-            if (updatedOrder.orderStatus.isCompleted) {
-              print('✅ HistoryStoreDetail: Order completed, stopping tracking');
-              timer.cancel();
-            }
+          // ✅ Stop tracking if order is completed
+          if (updatedOrder.orderStatus.isCompleted) {
+            print('✅ HistoryStoreDetail: Order completed, stopping tracking');
+            timer.cancel();
           }
         }
       } catch (e) {
         print('❌ HistoryStoreDetail: Error updating order status: $e');
+        // Don't stop tracking on temporary errors
       }
     });
   }
@@ -489,7 +493,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-// ✅ GANTI: Enhanced refresh dengan cache busting
   Future<void> _refreshOrderData() async {
     if (_isRefreshing) return;
 
@@ -498,98 +501,26 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     });
 
     try {
-      print('🔄 HistoryStoreDetail: FORCE REFRESH - Clearing all caches...');
-
-      // ✅ Force clear cache
-      await _forceClearCacheAndRefresh();
-
-      print('✅ HistoryStoreDetail: Cache cleared and data refreshed');
+      await _loadOrderData();
+      print('✅ HistoryStoreDetail: Data refreshed successfully');
     } catch (e) {
       print('❌ HistoryStoreDetail: Error refreshing data: $e');
-
-      // ✅ FALLBACK: Try normal refresh if force refresh fails
-      try {
-        await _loadOrderData();
-      } catch (fallbackError) {
-        print('❌ Fallback refresh also failed: $fallbackError');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Gagal memuat data terbaru: $e'),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-          );
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to refresh order: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
       }
     } finally {
       setState(() {
         _isRefreshing = false;
       });
     }
-  }
-
-  // Method untuk force clear cache
-  Future<void> _forceClearCacheAndRefresh() async {
-    try {
-      print('🧹 HistoryStoreDetail: Force clearing cache and refreshing...');
-
-      // ✅ Force refresh authentication data
-      await AuthService.refreshUserData();
-
-      // ✅ Wait untuk memastikan cache cleared
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      // ✅ Force reload dengan timestamp untuk bypass cache
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final rawOrderData = await OrderService.getOrderById(widget.orderId);
-
-      if (rawOrderData.isNotEmpty) {
-        final safeOrderData = _safeMapConversion(rawOrderData);
-        final newOrderDetail = OrderModel.fromJson(safeOrderData);
-
-        print(
-            '✅ Cache cleared, new status: ${newOrderDetail.orderStatus.name}');
-
-        setState(() {
-          _orderDetail = newOrderDetail;
-          _previousStatus = newOrderDetail.orderStatus;
-        });
-      }
-    } catch (e) {
-      print('❌ Error force clearing cache: $e');
-      throw e;
-    }
-  }
-
-  // Debug widget untuk monitoring
-  Widget _buildDebugInfo() {
-    if (_orderDetail == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.yellow.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.orange),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('🐛 DEBUG INFO:', style: TextStyle(fontWeight: FontWeight.bold)),
-          Text('Order ID: ${_orderDetail!.id}'),
-          Text('Order Status: ${_orderDetail!.orderStatus.name}'),
-          Text('Delivery Status: ${_orderDetail!.deliveryStatus?.name}'),
-          Text('Previous Status: ${_previousStatus?.name}'),
-          Text('Is Completed: ${_orderDetail!.orderStatus.isCompleted}'),
-          Text('Current Index: ${_getCurrentStatusIndex()}'),
-          Text('Last Update: ${DateTime.now().toString().substring(11, 19)}'),
-        ],
-      ),
-    );
   }
 
   void _startAnimations() {
@@ -614,13 +545,13 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       case OrderStatus.confirmed:
         return 'Dikonfirmasi';
       case OrderStatus.preparing:
-        return 'Disiapkan'; // ✅ TETAP
+        return 'Sedang Disiapkan';
       case OrderStatus.readyForPickup:
-        return 'Siap Diambil'; // ✅ TETAP
+        return 'Siap Diambil';
       case OrderStatus.onDelivery:
-        return 'Sedang Diantarkan'; // ✅ UBAH: dari "Sedang Diantar"
+        return 'Sedang Diantar';
       case OrderStatus.delivered:
-        return 'Pengantaran Selesai'; // ✅ UBAH: dari "Selesai"
+        return 'Selesai';
       case OrderStatus.cancelled:
         return 'Dibatalkan';
       case OrderStatus.rejected:
@@ -630,7 +561,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-  // Update _getStatusColor() sesuai enum yang baru
+// ✅ PERBAIKAN 6: Update _getStatusColor() sesuai enum yang baru
   Color _getStatusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
@@ -1116,6 +1047,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
+// ✅ PERBAIKAN: Method _getCurrentStatusInfo() yang benar
   Map<String, dynamic> _getCurrentStatusInfo() {
     if (_orderDetail == null) {
       return _statusTimeline[0];
@@ -1151,7 +1083,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       };
     }
 
-    // ✅ PERBAIKAN: Mapping status yang benar
+    // ✅ FIXED: Langsung gunakan order_status dari backend
+    // Cari status di timeline
     for (int i = 0; i < _statusTimeline.length; i++) {
       final item = _statusTimeline[i];
       if (item['status'] == currentStatus) {
@@ -1160,7 +1093,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       }
     }
 
-    // ✅ Fallback jika tidak ditemukan
+    // ✅ FIXED: Fallback jika tidak ditemukan
     print(
         '⚠️ Status tidak ditemukan di timeline: ${currentStatus.name}, using default');
     return _statusTimeline[0];
@@ -1176,12 +1109,25 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     print('   - Order Status: ${currentStatus.name}');
     print('   - Delivery Status: ${deliveryStatus?.name}');
 
-    // ✅ Handle cancelled/rejected (tidak masuk timeline)
+    // ✅ FIXED: Handle cancelled/rejected (tidak masuk timeline)
     if ([OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus)) {
       return -1; // Tidak ada di timeline
     }
 
-    // ✅ PERBAIKAN: Langsung mapping berdasarkan order_status
+    // ✅ FIXED: Logic yang sama seperti _getCurrentStatusInfo
+    if (deliveryStatus?.name == 'picked_up' &&
+        currentStatus == OrderStatus.preparing) {
+      print('✅ Index: Driver sudah accept, index = 2 (preparing)');
+      return 2; // preparing
+    }
+
+    if (currentStatus == OrderStatus.confirmed &&
+        deliveryStatus?.name == 'pending') {
+      print('✅ Index: Store sudah terima, index = 1 (confirmed)');
+      return 1; // confirmed
+    }
+
+    // ✅ FIXED: Default mapping
     final index =
         _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
     print('✅ Status Index: $index for ${currentStatus.name}');
@@ -1758,7 +1704,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
     switch (orderStatus) {
       case OrderStatus.pending:
-        // Tombol approve/reject untuk pending
+        // Hanya tampilkan tombol approve/reject untuk status pending
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1789,7 +1735,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                           ? null
                           : () => _processOrder('reject'),
                       child: Center(
-                        child: Icon(Icons.close, color: Colors.white, size: 24),
+                        child: Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 24,
+                        ),
                       ),
                     ),
                   ),
@@ -1849,7 +1799,67 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.preparing:
-        // ✅ BARU: Tombol "Siap Diambil"
+        // Tombol untuk siap diambil
+        return _buildCard(
+          index: 3,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Container(
+              width: double.infinity,
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.purple, Colors.purple.withOpacity(0.8)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.purple.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _isUpdatingStatus
+                      ? null
+                      : () {
+                          print(
+                              '🔄 Button clicked: Updating to ready_for_pickup');
+                          _updateOrderStatus(OrderStatus.readyForPickup);
+                        },
+                  child: Center(
+                    child: _isUpdatingStatus
+                        ? SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : Text(
+                            'Siap Diambil',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+      case OrderStatus.preparing:
+        // Tombol untuk siap diambil
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1905,7 +1915,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.readyForPickup:
-        // ✅ BARU: Tombol "Pesanan Diambil"
+        // Menunggu driver
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1915,63 +1925,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               height: 50,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.indigo, Colors.indigo.withOpacity(0.8)],
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.indigo.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: _isUpdatingStatus
-                      ? null
-                      : () => _updateOrderStatus(OrderStatus.onDelivery),
-                  child: Center(
-                    child: _isUpdatingStatus
-                        ? SizedBox(
-                            height: 24,
-                            width: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : Text(
-                            'Pesanan Diambil',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-
-      case OrderStatus.onDelivery:
-        // ✅ BARU: Tampilan "Sedang Diantarkan" - TIDAK ADA BUTTON
-        return _buildCard(
-          index: 3,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Container(
-              width: double.infinity,
-              height: 50,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.teal, Colors.teal.withOpacity(0.8)],
+                  colors: [Colors.orange, Colors.orange.withOpacity(0.8)],
                 ),
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -1979,47 +1933,17 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.local_shipping, color: Colors.white, size: 20),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Pesanan Sedang Diantarkan',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        fontFamily: GlobalStyle.fontFamily,
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-
-      case OrderStatus.delivered:
-        // ✅ BARU: Tampilan "Pengantaran Selesai" - TIDAK ADA BUTTON
-        return _buildCard(
-          index: 3,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Container(
-              width: double.infinity,
-              height: 50,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.green, Colors.green.withOpacity(0.8)],
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.white, size: 20),
                     const SizedBox(width: 12),
                     Text(
-                      'Pengantaran Selesai',
+                      'Menunggu Driver',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -2035,12 +1959,12 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       default:
-        // Untuk status cancelled/rejected - tidak ada tombol
+        // Untuk status onDelivery, delivered, cancelled, rejected - tidak ada tombol
         return const SizedBox.shrink();
     }
   }
 
-//Enhanced order processing
+  // ✅ FIXED: Enhanced order processing using OrderService.processOrderByStore
   Future<void> _processOrder(String action) async {
     if (_isUpdatingStatus) return;
 
@@ -2050,62 +1974,49 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
     try {
       print('⚙️ HistoryStoreDetail: Processing order with action: $action');
-      print('   - Order ID: ${widget.orderId}');
-      print('   - Current Status: ${_orderDetail?.orderStatus.name}');
 
-      // ✅ Enhanced authentication check
+      // ✅ FIXED: Enhanced authentication check
       final isAuthenticated = await AuthService.isAuthenticated();
       if (!isAuthenticated) {
         throw Exception('User not authenticated');
       }
 
-      // ✅ Process order using OrderService.processOrderByStore
+      final userData = await AuthService.getUserData();
+      final roleData = await AuthService.getRoleSpecificData();
+
+      if (userData == null || roleData == null) {
+        throw Exception('Unable to retrieve authentication data');
+      }
+
+      // ✅ FIXED: Process order using OrderService.processOrderByStore
       await OrderService.processOrderByStore(
         orderId: widget.orderId,
-        action: action,
+        action: action, // 'approve' atau 'reject'
         rejectionReason: action == 'reject'
             ? 'Toko tidak dapat memproses pesanan saat ini'
             : null,
       );
 
-      print('✅ Order processed successfully, now FORCE REFRESHING...');
-
-      // ✅ IMMEDIATE cache clear dan refresh
-      await _forceClearCacheAndRefresh();
-
-      // ✅ Verify status change
-      final expectedStatus =
-          action == 'approve' ? OrderStatus.preparing : OrderStatus.rejected;
-      if (_orderDetail?.orderStatus == expectedStatus) {
-        print('🎯 SUCCESS: Status correctly updated to ${expectedStatus.name}');
-      } else {
-        print('⚠️ WARNING: Status not updated as expected');
-        print('   Expected: ${expectedStatus.name}');
-        print('   Actual: ${_orderDetail?.orderStatus.name}');
-
-        // ✅ Retry dengan delay lebih lama
-        await Future.delayed(const Duration(milliseconds: 1000));
-        await _forceClearCacheAndRefresh();
-      }
+      // Refresh order data
+      await _loadOrderData();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               action == 'approve'
-                  ? '✅ Pesanan diterima dan sedang disiapkan'
-                  : '❌ Pesanan berhasil ditolak',
+                  ? 'Pesanan berhasil diterima'
+                  : 'Pesanan berhasil ditolak',
             ),
             backgroundColor: action == 'approve' ? Colors.green : Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            duration: const Duration(seconds: 4),
           ),
         );
       }
 
-      print('✅ HistoryStoreDetail: Order processing completed');
+      print('✅ HistoryStoreDetail: Order processed successfully');
     } catch (e) {
       print('❌ HistoryStoreDetail: Error processing order: $e');
       if (mounted) {
@@ -2128,6 +2039,12 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   // ✅ FIXED: Enhanced status update using OrderService.updateOrderStatus
   Future<void> _updateOrderStatus(OrderStatus status) async {
+    // TAMBAHKAN di awal method _updateOrderStatus:
+    print('🔍 Debug Info:');
+    print('   - Current Order Status: ${_orderDetail?.orderStatus.name}');
+    print('   - Target Status: ${status.name} (${status.value})');
+    print('   - Order ID: ${widget.orderId}');
+    print('   - User Role: ${await AuthService.getUserRole()}');
     if (_isUpdatingStatus) return;
 
     setState(() {
@@ -2137,27 +2054,22 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     try {
       print('📝 HistoryStoreDetail: Updating order status to: ${status.name}');
 
-      // ✅ FIXED: Enhanced authentication check
+      // Enhanced authentication check
       final isAuthenticated = await AuthService.isAuthenticated();
       if (!isAuthenticated) {
         throw Exception('User not authenticated');
       }
 
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
-
-      if (userData == null || roleData == null) {
-        throw Exception('Unable to retrieve authentication data');
-      }
-
-      // ✅ FIXED: Update status using OrderService.updateOrderStatus
-      await OrderService.updateOrderStatus(
+      // Call the correct API endpoint
+      final response = await OrderService.updateOrderStatus(
         orderId: widget.orderId,
-        orderStatus: status.name,
+        orderStatus: status.value, // Gunakan .value instead of .name
         notes: 'Status diupdate oleh toko',
       );
 
-      // Refresh order data
+      print('✅ Response from API: $response');
+
+      // Refresh order data setelah update
       await _loadOrderData();
 
       if (mounted) {
@@ -2179,7 +2091,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal mengupdate status: $e'),
+            content: Text('Gagal mengupdate status: ${e.toString()}'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
@@ -2188,9 +2100,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
       }
     } finally {
-      setState(() {
-        _isUpdatingStatus = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isUpdatingStatus = false;
+        });
+      }
     }
   }
 
@@ -2436,33 +2350,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ),
           onPressed: () => Navigator.pop(context),
         ),
-// ✅ GANTI: AppBar dengan cache clear button
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.orange.withOpacity(0.1),
-            ),
-            child: IconButton(
-              icon: Icon(Icons.clear_all, color: Colors.orange, size: 20),
-              onPressed: () async {
-                await _forceClearCacheAndRefresh();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('🧹 Cache cleared dan data di-refresh'),
-                      backgroundColor: Colors.orange,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                  );
-                }
-              },
-              tooltip: 'Clear Cache & Refresh',
-            ),
-          ),
           Container(
             margin: const EdgeInsets.only(right: 16),
             decoration: BoxDecoration(
@@ -2498,14 +2386,10 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             physics: const AlwaysScrollableScrollPhysics(),
             child: Padding(
               padding: const EdgeInsets.all(16),
-// ✅ GANTI: Tambah debug info di Column
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ✅ TAMBAH: Debug info untuk monitoring
-                  // if (kDebugMode) _buildDebugInfo(),
-
-                  // ✅ INTEGRATED: Store Order Status Card
+                  // ✅ INTEGRATED: Store Order Status Card directly built in
                   SlideTransition(
                     position: Tween<Offset>(
                       begin: const Offset(0, -0.3),
@@ -2525,7 +2409,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                   _buildDriverInfoCard(),
                   _buildItemsCard(),
                   if (!isCompleted) _buildActionButtons(),
-                  const SizedBox(height: 100),
+                  const SizedBox(height: 100), // Bottom padding
                 ],
               ),
             ),
