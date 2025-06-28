@@ -188,7 +188,8 @@ class AuthService {
   static Future<Map<String, dynamic>?> getUserData() async {
     try {
       final userData = await TokenService.getUserData();
-      _log('Retrieved user data: ${userData != null ? userData.keys.toList() : 'null'}');
+      _log(
+          'Retrieved user data: ${userData != null ? userData.keys.toList() : 'null'}');
       return userData;
     } catch (e) {
       _log('Error getting user data: $e');
@@ -221,41 +222,41 @@ class AuthService {
   }
 
   /// Check authentication - Optimized with batch operations
-  static Future<bool> isAuthenticated() async {
-    try {
-      // Batch check all required authentication data
-      final results = await Future.wait([
-        TokenService.isAuthenticated(),
-        getUserRole(),
-        getUserId(),
-      ]);
-
-      final hasToken = results[0] as bool;
-      final userRole = results[1] as String?;
-      final userId = results[2] as String?;
-
-      if (!hasToken) {
-        _log('No authentication token found');
-        return false;
-      }
-
-      if (userRole == null || userRole.isEmpty) {
-        _log('No user role found');
-        return false;
-      }
-
-      if (userId == null || userId.isEmpty) {
-        _log('No user ID found');
-        return false;
-      }
-
-      _log('User is authenticated - Role: $userRole, ID: $userId');
-      return true;
-    } catch (e) {
-      _log('Error checking authentication: $e');
-      return false;
-    }
-  }
+  // static Future<bool> isAuthenticated() async {
+  //   try {
+  //     // Batch check all required authentication data
+  //     final results = await Future.wait([
+  //       TokenService.isAuthenticated(),
+  //       getUserRole(),
+  //       getUserId(),
+  //     ]);
+  //
+  //     final hasToken = results[0] as bool;
+  //     final userRole = results[1] as String?;
+  //     final userId = results[2] as String?;
+  //
+  //     if (!hasToken) {
+  //       _log('No authentication token found');
+  //       return false;
+  //     }
+  //
+  //     if (userRole == null || userRole.isEmpty) {
+  //       _log('No user role found');
+  //       return false;
+  //     }
+  //
+  //     if (userId == null || userId.isEmpty) {
+  //       _log('No user ID found');
+  //       return false;
+  //     }
+  //
+  //     _log('User is authenticated - Role: $userRole, ID: $userId');
+  //     return true;
+  //   } catch (e) {
+  //     _log('Error checking authentication: $e');
+  //     return false;
+  //   }
+  // }
 
   /// Refresh user data from server - Optimized
   static Future<Map<String, dynamic>?> refreshUserData() async {
@@ -304,7 +305,8 @@ class AuthService {
         _log('No cached user data, fetching from server...');
         final freshData = await refreshUserData();
         if (freshData != null) {
-          final processedData = await _processRoleSpecificData(freshData, userRole);
+          final processedData =
+              await _processRoleSpecificData(freshData, userRole);
           return processedData;
         }
         return null;
@@ -375,7 +377,8 @@ class AuthService {
       // Process customer avatar
       if (customerData['avatar'] != null &&
           customerData['avatar'].toString().isNotEmpty) {
-        customerData['avatar'] = ImageService.getImageUrl(customerData['avatar']);
+        customerData['avatar'] =
+            ImageService.getImageUrl(customerData['avatar']);
       }
 
       _log('Customer data processed successfully');
@@ -590,7 +593,8 @@ class AuthService {
     final store = loginData['store'];
     if (store != null) {
       // Process store image
-      if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
+      if (store['image_url'] != null &&
+          store['image_url'].toString().isNotEmpty) {
         store['image_url'] = ImageService.getImageUrl(store['image_url']);
       }
 
@@ -619,9 +623,11 @@ class AuthService {
   }
 
   /// Process profile images - Optimized
-  static Future<void> _processProfileImages(Map<String, dynamic> profileData) async {
+  static Future<void> _processProfileImages(
+      Map<String, dynamic> profileData) async {
     // Process user avatar
-    if (profileData['avatar'] != null && profileData['avatar'].toString().isNotEmpty) {
+    if (profileData['avatar'] != null &&
+        profileData['avatar'].toString().isNotEmpty) {
       profileData['avatar'] = ImageService.getImageUrl(profileData['avatar']);
     }
 
@@ -637,7 +643,8 @@ class AuthService {
     // Process store data if present
     final store = profileData['store'];
     if (store != null) {
-      if (store['image_url'] != null && store['image_url'].toString().isNotEmpty) {
+      if (store['image_url'] != null &&
+          store['image_url'].toString().isNotEmpty) {
         store['image_url'] = ImageService.getImageUrl(store['image_url']);
       }
       final storeOwner = store['owner'];
@@ -794,6 +801,146 @@ class AuthService {
       return true;
     } catch (e) {
       _log('Error ensuring valid user data: $e');
+      return false;
+    }
+  }
+
+  /// Check if user session is still valid (token not expired)
+  static Future<bool> isSessionValid() async {
+    try {
+      final isAuthenticated = await TokenService.isAuthenticated();
+      if (!isAuthenticated) {
+        _log('Session invalid: not authenticated');
+        return false;
+      }
+
+      final isTokenValid = await TokenService.isTokenValid();
+      if (!isTokenValid) {
+        _log('Session invalid: token expired');
+        await TokenService.clearAll();
+        return false;
+      }
+
+      _log('Session is valid');
+      return true;
+    } catch (e) {
+      _log('Error checking session validity: $e');
+      return false;
+    }
+  }
+
+  /// Get remaining session time in days
+  static Future<int> getSessionRemainingDays() async {
+    try {
+      return await TokenService.getTokenRemainingDays();
+    } catch (e) {
+      _log('Error getting session remaining days: $e');
+      return 0;
+    }
+  }
+
+  /// Get token information for debugging
+  static Future<Map<String, dynamic>> getTokenInfo() async {
+    try {
+      return await TokenService.getTokenInfo();
+    } catch (e) {
+      _log('Error getting token info: $e');
+      return {'error': e.toString()};
+    }
+  }
+
+  /// Validate session and refresh if needed
+  static Future<bool> validateAndRefreshSession() async {
+    try {
+      _log('Validating and refreshing session...');
+
+      // Check if session is still valid
+      final isValid = await isSessionValid();
+      if (!isValid) {
+        _log('Session invalid, need to re-authenticate');
+        return false;
+      }
+
+      // Check remaining days and warn if less than 1 day
+      final remainingDays = await getSessionRemainingDays();
+      if (remainingDays <= 1) {
+        _log('Warning: Token will expire in $remainingDays day(s)');
+        // You could trigger a notification or automatic refresh here
+
+        // Optionally refresh user data from server to ensure token is still valid
+        try {
+          await refreshUserData();
+          _log('Session refreshed successfully');
+        } catch (e) {
+          _log('Failed to refresh session: $e');
+          return false;
+        }
+      }
+
+      return true;
+    } catch (e) {
+      _log('Error validating and refreshing session: $e');
+      return false;
+    }
+  }
+
+  /// Check authentication with enhanced validation
+  static Future<bool> isAuthenticated() async {
+    try {
+      // First check basic authentication
+      final basicAuth = await _checkBasicAuthentication();
+      if (!basicAuth) {
+        return false;
+      }
+
+      // Then validate session
+      final sessionValid = await isSessionValid();
+      if (!sessionValid) {
+        _log('Authentication failed: session invalid');
+        return false;
+      }
+
+      _log('User is authenticated with valid session');
+      return true;
+    } catch (e) {
+      _log('Error checking authentication: $e');
+      return false;
+    }
+  }
+
+  /// Basic authentication check (existing logic)
+  static Future<bool> _checkBasicAuthentication() async {
+    try {
+      // Batch check all required authentication data
+      final results = await Future.wait([
+        TokenService.getToken(),
+        getUserRole(),
+        getUserId(),
+      ]);
+
+      final token = results[0] as String?;
+      final userRole = results[1] as String?;
+      final userId = results[2] as String?;
+
+      if (token == null || token.isEmpty) {
+        _log('No authentication token found');
+        return false;
+      }
+
+      if (userRole == null || userRole.isEmpty) {
+        _log('No user role found');
+        return false;
+      }
+
+      if (userId == null || userId.isEmpty) {
+        _log('No user ID found');
+        return false;
+      }
+
+      _log('Basic authentication check passed - Role: $userRole, ID: $userId');
+      return true;
+    } catch (e) {
+      _log('Error in basic authentication check: $e');
       return false;
     }
   }
