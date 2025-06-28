@@ -1099,6 +1099,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     return _statusTimeline[0];
   }
 
+// Di file HistoryStoreDetailPage, GANTI method _getCurrentStatusIndex():
+
   int _getCurrentStatusIndex() {
     if (_orderDetail == null) return 0;
 
@@ -1109,29 +1111,28 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     print('   - Order Status: ${currentStatus.name}');
     print('   - Delivery Status: ${deliveryStatus?.name}');
 
-    // ✅ FIXED: Handle cancelled/rejected (tidak masuk timeline)
+    // ✅ PERBAIKI: Handle cancelled/rejected (tidak masuk timeline)
     if ([OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus)) {
       return -1; // Tidak ada di timeline
     }
 
-    // ✅ FIXED: Logic yang sama seperti _getCurrentStatusInfo
-    if (deliveryStatus?.name == 'picked_up' &&
-        currentStatus == OrderStatus.preparing) {
-      print('✅ Index: Driver sudah accept, index = 2 (preparing)');
-      return 2; // preparing
+    //Logic mapping status ke timeline index
+    switch (currentStatus) {
+      case OrderStatus.pending:
+        return 0;
+      case OrderStatus.confirmed:
+        return 1;
+      case OrderStatus.preparing:
+        return 2;
+      case OrderStatus.readyForPickup:
+        return 3;
+      case OrderStatus.onDelivery:
+        return 4;
+      case OrderStatus.delivered:
+        return 5;
+      default:
+        return 0;
     }
-
-    if (currentStatus == OrderStatus.confirmed &&
-        deliveryStatus?.name == 'pending') {
-      print('✅ Index: Store sudah terima, index = 1 (confirmed)');
-      return 1; // confirmed
-    }
-
-    // ✅ FIXED: Default mapping
-    final index =
-        _statusTimeline.indexWhere((item) => item['status'] == currentStatus);
-    print('✅ Status Index: $index for ${currentStatus.name}');
-    return index >= 0 ? index : 0;
   }
 
   Widget _buildCustomerInfoCard() {
@@ -1695,6 +1696,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
+// Di file HistoryStoreDetailPage, GANTI method _buildActionButtons():
+
   Widget _buildActionButtons() {
     final orderStatus = _orderDetail!.orderStatus;
     final deliveryStatus = _orderDetail!.deliveryStatus;
@@ -1735,11 +1738,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                           ? null
                           : () => _processOrder('reject'),
                       child: Center(
-                        child: Icon(
-                          Icons.close,
-                          color: Colors.white,
-                          size: 24,
-                        ),
+                        child: Icon(Icons.close, color: Colors.white, size: 24),
                       ),
                     ),
                   ),
@@ -1799,7 +1798,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.preparing:
-        // Tombol untuk siap diambil
+        // ✅ PERBAIKI: Tombol untuk siap diambil - hanya satu tombol
         return _buildCard(
           index: 3,
           child: Padding(
@@ -1858,64 +1857,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ),
         );
 
-      case OrderStatus.preparing:
-        // Tombol untuk siap diambil
-        return _buildCard(
-          index: 3,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Container(
-              width: double.infinity,
-              height: 50,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.purple, Colors.purple.withOpacity(0.8)],
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.purple.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: _isUpdatingStatus
-                      ? null
-                      : () => _updateOrderStatus(OrderStatus.readyForPickup),
-                  child: Center(
-                    child: _isUpdatingStatus
-                        ? SizedBox(
-                            height: 24,
-                            width: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : Text(
-                            'Siap Diambil',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-
       case OrderStatus.readyForPickup:
-        // Menunggu driver
+        // ✅ PERBAIKI: Menunggu driver - tidak ada tombol action
         return _buildCard(
           index: 3,
           child: Padding(
@@ -2039,12 +1982,13 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   // ✅ FIXED: Enhanced status update using OrderService.updateOrderStatus
   Future<void> _updateOrderStatus(OrderStatus status) async {
-    // TAMBAHKAN di awal method _updateOrderStatus:
+    // ✅ TAMBAHKAN debug info di awal
     print('🔍 Debug Info:');
     print('   - Current Order Status: ${_orderDetail?.orderStatus.name}');
     print('   - Target Status: ${status.name} (${status.value})');
     print('   - Order ID: ${widget.orderId}');
     print('   - User Role: ${await AuthService.getUserRole()}');
+
     if (_isUpdatingStatus) return;
 
     setState(() {
@@ -2060,7 +2004,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         throw Exception('User not authenticated');
       }
 
-      // Call the correct API endpoint
+      // ✅ PERBAIKI: Call the correct API endpoint dengan value yang benar
       final response = await OrderService.updateOrderStatus(
         orderId: widget.orderId,
         orderStatus: status.value, // Gunakan .value instead of .name

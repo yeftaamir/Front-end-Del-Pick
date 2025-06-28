@@ -59,6 +59,13 @@ enum OrderStatus {
     }
   }
 
+  static OrderStatus fromValue(String value) {
+    return OrderStatus.values.firstWhere(
+      (status) => status.value == value,
+      orElse: () => OrderStatus.pending,
+    );
+  }
+
   bool get isCompleted => [delivered, cancelled, rejected].contains(this);
   bool get isActive => ![delivered, cancelled, rejected].contains(this);
   bool get canCancel => [pending, confirmed].contains(this);
@@ -106,6 +113,14 @@ enum DeliveryStatus {
       case DeliveryStatus.rejected:
         return 'Ditolak';
     }
+  }
+
+  // Tambahkan di enum DeliveryStatus:
+  static DeliveryStatus fromValue(String value) {
+    return DeliveryStatus.values.firstWhere(
+      (status) => status.value == value,
+      orElse: () => DeliveryStatus.pending,
+    );
   }
 }
 
@@ -329,27 +344,6 @@ extension OrderStatusExtension on OrderStatus {
   // ✅ FIXED: Gunakan method name yang konsisten dengan enum
   String get name => value;
 
-  String get displayName {
-    switch (this) {
-      case OrderStatus.pending:
-        return 'Menunggu Konfirmasi';
-      case OrderStatus.confirmed:
-        return 'Dikonfirmasi';
-      case OrderStatus.preparing:
-        return 'Sedang Diproses';
-      case OrderStatus.readyForPickup:
-        return 'Siap Diambil';
-      case OrderStatus.onDelivery:
-        return 'Sedang Diantar';
-      case OrderStatus.delivered:
-        return 'Selesai';
-      case OrderStatus.cancelled:
-        return 'Dibatalkan';
-      case OrderStatus.rejected:
-        return 'Ditolak';
-    }
-  }
-
   Color get color {
     switch (this) {
       case OrderStatus.pending:
@@ -498,7 +492,7 @@ extension DriverRequestStatusExtension on DriverRequestStatus {
       case DriverRequestStatus.expired:
         return 'Kedaluwarsa';
       case DriverRequestStatus.cancelled:
-        return 'Ditolak';
+        return 'Dibatalkan';
     }
   }
 
@@ -515,8 +509,7 @@ extension DriverRequestStatusExtension on DriverRequestStatus {
       case DriverRequestStatus.expired:
         return Colors.grey;
       case DriverRequestStatus.cancelled:
-        // TODO: Handle this case.
-        throw UnimplementedError();
+        return Colors.red.shade700;
     }
   }
 
