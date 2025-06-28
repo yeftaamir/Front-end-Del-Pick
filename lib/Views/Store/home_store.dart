@@ -27,9 +27,43 @@ class HomeStore extends StatefulWidget {
 }
 
 class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
+  late TabController _tabController;
   int _currentIndex = 0;
-  late List<AnimationController> _cardControllers = [];
-  late List<Animation<Offset>> _cardAnimations = [];
+
+  // Separate data for tabs
+  List<Map<String, dynamic>> _pendingOrders = [];
+  List<Map<String, dynamic>> _activeOrders = [];
+
+  // Loading states for each tab
+  bool _isLoadingPending = true;
+  bool _isLoadingActive = true;
+  bool _hasErrorPending = false;
+  bool _hasErrorActive = false;
+  String _errorMessagePending = '';
+  String _errorMessageActive = '';
+
+  // Pagination for each tab
+  int _pendingCurrentPage = 1;
+  int _activeCurrentPage = 1;
+  bool _isLoadingMorePending = false;
+  bool _isLoadingMoreActive = false;
+  bool _hasMorePendingData = true;
+  bool _hasMoreActiveData = true;
+
+  // Auto refresh timer (15 seconds for pending orders)
+  Timer? _pendingOrdersTimer;
+
+  // Animation controllers for both tabs
+  late List<AnimationController> _pendingCardControllers = [];
+  late List<Animation<Offset>> _pendingCardAnimations = [];
+  late List<AnimationController> _activeCardControllers = [];
+  late List<Animation<Offset>> _activeCardAnimations = [];
+
+  // Scroll controllers for each tab
+  final ScrollController _pendingScrollController = ScrollController();
+  final ScrollController _activeScrollController = ScrollController();
+
+  // Other existing controllers...
   late AnimationController _celebrationController;
   late AnimationController _pulseController;
   late AnimationController _rotationController;
@@ -38,51 +72,22 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       FlutterLocalNotificationsPlugin();
   final AudioPlayer _audioPlayer = AudioPlayer();
 
-  // Service data
-  List<Map<String, dynamic>> _orders = [];
   Map<String, dynamic>? _storeData;
   Map<String, dynamic>? _userData;
-  bool _isLoading = true;
-  bool _hasError = false;
-  String _errorMessage = '';
-  int _currentPage = 1;
-  bool _isLoadingMore = false;
-  bool _hasMoreData = true;
-  bool _isAutoRefreshing = false;
-  final ScrollController _scrollController = ScrollController();
+
+  // Processed orders tracking
+  Set<String> _processedOrderIds = <String>{};
+  static final Set<String> _globalProcessedOrderIds = <String>{};
 
   // New order celebration
   String? _newOrderId;
   bool _showCelebration = false;
 
-  // Real-time order monitoring
-  Timer? _orderMonitorTimer;
-  Set<String> _existingOrderIds = {};
+  bool _needsRefresh = false;
+  DateTime? _lastRefreshTime;
 
-  ///state management untuk melacak perubahan
-  Set<String> _processedOrderIds = <String>{}; // Track processed orders locally
-  static final Set<String> _globalProcessedOrderIds = <String>{};
-  bool _needsRefresh =
-      false; // Flag untuk refresh saat kembali dari halaman lain
-  DateTime? _lastRefreshTime; // Track last refresh time
-  // static const List<String> _excludedOrderStatuses = [
-  //   // 'confirmed',
-  //   'preparing',
-  //   'ready_for_pickup',
-  //   'on_delivery',
-  //   'delivered',
-  //   'cancelled',
-  //   'rejected'
-  // ];
-  //
-  // static const List<String> _excludedDeliveryStatuses = [
-  //   'picked_up',
-  //   'on_way',
-  //   'delivered'
-  // ];
-
-// ✅ GANTI: Filter logic yang benar
-  static bool _shouldShowOrder(Map<String, dynamic> order) {
+// ✅ PERBAIKAN: Logic filter yang lebih tepat untuk pending orders
+  static bool _shouldShowInPendingTab(Map<String, dynamic> order) {
     final orderStatus = order['order_status']?.toString() ?? '';
     final deliveryStatus = order['delivery_status']?.toString() ?? '';
 
@@ -90,10 +95,56 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         '🔍 Checking order ${order['id']}: order_status=$orderStatus, delivery_status=$deliveryStatus');
 
     // ✅ ATURAN BISNIS YANG BENAR:
-    // - order_status = 'pending' (apapun delivery_status) → TAMPILKAN
-    // - order_status selain 'pending' → JANGAN TAMPILKAN
-
+    // Tampilkan di pending tab HANYA jika order_status = 'pending'
+    // Tidak peduli delivery_status apa (bisa pending atau picked_up)
     return orderStatus == 'pending';
+  }
+
+// Logic filter yang lebih tepat untuk active orders
+  static bool _shouldShowInActiveTab(Map<String, dynamic> order) {
+    final orderStatus = order['order_status']?.toString() ?? '';
+
+    print(
+        '🔍 Checking order ${order['id']} for active tab: order_status=$orderStatus');
+
+    // Tampilkan di active tab jika order_status adalah: preparing, ready_for_pickup, on_delivery, rejected
+    return ['preparing', 'ready_for_pickup', 'on_delivery']
+        .contains(orderStatus);
+  }
+
+  @override
+  void dispose() {
+    print('🗑️ HomeStore: Disposing widget...');
+
+    _tabController.dispose();
+
+    // ✅ PERBAIKAN: Cancel timer untuk pending orders
+    _pendingOrdersTimer?.cancel();
+
+    // ✅ PERBAIKAN: Dispose pending animation controllers
+    for (var controller in _pendingCardControllers) {
+      controller.dispose();
+    }
+
+    // ✅ PERBAIKAN: Dispose active animation controllers
+    for (var controller in _activeCardControllers) {
+      controller.dispose();
+    }
+
+    // ✅ TETAP: Dispose celebration controllers
+    _celebrationController.dispose();
+    _pulseController.dispose();
+    _rotationController.dispose();
+
+    // ✅ TETAP: Dispose audio player
+    _audioPlayer.dispose();
+
+    // ✅ PERBAIKAN: Dispose scroll controllers untuk kedua tab
+    _pendingScrollController.dispose();
+    _activeScrollController.dispose();
+
+    print('✅ HomeStore: Widget disposed successfully');
+    super.dispose();
   }
 
   @override
@@ -105,158 +156,141 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted) {
           // ✅ PERBAIKAN: Gunakan filtered refresh alih-alih force refresh
-          _refreshOrdersWithFiltering();
         }
       });
     }
   }
 
   @override
+  @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _initializeAnimations();
     _initializeNotifications();
     _requestPermissions();
     _validateAndInitializeData();
-    _setupScrollListener();
+    _setupScrollListeners();
+
+    //Start clear processed orders timer
+    _clearOldProcessedOrders();
   }
 
-  void _startOrderMonitoring() {
+  /// Method untuk clear processed orders secara berkala
+  void _clearOldProcessedOrders() {
+    // ✅ PERBAIKAN: DISABLE processed orders clearing untuk auto refresh
+    // Timer.periodic sudah tidak diperlukan karena auto refresh tidak filter processed orders
     print(
-        '🔄 HomeStore: Starting real-time order monitoring (20s interval)...');
+        '🧹 HomeStore: Processed orders clearing disabled for better auto refresh');
+  }
+  // void _clearOldProcessedOrders() {
+  //   // Clear processed orders setiap 5 menit untuk mencegah memory leak
+  //   Timer.periodic(const Duration(minutes: 5), (timer) {
+  //     if (!mounted) {
+  //       timer.cancel();
+  //       return;
+  //     }
+  //
+  //     setState(() {
+  //       _processedOrderIds.clear();
+  //       // Jangan clear global processed orders karena bisa menyebabkan duplikasi notifikasi
+  //     });
+  //
+  //     print('🧹 HomeStore: Cleared local processed orders');
+  //   });
+  // }
 
-    _orderMonitorTimer =
+  Future<void> _validateAndInitializeData() async {
+    try {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoadingPending = true;
+        _isLoadingActive = true;
+        _hasErrorPending = false;
+        _hasErrorActive = false;
+      });
+
+      print('🏪 HomeStore: Starting validation and initialization...');
+
+      // Validate store access
+      final hasStoreAccess = await AuthService.hasRole('store');
+      if (!mounted) return;
+
+      if (!hasStoreAccess) {
+        throw Exception('Access denied: Store authentication required');
+      }
+
+      final hasValidSession = await AuthService.ensureValidUserData();
+      if (!mounted) return;
+
+      if (!hasValidSession) {
+        throw Exception('Invalid user session. Please login again.');
+      }
+
+      print('✅ HomeStore: Store access validated');
+
+      // Load store data
+      await _loadStoreData();
+      if (!mounted) return;
+
+      // Load both pending and active orders
+      await Future.wait([
+        _loadPendingOrders(isRefresh: true),
+        _loadActiveOrders(isRefresh: true),
+      ]);
+
+      if (!mounted) return;
+
+      // Start auto refresh timer for pending orders (15 seconds)
+      _startPendingOrdersMonitoring();
+
+      if (mounted) {
+        setState(() {
+          _isLoadingPending = false;
+          _isLoadingActive = false;
+        });
+      }
+
+      print('✅ HomeStore: Initialization completed successfully');
+    } catch (e) {
+      print('❌ HomeStore: Initialization error: $e');
+
+      if (mounted) {
+        setState(() {
+          _hasErrorPending = true;
+          _hasErrorActive = true;
+          _errorMessagePending = e.toString();
+          _errorMessageActive = e.toString();
+          _isLoadingPending = false;
+          _isLoadingActive = false;
+        });
+      }
+    }
+  }
+
+  void _startPendingOrdersMonitoring() {
+    print('🔄 HomeStore: Starting pending orders monitoring (20s interval)...');
+
+    // ✅ PERBAIKAN: Timer yang lebih konsisten
+    _pendingOrdersTimer =
         Timer.periodic(const Duration(seconds: 20), (timer) async {
-      // ✅ FIXED: 20 detik
       if (!mounted) {
         timer.cancel();
         return;
       }
 
-      setState(() {
-        _isAutoRefreshing = true;
-      });
-
       try {
-        print('📡 HomeStore: Checking for order updates...');
+        print('📡 HomeStore: Auto-refreshing pending orders...');
+        print('📊 Current pending orders count: ${_pendingOrders.length}');
 
-        final response = await OrderService.getOrdersByStore(
-          page: 1,
-          limit: 20,
-          sortBy: 'created_at',
-          sortOrder: 'desc',
-          timestamp:
-              DateTime.now().millisecondsSinceEpoch, // ✅ SELALU bypass cache
-        );
+        // ✅ PERBAIKAN: SELALU force refresh dari page 1
+        await _loadPendingOrders(isRefresh: true, isAutoRefresh: true);
 
-        final allLatestOrders =
-            List<Map<String, dynamic>>.from(response['orders'] ?? []);
-
-        // ✅ FIXED: Apply correct business logic filter
-        final latestValidOrders = allLatestOrders.where((order) {
-          final orderId = order['id']?.toString() ?? '';
-
-          // ✅ Gunakan business logic yang benar
-          if (!_shouldShowOrder(order)) {
-            return false;
-          }
-
-          // ✅ Exclude yang sudah diproses
-          if (_globalProcessedOrderIds.contains(orderId) ||
-              _processedOrderIds.contains(orderId)) {
-            return false;
-          }
-
-          return true;
-        }).toList();
-
-        // ✅ Compare dengan current orders
-        final currentValidOrderIds = filteredOrders
-            .map((order) => order['id']?.toString() ?? '')
-            .toSet();
-
-        final latestValidOrderIds = latestValidOrders
-            .map((order) => order['id']?.toString() ?? '')
-            .toSet();
-
-        final newOrderIds =
-            latestValidOrderIds.difference(currentValidOrderIds);
-        final removedOrderIds =
-            currentValidOrderIds.difference(latestValidOrderIds);
-
-        bool hasChanges = newOrderIds.isNotEmpty || removedOrderIds.isNotEmpty;
-
-        if (hasChanges) {
-          print(
-              '🔄 HomeStore: Real-time changes detected - New: ${newOrderIds.length}, Removed: ${removedOrderIds.length}');
-
-          // ✅ Mark removed orders as globally processed
-          for (String removedId in removedOrderIds) {
-            _globalProcessedOrderIds.add(removedId);
-            print(
-                '📝 Order $removedId marked as globally processed (status changed from pending)');
-          }
-
-          setState(() {
-            // Dispose old controllers
-            for (var controller in _cardControllers) {
-              controller.dispose();
-            }
-
-            _orders = latestValidOrders;
-            _existingOrderIds = latestValidOrderIds;
-
-            // Reinitialize animations
-            _initialAnimations();
-          });
-
-          // Start animations
-          _startAnimations();
-
-          // Show notifications for new orders only
-          for (String orderId in newOrderIds) {
-            final newOrder = latestValidOrders.firstWhere(
-              (order) => order['id']?.toString() == orderId,
-              orElse: () => {},
-            );
-            if (newOrder.isNotEmpty) {
-              _triggerNewOrderCelebration(orderId);
-              _showNotification(newOrder);
-            }
-          }
-
-          // Show feedback for removed orders
-          if (mounted && removedOrderIds.isNotEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    Icon(Icons.sync, color: Colors.white, size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                        '${removedOrderIds.length} pesanan diperbarui (status berubah)'),
-                  ],
-                ),
-                backgroundColor: Colors.blue,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-        } else {
-          print('✅ HomeStore: No real-time changes detected');
-        }
-
-        setState(() {
-          _isAutoRefreshing = false;
-        });
+        print('✅ HomeStore: Auto refresh completed');
       } catch (e) {
-        print('❌ HomeStore: Error during real-time monitoring: $e');
-        setState(() {
-          _isAutoRefreshing = false;
-        });
+        print('❌ HomeStore: Error auto-refreshing pending orders: $e');
+        // ✅ JANGAN stop timer pada error, coba lagi di cycle berikutnya
       }
     });
   }
@@ -281,77 +315,125 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     _rotationController.repeat();
   }
 
-// ✅ PERBAIKAN: Enhanced validation dengan proper mounted checks
-  Future<void> _validateAndInitializeData() async {
-    try {
-      // ✅ Early mounted check
-      if (!mounted) {
-        print('⚠️ HomeStore: Widget not mounted, skipping initialization');
-        return;
-      }
+  void _initializePendingAnimations() {
+    _pendingCardControllers = List.generate(
+      _pendingOrders.length,
+      (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 100)),
+      ),
+    );
 
-      setState(() {
-        _isLoading = true;
-        _hasError = false;
-      });
+    _pendingCardAnimations = _pendingCardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0, 0.5),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+  }
 
-      print('🏪 HomeStore: Starting validation and initialization...');
+  void _initializeActiveAnimations() {
+    _activeCardControllers = List.generate(
+      _activeOrders.length,
+      (index) => AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (index * 100)),
+      ),
+    );
 
-      // ✅ FIXED: Validate store access menggunakan AuthService yang benar
-      final hasStoreAccess = await AuthService.hasRole('store');
+    _activeCardAnimations = _activeCardControllers.map((controller) {
+      return Tween<Offset>(
+        begin: const Offset(0, 0.5),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      ));
+    }).toList();
+  }
 
-      if (!mounted) return; // Check after async call
+  void _addNewPendingAnimations(int count) {
+    for (int i = 0; i < count; i++) {
+      AnimationController newController = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (i * 100)),
+      );
 
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
-      }
+      Animation<Offset> newAnimation = Tween<Offset>(
+        begin: const Offset(0, 0.5),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: newController,
+        curve: Curves.easeOutCubic,
+      ));
 
-      // ✅ FIXED: Ensure valid user session
-      final hasValidSession = await AuthService.ensureValidUserData();
-
-      if (!mounted) return; // Check after async call
-
-      if (!hasValidSession) {
-        throw Exception('Invalid user session. Please login again.');
-      }
-
-      print('✅ HomeStore: Store access validated');
-
-      // Load store-specific data
-      await _loadStoreData();
-
-      if (!mounted) return; // Check after loading store data
-
-      // Load orders only (statistics removed)
-      await _loadOrders();
-
-      if (!mounted) return; // Check after loading orders
-      // ✅ TAMBAH: Start real-time monitoring setelah data berhasil dimuat
-      _startOrderMonitoring();
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-
-      print('✅ HomeStore: Initialization completed successfully');
-    } catch (e) {
-      print('❌ HomeStore: Initialization error: $e');
-
-      // ✅ Only update state if still mounted
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorMessage = e.toString();
-          _isLoading = false;
-        });
-      }
+      _pendingCardControllers.add(newController);
+      _pendingCardAnimations.add(newAnimation);
     }
   }
 
-  // ✅ FIXED: Enhanced store data loading dengan AuthService yang benar
-  // Add mounted checks untuk mencegah setState after dispose
+  void _addNewActiveAnimations(int count) {
+    for (int i = 0; i < count; i++) {
+      AnimationController newController = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 600 + (i * 100)),
+      );
+
+      Animation<Offset> newAnimation = Tween<Offset>(
+        begin: const Offset(0, 0.5),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: newController,
+        curve: Curves.easeOutCubic,
+      ));
+
+      _activeCardControllers.add(newController);
+      _activeCardAnimations.add(newAnimation);
+    }
+  }
+
+  void _startPendingAnimations() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (int i = 0; i < _pendingCardControllers.length; i++) {
+        Future.delayed(Duration(milliseconds: i * 100), () {
+          if (mounted) _pendingCardControllers[i].forward();
+        });
+      }
+    });
+  }
+
+  void _startActiveAnimations() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      for (int i = 0; i < _activeCardControllers.length; i++) {
+        Future.delayed(Duration(milliseconds: i * 100), () {
+          if (mounted) _activeCardControllers[i].forward();
+        });
+      }
+    });
+  }
+
+  void _startNewPendingAnimations() {
+    int startIndex = _pendingCardControllers.length - _pendingOrders.length;
+    if (startIndex < 0) startIndex = 0;
+
+    for (int i = startIndex; i < _pendingCardControllers.length; i++) {
+      if (mounted) _pendingCardControllers[i].forward();
+    }
+  }
+
+  void _startNewActiveAnimations() {
+    int startIndex = _activeCardControllers.length - _activeOrders.length;
+    if (startIndex < 0) startIndex = 0;
+
+    for (int i = startIndex; i < _activeCardControllers.length; i++) {
+      if (mounted) _activeCardControllers[i].forward();
+    }
+  }
+
+  // store data loading dengan AuthService yang benar
   Future<void> _loadStoreData() async {
     try {
       print('🔍 HomeStore: Loading store data...');
@@ -416,36 +498,182 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-// ✅ Add mounted checks ke semua method yang menggunakan setState
-
-  Future<void> _forceRefreshOrders() async {
+  Future<void> _loadPendingOrders(
+      {bool isRefresh = false, bool isAutoRefresh = false}) async {
     try {
       if (!mounted) return;
 
-      print('🔄 HomeStore: Force refreshing orders with cache buster...');
+      print(
+          '📋 HomeStore: Loading pending orders (refresh: $isRefresh, auto: $isAutoRefresh)...');
 
-      setState(() {
-        // _processedOrderIds
-        // .clear(); // ✅ HAPUS ini jika ingin keep local processed state
-        _orders.clear();
-        _existingOrderIds.clear();
-      });
+      // ✅ PERBAIKAN: Untuk auto refresh, SELALU reset pagination
+      if (isRefresh || isAutoRefresh) {
+        setState(() {
+          _pendingCurrentPage = 1;
+          _hasMorePendingData = true;
+          if (!isAutoRefresh) _isLoadingPending = true;
+        });
+      }
 
-      // ✅ TAMBAH: Small delay untuk ensure database consistency
-      await Future.delayed(const Duration(milliseconds: 500));
+      // ✅ PERBAIKAN: Auto refresh dengan parameter yang benar
+      final response = await OrderService.getOrdersByStore(
+        page: 1, // ✅ SELALU page 1 untuk auto refresh
+        limit: isAutoRefresh ? 50 : 20, // ✅ Auto refresh ambil lebih banyak
+        sortBy: 'created_at',
+        sortOrder: 'desc', // ✅ PASTIKAN desc untuk data terbaru
+        timestamp:
+            DateTime.now().millisecondsSinceEpoch, // ✅ SELALU fresh timestamp
+      );
 
-      await _loadOrders(forceRefresh: true);
+      if (!mounted) return;
 
-      print('✅ HomeStore: Force refresh completed');
-    } catch (e) {
-      print('❌ HomeStore: Error force refreshing orders: $e');
+      final allOrders =
+          List<Map<String, dynamic>>.from(response['orders'] ?? []);
+
+      // ✅ PERBAIKAN: Filter HANYA berdasarkan order_status = 'pending'
+      final validPendingOrders = allOrders.where((order) {
+        final orderStatus = order['order_status']?.toString() ?? '';
+
+        // ✅ UTAMA: Hanya tampilkan order dengan status pending
+        return orderStatus == 'pending';
+      }).toList();
+
+      print(
+          '📋 HomeStore: Found ${validPendingOrders.length} pending orders (auto: $isAutoRefresh)');
+
+      // ✅ PERBAIKAN: Detect new orders hanya untuk manual load
+      if (!isRefresh && !isAutoRefresh) {
+        final existingIds = _pendingOrders
+            .map((order) => order['id']?.toString() ?? '')
+            .toSet();
+        for (var order in validPendingOrders) {
+          final orderId = order['id']?.toString();
+          if (orderId != null && !existingIds.contains(orderId)) {
+            print('🎉 HomeStore: New pending order detected: $orderId');
+            _triggerNewOrderCelebration(orderId);
+            _showNotification(order);
+          }
+        }
+      }
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal memuat pesanan: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        setState(() {
+          if (isRefresh || isAutoRefresh) {
+            // ✅ PERBAIKAN: Dispose old controllers untuk auto refresh
+            for (var controller in _pendingCardControllers) {
+              controller.dispose();
+            }
+            _pendingOrders = validPendingOrders;
+            _initializePendingAnimations();
+          } else {
+            _pendingOrders.addAll(validPendingOrders);
+            _addNewPendingAnimations(validPendingOrders.length);
+          }
+
+          final totalPages = response['totalPages'] ?? 1;
+          _hasMorePendingData = _pendingCurrentPage < totalPages;
+
+          // ✅ PERBAIKAN: Hanya increment page untuk manual load
+          if (!isAutoRefresh && !isRefresh) _pendingCurrentPage++;
+
+          _isLoadingPending = false;
+          _hasErrorPending = false;
+        });
+
+        // Start animations
+        if (isRefresh || isAutoRefresh) {
+          _startPendingAnimations();
+        } else {
+          _startNewPendingAnimations();
+        }
+      }
+
+      print('✅ HomeStore: Pending orders loaded successfully');
+    } catch (e) {
+      print('❌ HomeStore: Error loading pending orders: $e');
+      if (mounted) {
+        setState(() {
+          _hasErrorPending = true;
+          _errorMessagePending = e.toString();
+          _isLoadingPending = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadActiveOrders({bool isRefresh = false}) async {
+    try {
+      if (!mounted) return;
+
+      print('📋 HomeStore: Loading active orders (refresh: $isRefresh)...');
+
+      if (isRefresh) {
+        setState(() {
+          _activeCurrentPage = 1;
+          _hasMoreActiveData = true;
+          _isLoadingActive = true;
+        });
+      }
+
+      final response = await OrderService.getOrdersByStore(
+        page: _activeCurrentPage,
+        limit: 20,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      );
+
+      if (!mounted) return;
+
+      final allOrders =
+          List<Map<String, dynamic>>.from(response['orders'] ?? []);
+
+      // Filter for active tab
+      final validActiveOrders = allOrders.where((order) {
+        return _shouldShowInActiveTab(order);
+      }).toList();
+
+      final totalPages = response['totalPages'] ?? 1;
+
+      print('📋 HomeStore: Found ${validActiveOrders.length} active orders');
+
+      if (mounted) {
+        setState(() {
+          if (isRefresh) {
+            // Dispose old controllers
+            for (var controller in _activeCardControllers) {
+              controller.dispose();
+            }
+            _activeOrders = validActiveOrders;
+            _initializeActiveAnimations();
+          } else {
+            _activeOrders.addAll(validActiveOrders);
+            _addNewActiveAnimations(validActiveOrders.length);
+          }
+
+          _hasMoreActiveData = _activeCurrentPage < totalPages;
+          _activeCurrentPage++;
+          _isLoadingActive = false;
+          _hasErrorActive = false;
+        });
+
+        // Start animations
+        if (isRefresh) {
+          _startActiveAnimations();
+        } else {
+          _startNewActiveAnimations();
+        }
+      }
+
+      print('✅ HomeStore: Active orders loaded successfully');
+    } catch (e) {
+      print('❌ HomeStore: Error loading active orders: $e');
+      if (mounted) {
+        setState(() {
+          _hasErrorActive = true;
+          _errorMessageActive = e.toString();
+          _isLoadingActive = false;
+        });
       }
     }
   }
@@ -819,363 +1047,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // Method untuk refresh dengan filtering yang lebih pintar
-  Future<void> _refreshOrdersWithFiltering() async {
-    try {
-      print('🔄 HomeStore: Refreshing with smart filtering...');
-      if (!mounted) return;
-      final hasStoreAccess = await AuthService.hasRole('store');
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
-      }
-
-      final response = await OrderService.getOrdersByStore(
-        page: 1,
-        limit: 10,
-        sortBy: 'created_at',
-        sortOrder: 'desc',
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      );
-
-      final allOrders =
-          List<Map<String, dynamic>>.from(response['orders'] ?? []);
-
-      // ✅ Apply filtering yang benar sesuai backend logic
-      final validOrders = allOrders.where((order) {
-        final orderId = order['id']?.toString() ?? '';
-        final orderStatus = order['order_status']?.toString() ?? '';
-
-        print('🔍 Smart filtering Order $orderId: order_status=$orderStatus');
-
-        // ✅ HANYA tampilkan jika order_status = 'pending'
-        if (orderStatus != 'pending') {
-          print(
-              '❌ Order $orderId excluded: order_status = $orderStatus (not pending)');
-          return false;
-        }
-
-        // ✅ Exclude jika sudah diproses globally
-        if (_globalProcessedOrderIds.contains(orderId)) {
-          print('❌ Order $orderId excluded: globally processed');
-          return false;
-        }
-
-        // ✅ Exclude jika sudah diproses locally
-        if (_processedOrderIds.contains(orderId)) {
-          print('❌ Order $orderId excluded: locally processed');
-          return false;
-        }
-
-        print('✅ Order $orderId included: valid pending order');
-        return true;
-      }).toList();
-
-      print(
-          '📋 HomeStore: Smart filtered ${validOrders.length} valid orders from ${allOrders.length} total');
-
-      if (mounted) {
-        setState(() {
-          // Dispose old controllers safely
-          for (var controller in _cardControllers) {
-            if (controller.isCompleted || controller.isDismissed) {
-              controller.dispose();
-            }
-          }
-
-          _orders = validOrders;
-          _existingOrderIds =
-              validOrders.map((order) => order['id']?.toString() ?? '').toSet();
-
-          // Reinitialize animations
-          _initialAnimations();
-          _lastRefreshTime = DateTime.now();
-        });
-
-        // Start animations
-        _startAnimations();
-
-        // Show appropriate feedback
-        if (validOrders.isEmpty && allOrders.isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.info, color: Colors.white, size: 16),
-                  const SizedBox(width: 8),
-                  Text('Semua pesanan telah diproses'),
-                ],
-              ),
-              backgroundColor: Colors.blue,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      print('❌ HomeStore: Error in smart refresh: $e');
-      // Error handling tetap sama
-    }
-  }
-
-  Future<void> _loadOrders(
-      {bool isRefresh = false, bool forceRefresh = false}) async {
-    try {
-      print(
-          '📋 HomeStore: Loading orders (refresh: $isRefresh, force: $forceRefresh)...');
-
-      if (!mounted) {
-        print('⚠️ HomeStore: Widget not mounted, skipping load orders');
-        return;
-      }
-
-      final hasStoreAccess = await AuthService.hasRole('store');
-      if (!mounted) return;
-
-      if (!hasStoreAccess) {
-        throw Exception('Access denied: Store authentication required');
-      }
-
-      if (isRefresh || forceRefresh) {
-        if (mounted) {
-          setState(() {
-            _currentPage = 1;
-            _hasMoreData = true;
-            if (forceRefresh) {
-              _processedOrderIds.clear();
-            }
-          });
-        }
-      }
-
-      final response = await OrderService.getOrdersByStore(
-        page: _currentPage,
-        limit: 10,
-        sortBy: 'created_at',
-        sortOrder: 'desc',
-        timestamp:
-            DateTime.now().millisecondsSinceEpoch, // ✅ SELALU bypass cache
-      );
-
-      if (!mounted) return;
-
-      final allOrders =
-          List<Map<String, dynamic>>.from(response['orders'] ?? []);
-
-      print('📋 HomeStore: Backend returned ${allOrders.length} orders');
-
-      // ✅ FIXED: Apply correct business logic filter
-      final validOrders = allOrders.where((order) {
-        final orderId = order['id']?.toString() ?? '';
-
-        // ✅ Apply business logic filter
-        if (!_shouldShowOrder(order)) {
-          print('🔍 Excluding order $orderId: does not meet business rules');
-          return false;
-        }
-
-        if (_processedOrderIds.contains(orderId)) {
-          print('🔍 Excluding order $orderId: already processed locally');
-          return false;
-        }
-
-        if (_globalProcessedOrderIds.contains(orderId)) {
-          print('🔍 Excluding order $orderId: already processed globally');
-          return false;
-        }
-
-        print('✅ Including order $orderId: valid for store processing');
-        return true;
-      }).toList();
-
-      final totalPages = response['totalPages'] ?? 1;
-
-      print('📋 HomeStore: Showing ${validOrders.length} valid orders');
-
-      // Detect new orders for celebration
-      if (!isRefresh && !forceRefresh && _existingOrderIds.isNotEmpty) {
-        for (var order in validOrders) {
-          final orderId = order['id']?.toString();
-          if (orderId != null && !_existingOrderIds.contains(orderId)) {
-            print('🎉 HomeStore: New order detected: $orderId');
-            _triggerNewOrderCelebration(orderId);
-            _showNotification(order);
-          }
-        }
-      }
-
-      // Update existing order IDs
-      _existingOrderIds =
-          validOrders.map((order) => order['id']?.toString() ?? '').toSet();
-
-      // ✅ Only update state if mounted
-      if (mounted) {
-        setState(() {
-          if (isRefresh || forceRefresh) {
-            _orders = validOrders;
-            _initialAnimations();
-          } else {
-            _orders.addAll(validOrders);
-            _addNewAnimations(validOrders.length);
-          }
-
-          _hasMoreData = _currentPage < totalPages;
-          _currentPage++;
-          _lastRefreshTime = DateTime.now();
-        });
-
-        // Start animations
-        if (isRefresh || forceRefresh) {
-          _startAnimations();
-        } else {
-          _startNewAnimations();
-        }
-      }
-
-      print('✅ HomeStore: Orders loaded successfully');
-    } catch (e) {
-      print('❌ HomeStore: Error loading orders: $e');
-      if (isRefresh || forceRefresh && mounted) {
-        throw e;
-      }
-    }
-  }
-
-  //Real-time order monitoring dengan service yang benar
-  // void _startOrderMonitoring() {
-  //   print('🔄 HomeStore: Starting real-time order monitoring (10s interval)...');
-  //
-  //   _orderMonitorTimer = Timer.periodic(const Duration(seconds: 10), (timer) async { // ✅ UBAH: 20 → 10
-  //     if (!mounted) {
-  //       timer.cancel();
-  //       return;
-  //     }
-  //
-  //     setState(() {
-  //       _isAutoRefreshing = true;
-  //     });
-  //
-  //     try {
-  //       print('📡 HomeStore: Checking for order updates...');
-  //
-  //       final response = await OrderService.getOrdersByStore(
-  //         page: 1,
-  //         limit: 20,
-  //         sortBy: 'created_at',
-  //         sortOrder: 'desc',
-  //         timestamp: DateTime.now().millisecondsSinceEpoch, // ✅ SELALU bypass cache
-  //       );
-  //
-  //       final allLatestOrders = List<Map<String, dynamic>>.from(response['orders'] ?? []);
-  //
-  //       // ✅ Filter berdasarkan order_status = 'pending' saja
-  //       final latestValidOrders = allLatestOrders.where((order) {
-  //         final orderId = order['id']?.toString() ?? '';
-  //         final orderStatus = order['order_status']?.toString() ?? '';
-  //
-  //         print('🔍 Real-time check Order $orderId: order_status=$orderStatus'); // ✅ DEBUG
-  //
-  //         // ✅ Hanya tampilkan jika order_status = 'pending'
-  //         bool isPending = orderStatus == 'pending';
-  //
-  //         // ✅ Dan belum pernah diproses
-  //         bool notProcessed = !_globalProcessedOrderIds.contains(orderId) &&
-  //             !_processedOrderIds.contains(orderId);
-  //
-  //         if (!isPending) {
-  //           print('❌ Order $orderId excluded from real-time: not pending ($orderStatus)');
-  //         }
-  //
-  //         return isPending && notProcessed;
-  //       }).toList();
-  //
-  //       // ✅ Compare dengan current orders
-  //       final currentValidOrderIds = filteredOrders
-  //           .map((order) => order['id']?.toString() ?? '')
-  //           .toSet();
-  //
-  //       final latestValidOrderIds = latestValidOrders
-  //           .map((order) => order['id']?.toString() ?? '')
-  //           .toSet();
-  //
-  //       final newOrderIds = latestValidOrderIds.difference(currentValidOrderIds);
-  //       final removedOrderIds = currentValidOrderIds.difference(latestValidOrderIds);
-  //
-  //       bool hasChanges = newOrderIds.isNotEmpty || removedOrderIds.isNotEmpty;
-  //
-  //       if (hasChanges) {
-  //         print('🔄 HomeStore: Real-time changes detected - New: ${newOrderIds.length}, Removed: ${removedOrderIds.length}');
-  //
-  //         // ✅ Mark removed orders as globally processed
-  //         for (String removedId in removedOrderIds) {
-  //           _globalProcessedOrderIds.add(removedId);
-  //           print('📝 Order $removedId marked as globally processed (status changed from pending)');
-  //         }
-  //
-  //         setState(() {
-  //           // Dispose old controllers
-  //           for (var controller in _cardControllers) {
-  //             controller.dispose();
-  //           }
-  //
-  //           _orders = latestValidOrders;
-  //           _existingOrderIds = latestValidOrderIds;
-  //
-  //           // Reinitialize animations
-  //           _initialAnimations();
-  //         });
-  //
-  //         // Start animations
-  //         _startAnimations();
-  //
-  //         // Show notifications for new orders only
-  //         for (String orderId in newOrderIds) {
-  //           final newOrder = latestValidOrders.firstWhere(
-  //                 (order) => order['id']?.toString() == orderId,
-  //             orElse: () => {},
-  //           );
-  //           if (newOrder.isNotEmpty) {
-  //             _triggerNewOrderCelebration(orderId);
-  //             _showNotification(newOrder);
-  //           }
-  //         }
-  //
-  //         // Show feedback for removed orders
-  //         if (mounted && removedOrderIds.isNotEmpty) {
-  //           ScaffoldMessenger.of(context).showSnackBar(
-  //             SnackBar(
-  //               content: Row(
-  //                 children: [
-  //                   Icon(Icons.sync, color: Colors.white, size: 16),
-  //                   const SizedBox(width: 8),
-  //                   Text('${removedOrderIds.length} pesanan diperbarui (status berubah)'),
-  //                 ],
-  //               ),
-  //               backgroundColor: Colors.blue,
-  //               behavior: SnackBarBehavior.floating,
-  //               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-  //               duration: const Duration(seconds: 2),
-  //             ),
-  //           );
-  //         }
-  //       } else {
-  //         print('✅ HomeStore: No real-time changes detected');
-  //       }
-  //
-  //       setState(() {
-  //         _isAutoRefreshing = false;
-  //       });
-  //     } catch (e) {
-  //       print('❌ HomeStore: Error during real-time monitoring: $e');
-  //       setState(() {
-  //         _isAutoRefreshing = false;
-  //       });
-  //     }
-  //   });
-  // }
-
   /// Enhanced order processing menggunakan OrderService.processOrderByStore
   Future<void> _processOrder(String orderId, String action) async {
     try {
@@ -1222,14 +1093,18 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       // Close loading dialog
       if (mounted) Navigator.of(context).pop();
 
-      // ✅ TAMBAH: Mark as processed SETELAH sukses
+      // ✅ PERBAIKAN: HAPUS processed orders logic untuk auto refresh
+      // Hanya hapus dari UI untuk responsiveness, tapi biarkan auto refresh handle data real
       setState(() {
-        _processedOrderIds.add(orderId);
-        _globalProcessedOrderIds.add(orderId);
+        _pendingOrders
+            .removeWhere((order) => order['id']?.toString() == orderId);
       });
 
-      // ✅ TAMBAH: Force refresh immediately setelah berhasil
-      await _forceRefreshOrders();
+      // ✅ PERBAIKAN: Force refresh KEDUA tab untuk reflect perubahan status
+      await Future.wait([
+        _loadPendingOrders(isRefresh: true),
+        _loadActiveOrders(isRefresh: true),
+      ]);
 
       print(
           '✅ HomeStore: Order $orderId processed successfully and UI refreshed');
@@ -1282,8 +1157,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         );
       }
 
-      // Force refresh untuk get current state dari server
-      await _forceRefreshOrders();
+      // ✅ PERBAIKAN: Refresh kedua tab on error juga
+      await Future.wait([
+        _loadPendingOrders(isRefresh: true),
+        _loadActiveOrders(isRefresh: true),
+      ]);
     }
   }
 
@@ -1292,13 +1170,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     try {
       print('👁️ HomeStore: Viewing order detail: $orderId');
 
-      // Validate access before viewing details
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!hasStoreAccess) {
         throw Exception('Access denied: Store authentication required');
       }
 
-      // Show loading dialog
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -1325,14 +1201,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         ),
       );
 
-      // Get order detail menggunakan OrderService.getOrderById
       final orderDetail = await OrderService.getOrderById(orderId);
-
       Navigator.of(context).pop(); // Close loading dialog
 
       if (orderDetail.isNotEmpty) {
-        // ✅ PERBAIKAN: Navigate dengan proper return handling
-        final result = await Navigator.push(
+        // ✅ PERBAIKAN: Navigate tanpa return handling yang tidak perlu
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => HistoryStoreDetailPage(
@@ -1341,10 +1215,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           ),
         );
 
-        // ✅ BARU: Handle return from detail page
-        if (result != null || mounted) {
-          await _handleNavigationReturn();
-        }
+        // ✅ PERBAIKAN: Refresh both tabs setelah kembali dari detail
+        await Future.wait([
+          _loadPendingOrders(isRefresh: true),
+          _loadActiveOrders(isRefresh: true),
+        ]);
 
         print('✅ HomeStore: Navigated to order detail');
       } else {
@@ -1367,152 +1242,58 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  /// Enhanced refresh dengan proper error handling
-  Future<void> _refreshOrders() async {
-    try {
-      print('🔄 HomeStore: Refreshing orders...');
-
-      // Use force refresh to clear cache
-      await _forceRefreshOrders();
-
-      print('✅ HomeStore: Orders refreshed successfully');
-
-      // Show subtle feedback for refresh
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.refresh, color: Colors.white, size: 16),
-                const SizedBox(width: 8),
-                Text('Data pesanan diperbarui'),
-              ],
-            ),
-            backgroundColor: GlobalStyle.primaryColor,
-            behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
-    } catch (e) {
-      print('❌ HomeStore: Error refreshing orders: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal memuat pesanan: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleNavigationReturn() async {
-    print('🔙 HomeStore: Handling navigation return');
-    _needsRefresh = true;
-
-    // Small delay to ensure smooth transition
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    if (mounted) {
-      _forceRefreshOrders();
-    }
-  }
-
-  void _initialAnimations() {
-    // Dispose old controllers
-    for (var controller in _cardControllers) {
-      controller.dispose();
-    }
-
-    _cardControllers = List.generate(
-      _orders.length,
-      (index) => AnimationController(
-        vsync: this,
-        duration: Duration(milliseconds: 600 + (index * 100)),
-      ),
-    );
-
-    _cardAnimations = _cardControllers.map((controller) {
-      return Tween<Offset>(
-        begin: const Offset(0, 0.5),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(
-        parent: controller,
-        curve: Curves.easeOutCubic,
-      ));
-    }).toList();
-  }
-
-  void _addNewAnimations(int count) {
-    for (int i = 0; i < count; i++) {
-      AnimationController newController = AnimationController(
-        vsync: this,
-        duration: Duration(milliseconds: 600 + (i * 100)),
-      );
-
-      Animation<Offset> newAnimation = Tween<Offset>(
-        begin: const Offset(0, 0.5),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(
-        parent: newController,
-        curve: Curves.easeOutCubic,
-      ));
-
-      _cardControllers.add(newController);
-      _cardAnimations.add(newAnimation);
-    }
-  }
-
-  void _startAnimations() {
-    Future.delayed(const Duration(milliseconds: 100), () {
-      for (int i = 0; i < _cardControllers.length; i++) {
-        Future.delayed(Duration(milliseconds: i * 100), () {
-          if (mounted) _cardControllers[i].forward();
-        });
+  void _setupScrollListeners() {
+    _pendingScrollController.addListener(() {
+      if (_pendingScrollController.position.pixels >=
+          _pendingScrollController.position.maxScrollExtent - 200) {
+        if (!_isLoadingMorePending && _hasMorePendingData) {
+          _loadMorePendingOrders();
+        }
       }
     });
-  }
 
-  void _startNewAnimations() {
-    int startIndex = _cardControllers.length - _orders.length;
-    if (startIndex < 0) startIndex = 0;
-
-    for (int i = startIndex; i < _cardControllers.length; i++) {
-      if (mounted) _cardControllers[i].forward();
-    }
-  }
-
-  void _setupScrollListener() {
-    _scrollController.addListener(() {
-      if (_scrollController.position.pixels >=
-          _scrollController.position.maxScrollExtent - 200) {
-        if (!_isLoadingMore && _hasMoreData) {
-          _loadMoreOrders();
+    _activeScrollController.addListener(() {
+      if (_activeScrollController.position.pixels >=
+          _activeScrollController.position.maxScrollExtent - 200) {
+        if (!_isLoadingMoreActive && _hasMoreActiveData) {
+          _loadMoreActiveOrders();
         }
       }
     });
   }
 
-  Future<void> _loadMoreOrders() async {
-    if (_isLoadingMore || !_hasMoreData) return;
+  Future<void> _loadMorePendingOrders() async {
+    if (_isLoadingMorePending || !_hasMorePendingData) return;
 
     setState(() {
-      _isLoadingMore = true;
+      _isLoadingMorePending = true;
     });
 
     try {
-      await _loadOrders();
+      await _loadPendingOrders();
     } catch (e) {
-      print('❌ HomeStore: Error loading more orders: $e');
+      print('❌ HomeStore: Error loading more pending orders: $e');
     } finally {
       setState(() {
-        _isLoadingMore = false;
+        _isLoadingMorePending = false;
+      });
+    }
+  }
+
+  Future<void> _loadMoreActiveOrders() async {
+    if (_isLoadingMoreActive || !_hasMoreActiveData) return;
+
+    setState(() {
+      _isLoadingMoreActive = true;
+    });
+
+    try {
+      await _loadActiveOrders();
+    } catch (e) {
+      print('❌ HomeStore: Error loading more active orders: $e');
+    } finally {
+      setState(() {
+        _isLoadingMoreActive = false;
       });
     }
   }
@@ -1560,7 +1341,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     await _flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse details) {
-        _refreshOrders();
+        // ✅ PERBAIKAN: Refresh both tabs saat notification diklik
+        Future.wait([
+          _loadPendingOrders(isRefresh: true),
+          _loadActiveOrders(isRefresh: true),
+        ]);
       },
     );
   }
@@ -1605,69 +1390,86 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     return null;
   }
 
-  @override
-  @override
-  void dispose() {
-    print('🗑️ HomeStore: Disposing widget...');
-
-    // ✅ Cancel timer first
-    _orderMonitorTimer?.cancel();
-
-    // ✅ Dispose animation controllers
-    for (var controller in _cardControllers) {
-      controller.dispose();
-    }
-    _celebrationController.dispose();
-    _pulseController.dispose();
-    _rotationController.dispose();
-
-    // ✅ Dispose other resources
-    _audioPlayer.dispose();
-    _scrollController.dispose();
-
-    print('✅ HomeStore: Widget disposed successfully');
-    super.dispose();
+  Widget _buildEmptyState(String title, String subtitle, IconData icon) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 100, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: TextStyle(
+              color: GlobalStyle.fontColor,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: TextStyle(
+              color: GlobalStyle.fontColor.withOpacity(0.7),
+              fontSize: 14,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  // ✅ FIXED: Filter to show active orders (not cancelled/completed)
-  List<Map<String, dynamic>> get activeFilteredOrders {
-    return _orders
-        .where((order) => [
-              'pending',
-              'confirmed',
-              'preparing',
-              'ready_for_pickup'
-            ].contains(order['order_status']))
-        .toList();
-  }
-
-  /// method filteredOrders di home_store.dart
-
-// ✅ GANTI: Gunakan _shouldShowOrder method
-  List<Map<String, dynamic>> get filteredOrders {
-    return _orders.where((order) {
-      final orderId = order['id']?.toString() ?? '';
-
-      // ✅ Apply business logic filter
-      if (!_shouldShowOrder(order)) {
-        print('❌ Order $orderId filtered out: does not meet business rules');
-        return false;
-      }
-
-      // Exclude processed orders
-      if (_globalProcessedOrderIds.contains(orderId)) {
-        print('❌ Order $orderId filtered out: globally processed');
-        return false;
-      }
-
-      if (_processedOrderIds.contains(orderId)) {
-        print('❌ Order $orderId filtered out: locally processed');
-        return false;
-      }
-
-      print('✅ Order $orderId included: valid for store processing');
-      return true;
-    }).toList();
+  Widget _buildErrorState(String errorMessage, VoidCallback onRetry) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, size: 64, color: Colors.red),
+          const SizedBox(height: 16),
+          Text(
+            'Terjadi Kesalahan',
+            style: TextStyle(
+              color: GlobalStyle.fontColor,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              errorMessage,
+              style: TextStyle(
+                color: GlobalStyle.fontColor.withOpacity(0.7),
+                fontSize: 14,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: onRetry,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            child: Text(
+              'Coba Lagi',
+              style: TextStyle(
+                color: Colors.white,
+                fontFamily: GlobalStyle.fontFamily,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Color _getStatusColor(String status) {
@@ -1716,14 +1518,69 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  Widget _buildOrderCard(Map<String, dynamic> order, int index) {
-    String status = order['order_status'] as String? ?? 'pending';
+  IconData _getStatusIcon(String status) {
+    switch (status) {
+      case 'preparing':
+        return Icons.restaurant;
+      case 'ready_for_pickup':
+        return Icons.check_circle;
+      case 'on_delivery':
+        return Icons.local_shipping;
+      default:
+        return Icons.info;
+    }
+  }
+
+  Widget _buildPendingOrdersTab() {
+    if (_isLoadingPending && _pendingOrders.isEmpty) {
+      return _buildLoadingState();
+    }
+
+    if (_hasErrorPending && _pendingOrders.isEmpty) {
+      return _buildErrorState(
+          _errorMessagePending, () => _loadPendingOrders(isRefresh: true));
+    }
+
+    if (_pendingOrders.isEmpty) {
+      return _buildEmptyState(
+        'Tidak ada pesanan masuk',
+        'Pesanan baru akan muncul di sini',
+        Icons.inbox_outlined,
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => _loadPendingOrders(isRefresh: true),
+      color: GlobalStyle.primaryColor,
+      child: ListView.builder(
+        controller: _pendingScrollController,
+        padding: const EdgeInsets.symmetric(horizontal: 16)
+            .copyWith(bottom: 80, top: 8),
+        itemCount: _pendingOrders.length + (_isLoadingMorePending ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index < _pendingOrders.length) {
+            return _buildPendingOrderCard(_pendingOrders[index], index);
+          } else {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child:
+                    CircularProgressIndicator(color: GlobalStyle.primaryColor),
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildPendingOrderCard(Map<String, dynamic> order, int index) {
     String orderId = order['id']?.toString() ?? '';
     bool isNewOrder = _newOrderId == orderId;
 
-    // ✅ FIXED: Safe parsing of numeric values
     final totalAmount = _parseDouble(order['total_amount']) ?? 0.0;
     final deliveryFee = _parseDouble(order['delivery_fee']) ?? 0.0;
+    final itemCount = order['items']?.length ?? 0;
 
     Widget cardContent = Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1731,10 +1588,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            Colors.grey.shade50,
-          ],
+          colors: [Colors.white, Colors.orange.shade50],
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
@@ -1743,74 +1597,34 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             blurRadius: 15,
             offset: const Offset(0, 5),
           ),
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
         ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: Stack(
-          children: [
-            // Background pattern
-            Positioned(
-              top: -20,
-              right: -20,
-              child: AnimatedBuilder(
-                animation: _rotationController,
-                builder: (context, child) {
-                  return Transform.rotate(
-                    angle: _rotationController.value * 2 * 3.14159,
-                    child: Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          colors: [
-                            _getStatusColor(status).withOpacity(0.1),
-                            Colors.transparent,
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            // Main content
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              // Header with NEW badge if applicable
+              Row(
                 children: [
-                  // Header section
-                  Row(
-                    children: [
-                      // Order ID badge
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              GlobalStyle.primaryColor,
-                              GlobalStyle.primaryColor.withOpacity(0.8),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          Icons.receipt_long,
-                          color: Colors.white,
-                          size: 24,
-                        ),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.orange, Colors.orange.shade600],
                       ),
-                      const SizedBox(width: 16),
-                      // Order info
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.pending_actions,
+                        color: Colors.white, size: 24),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
                             Text(
                               'Order #$orderId',
@@ -1820,123 +1634,38 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                                 color: Colors.black87,
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.access_time,
-                                  size: 16,
-                                  color: Colors.grey.shade600,
+                            if (isNewOrder && _showCelebration) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.red,
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  order['created_at'] != null
-                                      ? DateFormat('dd MMM yyyy HH:mm').format(
-                                          DateTime.parse(order['created_at']))
-                                      : 'Unknown Time',
+                                child: const Text(
+                                  'BARU!',
                                   style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 13,
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ],
                         ),
-                      ),
-                      // Status badge
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(status),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _getStatusColor(status).withOpacity(0.3),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Text(
-                          _getStatusLabel(status),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // Order details
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.grey.shade200,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
+                        const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(
-                              Icons.attach_money,
-                              color: GlobalStyle.primaryColor,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
+                            Icon(Icons.access_time,
+                                size: 16, color: Colors.grey.shade600),
+                            const SizedBox(width: 4),
                             Text(
-                              'Total Amount',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    GlobalStyle.primaryColor,
-                                    GlobalStyle.primaryColor.withOpacity(0.8),
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                GlobalStyle.formatRupiah(totalAmount),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.delivery_dining,
-                              color: Colors.grey.shade600,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Delivery Fee: ${GlobalStyle.formatRupiah(deliveryFee)}',
+                              order['created_at'] != null
+                                  ? DateFormat('dd MMM yyyy HH:mm').format(
+                                      DateTime.parse(order['created_at']))
+                                  : 'Unknown Time',
                               style: TextStyle(
                                 color: Colors.grey.shade600,
                                 fontSize: 13,
@@ -1947,133 +1676,152 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  // Action buttons
-                  Row(
-                    children: [
-                      // View Detail Button
-                      Expanded(
-                        child: Container(
-                          height: 45,
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.orange,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'MENUNGGU',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Order summary
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.shopping_cart,
+                            color: GlobalStyle.primaryColor, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          '$itemCount item pesanan',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [
                                 GlobalStyle.primaryColor,
-                                GlobalStyle.primaryColor.withOpacity(0.8),
+                                GlobalStyle.primaryColor.withOpacity(0.8)
                               ],
                             ),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color:
-                                    GlobalStyle.primaryColor.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () => _viewOrderDetail(orderId),
-                              child: Center(
-                                child: Text(
-                                  'Lihat Detail',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // Action buttons for pending orders
-                      if (status == 'pending') ...[
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Container(
-                            height: 45,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Colors.green, Color(0xFF4CAF50)],
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.green.withOpacity(0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ],
-                            ),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () => _processOrder(orderId, 'approve'),
-                                child: Center(
-                                  child: Text(
-                                    'Terima',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Container(
-                          width: 45,
-                          height: 45,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Colors.red, Color(0xFFF44336)],
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.red.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () => _processOrder(orderId, 'reject'),
-                              child: Center(
-                                child: Icon(
-                                  Icons.close,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              ),
+                          child: Text(
+                            GlobalStyle.formatRupiah(totalAmount),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
                             ),
                           ),
                         ),
                       ],
-                    ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.delivery_dining,
+                            color: Colors.grey.shade600, size: 16),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Ongkir: ${GlobalStyle.formatRupiah(deliveryFee)}',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Action buttons for pending orders
+              Row(
+                children: [
+                  // View Detail Button
+                  Expanded(
+                    child: _buildActionButton(
+                      onTap: () => _viewOrderDetail(orderId),
+                      icon: Icons.visibility,
+                      label: 'Detail',
+                      gradient: [
+                        GlobalStyle.primaryColor,
+                        GlobalStyle.primaryColor.withOpacity(0.8)
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Accept Button
+                  Expanded(
+                    flex: 2,
+                    child: _buildActionButton(
+                      onTap: () => _processOrder(orderId, 'approve'),
+                      icon: Icons.check_circle,
+                      label: 'Terima Pesanan',
+                      gradient: [Colors.green, Colors.green.shade600],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Reject Button
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                          colors: [Colors.red, Color(0xFFF44336)]),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.red.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _processOrder(orderId, 'reject'),
+                        child: const Center(
+                          child:
+                              Icon(Icons.close, color: Colors.white, size: 20),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
 
-    // Wrap with celebration animation if it's a new order
+    // Add celebration animation for new orders
     if (isNewOrder && _showCelebration) {
       return AnimatedBuilder(
         animation: _celebrationController,
@@ -2094,44 +1842,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                   ),
                 ],
               ),
-              child: Stack(
-                children: [
-                  cardContent,
-                  // Celebration overlay
-                  if (_celebrationController.value > 0.5)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: Colors.yellow
-                                .withOpacity(_celebrationController.value),
-                            width: 3,
-                          ),
-                        ),
-                      ),
-                    ),
-                  // Celebration particles
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: Lottie.asset(
-                      'assets/animations/celebration.json',
-                      width: 60,
-                      height: 60,
-                      repeat: false,
-                      animate: _celebrationController.isAnimating,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Icon(
-                          Icons.celebration,
-                          color: Colors.yellow,
-                          size: 60,
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
+              child: cardContent,
             ),
           );
         },
@@ -2140,52 +1851,251 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
     // Regular slide animation
     return SlideTransition(
-      position: index < _cardAnimations.length
-          ? _cardAnimations[index]
+      position: index < _pendingCardAnimations.length
+          ? _pendingCardAnimations[index]
           : const AlwaysStoppedAnimation(Offset.zero),
       child: cardContent,
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Lottie.asset(
-            'assets/animations/empty.json',
-            width: 200,
-            height: 200,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) {
-              return Icon(
-                Icons.inbox_outlined,
-                size: 100,
-                color: Colors.grey[400],
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Tidak ada pesanan',
-            style: TextStyle(
-              color: GlobalStyle.fontColor,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Pesanan baru akan muncul di sini',
-            style: TextStyle(
-              color: GlobalStyle.fontColor.withOpacity(0.7),
-              fontSize: 14,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
+  Widget _buildActiveOrdersTab() {
+    if (_isLoadingActive && _activeOrders.isEmpty) {
+      return _buildLoadingState();
+    }
+
+    if (_hasErrorActive && _activeOrders.isEmpty) {
+      return _buildErrorState(
+          _errorMessageActive, () => _loadActiveOrders(isRefresh: true));
+    }
+
+    if (_activeOrders.isEmpty) {
+      return _buildEmptyState(
+        'Tidak ada pesanan aktif',
+        'Pesanan yang sedang diproses akan muncul di sini',
+        Icons.local_shipping_outlined,
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => _loadActiveOrders(isRefresh: true),
+      color: GlobalStyle.primaryColor,
+      child: ListView.builder(
+        controller: _activeScrollController,
+        padding: const EdgeInsets.symmetric(horizontal: 16)
+            .copyWith(bottom: 80, top: 8),
+        itemCount: _activeOrders.length + (_isLoadingMoreActive ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index < _activeOrders.length) {
+            return _buildActiveOrderCard(_activeOrders[index], index);
+          } else {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child:
+                    CircularProgressIndicator(color: GlobalStyle.primaryColor),
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildActiveOrderCard(Map<String, dynamic> order, int index) {
+    String status = order['order_status'] as String? ?? 'preparing';
+    String orderId = order['id']?.toString() ?? '';
+
+    final totalAmount = _parseDouble(order['total_amount']) ?? 0.0;
+    final deliveryFee = _parseDouble(order['delivery_fee']) ?? 0.0;
+    final itemCount = order['items']?.length ?? 0;
+
+    Widget cardContent = Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.white, _getStatusColor(status).withOpacity(0.1)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          _getStatusColor(status),
+                          _getStatusColor(status).withOpacity(0.8)
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(_getStatusIcon(status),
+                        color: Colors.white, size: 24),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Order #$orderId',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.access_time,
+                                size: 16, color: Colors.grey.shade600),
+                            const SizedBox(width: 4),
+                            Text(
+                              order['created_at'] != null
+                                  ? DateFormat('dd MMM yyyy HH:mm').format(
+                                      DateTime.parse(order['created_at']))
+                                  : 'Unknown Time',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(status),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _getStatusColor(status).withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      _getStatusLabel(status),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Order summary
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.shopping_cart,
+                            color: GlobalStyle.primaryColor, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          '$itemCount item pesanan',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                GlobalStyle.primaryColor,
+                                GlobalStyle.primaryColor.withOpacity(0.8)
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            GlobalStyle.formatRupiah(totalAmount),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.delivery_dining,
+                            color: Colors.grey.shade600, size: 16),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Ongkir: ${GlobalStyle.formatRupiah(deliveryFee)}',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // View Detail Button only for active orders
+              SizedBox(
+                width: double.infinity,
+                child: _buildActionButton(
+                  onTap: () => _viewOrderDetail(orderId),
+                  icon: Icons.visibility,
+                  label: 'Lihat Detail Pesanan',
+                  gradient: [
+                    GlobalStyle.primaryColor,
+                    GlobalStyle.primaryColor.withOpacity(0.8)
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return SlideTransition(
+      position: index < _activeCardAnimations.length
+          ? _activeCardAnimations[index]
+          : const AlwaysStoppedAnimation(Offset.zero),
+      child: cardContent,
     );
   }
 
@@ -2202,63 +2112,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               color: Colors.grey.shade600,
               fontSize: 16,
               fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: Colors.red,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Terjadi Kesalahan',
-            style: TextStyle(
-              color: GlobalStyle.fontColor,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              fontFamily: GlobalStyle.fontFamily,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              _errorMessage,
-              style: TextStyle(
-                color: GlobalStyle.fontColor.withOpacity(0.7),
-                fontSize: 14,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _validateAndInitializeData,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: GlobalStyle.primaryColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-            child: Text(
-              'Coba Lagi',
-              style: TextStyle(
-                color: Colors.white,
-                fontFamily: GlobalStyle.fontFamily,
-                fontWeight: FontWeight.bold,
-              ),
             ),
           ),
         ],
@@ -2313,14 +2166,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final orders = filteredOrders;
-
     return Scaffold(
       backgroundColor: const Color(0xffF8FAFE),
       body: SafeArea(
         child: Column(
           children: [
-            // Enhanced Header (Statistics removed)
+            // Enhanced Header
             Container(
               margin: const EdgeInsets.all(16),
               padding: const EdgeInsets.all(20),
@@ -2413,77 +2264,105 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               ),
             ),
 
-            // Orders List Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Text(
-                    'Pesanan Masuk',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: GlobalStyle.fontFamily,
-                      color: Colors.black87,
+            // Tab Bar
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicator: BoxDecoration(
+                  color: GlobalStyle.primaryColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.grey.shade600,
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+                unselectedLabelStyle: TextStyle(
+                  fontWeight: FontWeight.normal,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+                tabs: [
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.pending_actions, size: 18),
+                        const SizedBox(width: 8),
+                        Text('Pesanan Masuk'),
+                        if (_pendingOrders.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${_pendingOrders.length}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                  const Spacer(),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: GlobalStyle.primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${orders.length} pesanan',
-                      style: TextStyle(
-                        color: GlobalStyle.primaryColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.local_shipping, size: 18),
+                        const SizedBox(width: 8),
+                        Text('Pesanan Aktif'),
+                        if (_activeOrders.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${_activeOrders.length}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
 
-            // Orders List
+            // Tab Views
             Expanded(
               child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                child: _isLoading
-                    ? _buildLoadingState()
-                    : _hasError
-                        ? _buildErrorState()
-                        : orders.isEmpty
-                            ? _buildEmptyState()
-                            : RefreshIndicator(
-                                onRefresh: _refreshOrders,
-                                color: GlobalStyle.primaryColor,
-                                child: ListView.builder(
-                                  controller: _scrollController,
-                                  padding:
-                                      const EdgeInsets.only(top: 8, bottom: 80),
-                                  itemCount:
-                                      orders.length + (_isLoadingMore ? 1 : 0),
-                                  itemBuilder: (context, index) {
-                                    if (index < orders.length) {
-                                      return _buildOrderCard(
-                                          orders[index], index);
-                                    } else {
-                                      return Container(
-                                        padding: const EdgeInsets.all(16),
-                                        child: Center(
-                                          child: CircularProgressIndicator(
-                                            color: GlobalStyle.primaryColor,
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
+                margin: const EdgeInsets.only(top: 16),
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // Pending Orders Tab
+                    _buildPendingOrdersTab(),
+                    // Active Orders Tab
+                    _buildActiveOrdersTab(),
+                  ],
+                ),
               ),
             ),
           ],
