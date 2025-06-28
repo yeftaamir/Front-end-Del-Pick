@@ -68,6 +68,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   bool _isCreatingOrder = false;
   String? _orderNotes = '';
 
+  // ✅ FIXED: Anti-double submission
+  bool _hasSubmittedOrder = false;
+  Timer? _submitDebounceTimer;
+
   // Location specific variables
   bool _isLoadingLocation = false;
   bool _hasLocationPermission = false;
@@ -87,6 +91,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   late List<AnimationController> _cardControllers;
   late List<Animation<Offset>> _cardAnimations;
 
+  // ✅ FIXED: Notes controller for driver
+  late TextEditingController _notesController;
+
   // Helper to get item quantity from external map
   int _getItemQuantity(MenuItemModel item) {
     return widget.itemQuantities?[item.id] ?? 0;
@@ -95,10 +102,19 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _initializeControllers();
     _initializeAnimations();
     _initializeStoreLocation();
     _loadInitialData();
     _initializeLocation();
+  }
+
+  // ✅ FIXED: Initialize controllers properly
+  void _initializeControllers() {
+    _notesController = TextEditingController();
+    _notesController.addListener(() {
+      _orderNotes = _notesController.text;
+    });
   }
 
   void _initializeAnimations() {
@@ -174,7 +190,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     if (_storeDistance != null) {
       setState(() {
         double fee = calculateDeliveryFee(_storeDistance!);
-        _estimatedDeliveryFee = (fee % 1000 == 0) ? fee : ((fee / 1000).ceil() * 1000);
+        _estimatedDeliveryFee = fee;
       });
       print('✅ CartScreen: Estimated delivery fee calculated: ${GlobalStyle.formatRupiah(_estimatedDeliveryFee)}');
       return;
@@ -314,10 +330,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
+  // ✅ FIXED: Round delivery fee to nearest 1000 for cash payment
   double calculateDeliveryFee(double distance) {
     double rawFee = distance * 2500;
-    double roundedFee = rawFee.ceilToDouble();
-    return roundedFee;
+    // Round up to nearest 1000 to make cash payment easier
+    double roundedFee = (rawFee / 1000).ceil() * 1000;
+    // Minimum fee 3000
+    return roundedFee < 3000 ? 3000 : roundedFee;
   }
 
   double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
@@ -489,27 +508,92 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
-          // ✅ BARU: Notes input field
-          TextField(
-            decoration: InputDecoration(
-              labelText: 'Catatan untuk Driver (Opsional)',
-              hintText: 'Contoh: Tolong hubungi saat sampai, rumah cat biru',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.grey[300]!),
+          // ✅ FIXED: Enhanced Notes input field for driver
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.note_add_outlined,
+                    size: 16,
+                    color: GlobalStyle.primaryColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Catatan untuk Driver',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ],
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: GlobalStyle.primaryColor),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _notesController,
+                decoration: InputDecoration(
+                  hintText: 'Contoh: Tolong hubungi saat sampai, rumah cat biru di sebelah warung',
+                  hintStyle: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[500],
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey[300]!),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: GlobalStyle.primaryColor),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey[300]!),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  fillColor: Colors.grey[50],
+                  filled: true,
+                ),
+                maxLines: 3,
+                maxLength: 200,
+                style: const TextStyle(fontSize: 14),
+                textInputAction: TextInputAction.done,
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            ),
-            maxLines: 2,
-            onChanged: (value) {
-              _orderNotes = value;
-            },
+              const SizedBox(height: 8),
+              // Helper text
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.lightbulb_outline,
+                      size: 14,
+                      color: Colors.blue[600],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Tips: Berikan alamat yang jelas agar driver mudah menemukan lokasi Anda',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.blue[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -524,6 +608,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       controller.dispose();
     }
     _audioPlayer.dispose();
+    // ✅ FIXED: Dispose notes controller and timer
+    _notesController.dispose();
+    _submitDebounceTimer?.cancel();
     super.dispose();
   }
 
@@ -701,10 +788,23 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ✅ PERBAIKAN: Completely updated untuk menggunakan OrderService yang baru
+  // ✅ FIXED: Anti-double submission and enhanced validation
   Future<void> _createOrder() async {
-    // ✅ PERBAIKAN: Basic validation tidak lagi memerlukan delivery address
-    // karena backend menggunakan lokasi statis
+    // ✅ FIXED: Prevent double submission
+    if (_hasSubmittedOrder || _isCreatingOrder) {
+      print('⚠️ CartScreen: Order submission already in progress, ignoring...');
+      return;
+    }
+
+    // ✅ FIXED: Debounce rapid clicks
+    if (_submitDebounceTimer != null && _submitDebounceTimer!.isActive) {
+      print('⚠️ CartScreen: Debouncing rapid clicks...');
+      return;
+    }
+
+    _submitDebounceTimer = Timer(const Duration(milliseconds: 2000), () {
+      // Reset debounce after 2 seconds
+    });
 
     // Validate customer access first
     final hasAccess = await AuthService.validateCustomerAccess();
@@ -722,8 +822,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       return;
     }
 
+    // ✅ FIXED: Set flags to prevent double submission
     setState(() {
       _isCreatingOrder = true;
+      _hasSubmittedOrder = true;
     });
 
     // Show creating order dialog
@@ -798,11 +900,15 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       print('   - Items count: ${widget.cartItems.length}');
       print('   - Notes: $_orderNotes');
 
+      // ✅ FIXED: Ensure notes are sent properly
+      final notes = _orderNotes?.trim() ?? '';
+      print('   - Processed notes: "$notes"');
+
       // ✅ PERBAIKAN: Menggunakan OrderService.placeOrder() yang baru
       final orderResponse = await OrderService.placeOrder(
         storeId: widget.storeId.toString(),
         items: _prepareOrderItems(),
-        notes: _orderNotes ?? '',
+        notes: notes, // ✅ FIXED: Send notes properly
       );
 
       // Close creating order dialog
@@ -884,8 +990,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
       Navigator.of(context, rootNavigator: true).pop();
 
+      // ✅ FIXED: Reset flags on error so user can retry
       setState(() {
         _isCreatingOrder = false;
+        _hasSubmittedOrder = false;
       });
 
       // ✅ PERBAIKAN: Enhanced error messages based on service errors
@@ -964,6 +1072,49 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+                // ✅ FIXED: Show notes if provided
+                if (_orderNotes != null && _orderNotes!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.note_outlined,
+                              size: 14,
+                              color: Colors.green[700],
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Catatan terkirim:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.green[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '"${_orderNotes!.trim()}"',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.green[600],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 // ✅ BARU: Informasi auto driver search
                 Container(
@@ -1270,7 +1421,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                           children: [
                             _buildPaymentRow('Subtotal', subtotal),
                             const SizedBox(height: 12),
-                            _buildPaymentRow('Biaya Pengiriman (Est.)', _estimatedDeliveryFee),
+                            _buildPaymentRow('Biaya Pengiriman', _estimatedDeliveryFee),
                             if (_storeDistance != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 4.0),
@@ -1279,22 +1430,23 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                                   children: [
                                     const SizedBox(width: 4),
                                     Text(
-                                      'Jarak: ${_getFormattedDistance()} × Rp 2.500/km ',
+                                      'Jarak: ${_getFormattedDistance()} (dibulatkan untuk kemudahan bayar tunai)',
                                       style: TextStyle(
-                                        fontSize: 12,
+                                        fontSize: 11,
                                         color: Colors.grey[600],
+                                        fontStyle: FontStyle.italic,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
                             const Divider(thickness: 1, height: 24),
-                            _buildPaymentRow('Total (Est.)', estimatedTotal, isTotal: true),
+                            _buildPaymentRow('Total', estimatedTotal, isTotal: true),
                           ],
                         ),
                       ),
                       const SizedBox(height: 16),
-                      // ✅ BARU: Enhanced info section
+                      // ✅ FIXED: Enhanced info section
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -1314,7 +1466,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Biaya pengiriman final akan dihitung sistem berdasarkan lokasi tujuan.',
+                                    'Biaya pengiriman dibulatkan ke atas (kelipatan Rp1.000) untuk kemudahan pembayaran tunai.',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.blue[700],
@@ -1375,7 +1527,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 ],
               ),
               child: ElevatedButton(
-                onPressed: _isCreatingOrder || _isLoading ? null : _createOrder,
+                // ✅ FIXED: Enhanced button state management
+                onPressed: (_isCreatingOrder || _isLoading || _hasSubmittedOrder) ? null : _createOrder,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   disabledBackgroundColor: Colors.grey,
