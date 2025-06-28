@@ -6,6 +6,7 @@ import 'package:del_pick/Common/global_style.dart';
 import 'package:del_pick/Views/Component/driver_bottom_navigation.dart';
 import 'package:del_pick/Views/Driver/history_driver_detail.dart';
 import 'package:del_pick/Services/driver_request_service.dart';
+import 'package:del_pick/Services/store_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Models/driver_request.dart';
@@ -30,6 +31,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
   bool _hasError = false;
   String _errorMessage = '';
   List<DriverRequestModel> _driverRequests = [];
+  Map<String, String> _storeNamesCache = {};
 
 // Authentication state
   bool _isAuthenticated = false;
@@ -50,23 +52,27 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
     {'label': 'Semua', 'statuses': null},
     {
       'label': 'Menunggu',
-      'statuses': ['pending', 'confirmed']
+      'statuses': ['pending'] // Pesanan yang masih menunggu
     },
     {
-      'label': 'Disiapkan',
-      'statuses': ['preparing', 'ready_for_pickup']
+      'label': 'Diproses',
+      'statuses': ['confirmed', 'preparing'] // Toko sedang memproses
+    },
+    {
+      'label': 'Siap Diambil',
+      'statuses': ['ready_for_pickup'] // Siap diambil driver
     },
     {
       'label': 'Diantar',
-      'statuses': ['on_delivery']
+      'statuses': ['on_delivery'] // Sedang diantar
     },
     {
       'label': 'Selesai',
-      'statuses': ['delivered']
+      'statuses': ['delivered'] // Sudah selesai
     },
     {
       'label': 'Dibatalkan',
-      'statuses': ['cancelled', 'rejected']
+      'statuses': ['cancelled', 'rejected'] // Dibatalkan/ditolak
     },
   ];
 
@@ -143,12 +149,44 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
   }
 
 // ===== DATA FETCHING =====
+  Future<String> _getStoreName(int? storeId) async {
+    if (storeId == null) return 'Unknown Store';
+
+    final cacheKey = storeId.toString();
+    if (_storeNamesCache.containsKey(cacheKey)) {
+      return _storeNamesCache[cacheKey]!;
+    }
+
+    try {
+      final storeResponse = await StoreService.getStoreById(storeId.toString());
+
+      // ✅ FIX: Handle StoreService response structure
+      String storeName = 'Unknown Store';
+
+      if (storeResponse['success'] == true && storeResponse['data'] != null) {
+        // Success response structure
+        storeName =
+            storeResponse['data']['name']?.toString() ?? 'Unknown Store';
+      } else if (storeResponse['name'] != null) {
+        // Direct data structure
+        storeName = storeResponse['name']?.toString() ?? 'Unknown Store';
+      }
+
+      _storeNamesCache[cacheKey] = storeName;
+      return storeName;
+    } catch (e) {
+      print('❌ Error fetching store name for ID $storeId: $e');
+      _storeNamesCache[cacheKey] = 'Unknown Store';
+      return 'Unknown Store';
+    }
+  }
 
   Future<void> _fetchDriverRequests({bool isRefresh = false}) async {
     if (!_isAuthenticated) return;
 
     if (isRefresh) {
       _currentPage = 1;
+      _storeNamesCache.clear(); // ✅ ADD: Clear store names cache on refresh
     }
 
     setState(() {
@@ -246,7 +284,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
     if (tabStatuses == null) return _driverRequests;
 
     return _driverRequests.where((request) {
-      final orderStatus = request.orderStatus.toLowerCase();
+      final orderStatus = request.order?.orderStatus.value.toLowerCase() ?? '';
       return tabStatuses.contains(orderStatus);
     }).toList();
   }
@@ -294,8 +332,6 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
     final statusText = orderStatus.displayName;
     final customerName = order.customer?.name ?? 'Unknown Customer';
     final customerAvatar = order.customer?.avatar ?? '';
-    final storeName = order.store?.name ?? 'Unknown Store';
-    final storeImage = order.store?.imageUrl ?? '';
     final totalItems = order.totalItems;
     final driverEarnings = request.driverEarnings;
 
@@ -318,7 +354,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-// Header
+                // Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -339,7 +375,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                 ),
                 const SizedBox(height: 12),
 
-// Customer info
+                // Customer info
                 Row(
                   children: [
                     _buildAvatar(customerAvatar, Icons.person),
@@ -371,22 +407,31 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                 ),
                 const SizedBox(height: 12),
 
-// Store info
+                // ✅ PERBAIKAN: Store info dengan nama dari API berdasarkan store ID
                 Row(
                   children: [
-                    _buildAvatar(storeImage, Icons.store),
+                    _buildAvatar(order.store?.imageUrl, Icons.store),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            storeName,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[800],
-                              fontWeight: FontWeight.w600,
-                            ),
+                          // ✅ FIX: Future builder untuk nama toko dari store ID
+                          FutureBuilder<String>(
+                            future: _getStoreName(
+                                order.storeId), // ✅ Ambil nama dari store ID
+                            builder: (context, snapshot) {
+                              final storeName = snapshot.data ??
+                                  (order.store?.name ?? 'Loading...');
+                              return Text(
+                                storeName,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[800],
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              );
+                            },
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -403,7 +448,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                 ),
                 const Divider(height: 24),
 
-// Bottom section
+                // Bottom section
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -431,7 +476,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                     if (driverEarnings > 0)
                       _buildEarningsChip(driverEarnings)
                     else
-                      _buildDetailButton(),
+                      _buildDetailButton(), // ✅ PERBAIKAN: Tombol hijau
                   ],
                 ),
               ],
@@ -521,19 +566,32 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
   }
 
   Widget _buildDetailButton() {
-    return ElevatedButton(
-      onPressed: null, // Will be handled by card tap
-      style: ElevatedButton.styleFrom(
-        backgroundColor: GlobalStyle.primaryColor,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.green, // ✅ CHANGE: Hijau, bukan abu-abu
+            Colors.green.withOpacity(0.8),
+          ],
         ),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.3), // ✅ CHANGE: Shadow hijau
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: const Text(
+      child: Text(
         'Lihat Detail',
-        style: TextStyle(fontWeight: FontWeight.w500),
+        style: TextStyle(
+          color: Colors.white, // ✅ CHANGE: Text putih untuk kontras
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          fontFamily: GlobalStyle.fontFamily,
+        ),
       ),
     );
   }

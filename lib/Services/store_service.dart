@@ -254,12 +254,13 @@ class StoreService {
         requiresAuth: true,
       );
 
-      return response['data'] ?? {
-        'orders': [],
-        'totalItems': 0,
-        'totalPages': 0,
-        'currentPage': 1,
-      };
+      return response['data'] ??
+          {
+            'orders': [],
+            'totalItems': 0,
+            'totalPages': 0,
+            'currentPage': 1,
+          };
     } catch (e) {
       _log('Get store orders error: $e');
       throw Exception('Failed to get store orders: $e');
@@ -391,8 +392,8 @@ class StoreService {
       _processOtherFields(storeData);
 
       _log('Store data validated successfully');
-      _log('Store ID: ${storeData['id']}, Name: ${storeData['name']}, Rating: ${storeData['rating']}');
-
+      _log(
+          'Store ID: ${storeData['id']}, Name: ${storeData['name']}, Rating: ${storeData['rating']}');
     } catch (e) {
       _log('Error validating store data: $e');
     }
@@ -455,7 +456,8 @@ class StoreService {
   }
 
   /// Process individual numeric field - Optimized
-  static void _processNumericField(Map<String, dynamic> data, String field, double? defaultValue) {
+  static void _processNumericField(
+      Map<String, dynamic> data, String field, double? defaultValue) {
     final value = data[field];
     if (value != null) {
       if (value is String) {
@@ -553,12 +555,18 @@ class StoreService {
     print('📍 Address: ${store['address']} (${store['address']?.runtimeType})');
     print('⭐ Rating: ${store['rating']} (${store['rating']?.runtimeType})');
     print('📞 Phone: ${store['phone']} (${store['phone']?.runtimeType})');
-    print('🕐 Open Time: ${store['open_time']} (${store['open_time']?.runtimeType})');
-    print('🕐 Close Time: ${store['close_time']} (${store['close_time']?.runtimeType})');
-    print('🌍 Latitude: ${store['latitude']} (${store['latitude']?.runtimeType})');
-    print('🌍 Longitude: ${store['longitude']} (${store['longitude']?.runtimeType})');
-    print('🖼️ Image URL: ${store['image_url']} (${store['image_url']?.runtimeType})');
-    print('📝 Description: ${store['description']} (${store['description']?.runtimeType})');
+    print(
+        '🕐 Open Time: ${store['open_time']} (${store['open_time']?.runtimeType})');
+    print(
+        '🕐 Close Time: ${store['close_time']} (${store['close_time']?.runtimeType})');
+    print(
+        '🌍 Latitude: ${store['latitude']} (${store['latitude']?.runtimeType})');
+    print(
+        '🌍 Longitude: ${store['longitude']} (${store['longitude']?.runtimeType})');
+    print(
+        '🖼️ Image URL: ${store['image_url']} (${store['image_url']?.runtimeType})');
+    print(
+        '📝 Description: ${store['description']} (${store['description']?.runtimeType})');
     print('📊 Status: ${store['status']} (${store['status']?.runtimeType})');
     print('🔍 ====== END DEBUG ======');
   }
