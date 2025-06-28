@@ -122,28 +122,23 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
+  // initState dengan status sync
   @override
   void initState() {
     super.initState();
 
     _tabController = TabController(length: 1, vsync: this);
-
-    // Initialize Animations
     _initializeAnimations();
-
-    // Initialize Notifications
     _initializeNotifications();
-
-    // Request Permissions
     _requestPermissions();
-
-    // Load Initial Data
     _initializeAuthentication();
 
-    // Start Periodic Updates
-    _startPeriodicUpdates();
-
-    _startFastPolling();
+    // ✅ TAMBAH: Start status sync immediately
+    Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted && _driverId != null) {
+        _syncDriverStatusWithBackend();
+      }
+    });
   }
 
   void _initializeAnimations() {
@@ -305,10 +300,10 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     return status == 'pending' && _processingRequests[requestId] != true;
   }
 
-  // ✅ Load driver requests with improved error handling
+  // Load driver requests with improved error handling
   Future<void> _loadDriverRequests() async {
     if (!mounted || _driverId == null || _isLoadingRequests) {
-      return; // ✅ Prevent multiple simultaneous loads
+      return;
     }
 
     setState(() {
@@ -321,57 +316,67 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       final response = await DriverRequestService.getDriverRequests(
         page: 1,
         limit: 50,
-        status: 'pending', // Hanya ambil yang pending
-        // driverId: _driverId, // Filter berdasarkan driver
+        // ✅ HAPUS filter status, ambil semua untuk filter di frontend
         sortBy: 'created_at',
         sortOrder: 'desc',
       );
 
-      // ✅ TAMBAHKAN LOGGING INI SETELAH RESPONSE:
-      print('📊 Backend response: ${response['requests']?.length} requests');
-      for (var req in response['requests'] ?? []) {
-        print('   - ID: ${req['id']}, Status: ${req['status']}');
-      }
-
       final requestsData = response['requests'] ?? [];
       List<Map<String, dynamic>> processedRequests = [];
 
-      /// ✅ Process and deduplicate requests
+      // ✅ UBAH: Filter berdasarkan kondisi order status dan delivery status
       for (var requestData in requestsData) {
         try {
           final String id = requestData['id'].toString();
-          final String currentStatus = requestData['status'] ?? 'pending';
+          final String requestStatus = requestData['status'] ?? 'pending';
+          final order = requestData['order'];
 
-          // Skip jika status bukan pending atau sedang diproses
-          if (currentStatus != 'pending' || _processingRequests[id] == true) {
+          if (order == null) continue;
+
+          final String orderStatus = order['order_status'] ?? '';
+          final String deliveryStatus = order['delivery_status'] ?? '';
+
+          // ✅ TAMBAH: Logic filter sesuai requirement
+          bool shouldShow = false;
+
+          // Show jika request status pending dan kondisi order memenuhi syarat
+          if (requestStatus == 'pending') {
+            // Case 1: order_status pending dan delivery_status pending
+            if (orderStatus == 'pending' && deliveryStatus == 'pending') {
+              shouldShow = true;
+            }
+            // Case 2: order_status preparing dan delivery_status pending
+            else if (orderStatus == 'preparing' &&
+                deliveryStatus == 'pending') {
+              shouldShow = true;
+            }
+          }
+
+          // Skip jika tidak memenuhi kondisi atau sedang diproses
+          if (!shouldShow || _processingRequests[id] == true) {
             continue;
           }
 
-          // ✅ Process request data
-          final String requestType = _determineRequestType(requestData);
-
+          // Process request data
           Map<String, dynamic> processedRequest =
               Map<String, dynamic>.from(requestData);
-          processedRequest['request_type'] = requestType;
           processedRequest['urgency'] =
               DriverRequestService.getRequestUrgency(requestData);
           processedRequest['potential_earnings'] =
               _calculateSafePotentialEarnings(requestData);
 
-          // ✅ Add ke list yang benar
           processedRequests.add(processedRequest);
         } catch (e) {
           print('⚠️ Error processing request ${requestData['id']}: $e');
         }
       }
 
-// ✅ Update state dengan data yang sudah diproses
       if (mounted) {
         setState(() {
-          _driverRequests = processedRequests; // ← Gunakan variable yang benar
+          _driverRequests = processedRequests;
           _isLoadingRequests = false;
         });
-        print('✅ Loaded ${processedRequests.length} driver requests');
+        print('✅ Loaded ${processedRequests.length} valid driver requests');
       }
     } catch (e) {
       print('❌ Error loading driver requests: $e');
@@ -480,31 +485,50 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     return 'regular';
   }
 
+  // Polling berdasarkan status driver
   void _startPeriodicUpdates() {
+    _requestPollingTimer?.cancel(); // Cancel existing timer
+
     _requestPollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      if (_driverStatus == 'active' && mounted && _driverId != null) {
-        // ✅ Refresh lebih sering untuk data real-time
-        _loadDriverRequests();
+      if (mounted && _driverId != null) {
+        if (_driverStatus == 'active') {
+          // Load requests hanya saat active
+          _loadDriverRequests();
+        }
+
+        // ✅ TAMBAH: Selalu sync status dengan backend
+        _syncDriverStatusWithBackend();
       }
     });
   }
 
+  // Fast polling dengan status check
   void _startFastPolling() {
+    _fastPollingTimer?.cancel(); // Cancel existing timer
+
     _fastPollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (_driverStatus == 'active' &&
-          mounted &&
-          _driverId != null &&
-          _isOnline &&
-          _processingRequests.isNotEmpty) {
-        print('🔄 Fast polling: Refreshing due to pending actions...');
-        _loadDriverRequests();
+      if (mounted && _driverId != null) {
+        // ✅ TAMBAH: Sync status lebih sering untuk real-time update
+        _syncDriverStatusWithBackend();
+
+        // Load requests jika active dan ada processing requests
+        if (_driverStatus == 'active' && _processingRequests.isNotEmpty) {
+          _loadDriverRequests();
+        }
       }
     });
   }
 
-  // Toggle driver status
+  /// Prevent toggle saat driver busy
   Future<void> _toggleDriverStatus() async {
     if (_isUpdatingStatus || _driverId == null) return;
+
+    // ✅ TAMBAH: Prevent deactivate saat busy
+    if (_driverStatus == 'busy') {
+      _showErrorDialog(
+          'Cannot change status while processing an order.\nPlease complete your current delivery first.');
+      return;
+    }
 
     if (_driverStatus == 'active') {
       _showDeactivateConfirmationDialog();
@@ -558,18 +582,16 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  //Accept request dengan optimistic update + auto refresh
+  ///Accept request dengan optimistic update + auto refresh dengan navigation ke detail & update status busy
   Future<void> _acceptDriverRequest(Map<String, dynamic> requestData) async {
     final String requestId = requestData['id'].toString();
 
-    //Prevent double clicks
     if (_processingRequests[requestId] == true) {
       print('⚠️ Request $requestId already being processed');
       return;
     }
 
     try {
-      //Mark as processing
       setState(() {
         _processingRequests[requestId] = true;
         _driverRequests.removeWhere((r) => r['id'].toString() == requestId);
@@ -580,136 +602,54 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       await DriverRequestService.respondToDriverRequest(
         requestId: requestId,
         action: 'accept',
-        notes: 'Driver has accepted the request and will process it shortly.',
+        notes: 'Driver has accepted the request.',
       );
+
+      // ✅ TAMBAH: Update driver status menjadi busy setelah accept
+      setState(() {
+        _driverStatus = 'busy';
+      });
 
       _playSound('audio/kring.mp3');
 
-      final String requestType = requestData['request_type'] ?? 'regular';
-      print('🎯 Request type determined: $requestType');
+      // ✅ TAMBAH: Stop polling karena driver sudah busy
+      _requestPollingTimer?.cancel();
+      _fastPollingTimer?.cancel();
 
-      // Semua jenis request ke halaman detail yang sama
-      if (requestType == 'jasa_titip') {
-        print('📱 Navigating to DriverRequestDetailPage for service request');
-        _showRequestAcceptedDialog(requestData, () {
-          final requestIdForNav = requestData['id']?.toString();
-          if (requestIdForNav != null) {
-            print(
-                '🔄 Navigation to DriverRequestDetailPage with requestId: $requestIdForNav');
-            Navigator.pushNamed(
-              context,
-              DriverRequestDetailPage
-                  .route, // ✅ UBAH: Gunakan halaman detail request
-              arguments: {
-                'requestId': requestIdForNav,
-                'requestData': requestData,
-              },
-            ).then((_) {
-              // Refresh when returning from detail page
-              print('🔄 Returned from DriverRequestDetailPage, refreshing...');
-              _loadDriverRequests();
-            });
-          } else {
-            print('❌ No requestId found for service request');
-          }
-        });
-      } else {
-        print('📱 Navigating to DriverRequestDetailPage for regular order');
-        _showOrderAcceptedDialog(requestData, () {
-          final requestIdForNav = requestData['id']?.toString();
-          if (requestIdForNav != null) {
-            print(
-                '🔄 Navigation to DriverRequestDetailPage with requestId: $requestIdForNav');
-            Navigator.pushNamed(
-              context,
-              DriverRequestDetailPage
-                  .route, // ✅ UBAH: Gunakan halaman detail request
-              arguments: {
-                'requestId': requestIdForNav,
-                'requestData': requestData,
-              },
-            ).then((_) {
-              // Refresh when returning from detail page
-              print('🔄 Returned from DriverRequestDetailPage, refreshing...');
-              _loadDriverRequests();
-            });
-          } else {
-            print('❌ No requestId found for regular order');
-          }
-        });
-      }
+      // ✅ TAMBAH: Sync status dengan backend untuk konfirmasi
+      await _syncDriverStatusWithBackend();
 
-      // ✅ Multiple refresh untuk memastikan
-      Future.delayed(const Duration(milliseconds: 300), () {
+      _showOrderAcceptedDialog(requestData, () {
+        Navigator.pushNamed(
+          context,
+          DriverRequestDetailPage.route,
+          arguments: {
+            'requestId': requestId,
+            'requestData': requestData,
+          },
+        ).then((_) {
+          // ✅ TAMBAH: Refresh status driver saat kembali
+          _syncDriverStatusWithBackend();
+        });
+      });
+
+      print('✅ Driver request accepted successfully, status changed to busy');
+    } catch (e) {
+      print('❌ Error accepting driver request: $e');
+
+      // ✅ TAMBAH: Revert status jika gagal
+      setState(() {
+        _driverStatus = 'active';
+      });
+
+      Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
-          print('🔄 First refresh after accept...');
           _loadDriverRequests();
         }
       });
 
-      Future.delayed(const Duration(seconds: 2), () async {
-        if (mounted) {
-          print('🔄 Final confirmation refresh after accept...');
-          await _loadDriverRequests();
-
-          // Verify request tidak ada lagi
-          final stillExists =
-              _driverRequests.any((r) => r['id'].toString() == requestId);
-          if (stillExists) {
-            print(
-                '⚠️ WARNING: Request $requestId masih ada di list setelah accept!');
-          } else {
-            print('✅ CONFIRMED: Request $requestId berhasil dihapus dari list');
-          }
-        }
-      });
-
-      print('✅ Driver request accepted successfully');
-    } catch (e) {
-      print('❌ Error accepting driver request: $e');
-
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          _loadDriverRequests(); // Ambil data fresh dari server
-        }
-      });
-
-      // ✅ Enhanced error handling
-      String errorMessage = 'Failed to accept request.';
-      bool shouldRefresh = false;
-
-      if (e.toString().contains('sudah tidak tersedia') ||
-          e.toString().contains('sudah diambil') ||
-          e.toString().contains('already taken') ||
-          e.toString().contains('not available')) {
-        errorMessage = 'This request is no longer available.';
-        shouldRefresh = true;
-      } else if (e.toString().contains('network') ||
-          e.toString().contains('connection')) {
-        errorMessage = 'Network error. Please check your connection.';
-        _isOnline = false;
-        Future.delayed(const Duration(seconds: 5), () {
-          _isOnline = true;
-          if (mounted) _loadDriverRequests();
-        });
-      } else if (e.toString().contains('timeout')) {
-        errorMessage = 'Request timeout. Refreshing list...';
-        shouldRefresh = true;
-      }
-
-      _showErrorDialog(errorMessage);
-
-      // ✅ AUTO REFRESH on certain errors
-      if (shouldRefresh) {
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted) {
-            print('🔄 Error-triggered refresh...');
-            _loadDriverRequests();
-          }
-        });
-      }
+      _showErrorDialog('Failed to accept request. Please try again.');
     } finally {
-      // ✅ Clean up processing state
       if (mounted) {
         setState(() {
           _processingRequests.remove(requestId);
@@ -718,7 +658,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  /// ✅ Reject request with improved error handling
+  /// Reject request with improved error handling
   Future<void> _rejectDriverRequest(Map<String, dynamic> requestData) async {
     final String requestId = requestData['id'].toString();
 
@@ -774,6 +714,48 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           _processingRequests.remove(requestId);
         });
       }
+    }
+  }
+
+  // Method untuk sync status dengan backend
+// ✅ KODE YANG TEPAT - Versi Final
+  Future<void> _syncDriverStatusWithBackend() async {
+    if (_driverId == null) return;
+
+    try {
+      print('🔄 Syncing driver status with backend...');
+
+      // Call backend endpoint untuk get driver data terbaru
+      final driverData = await DriverService.getDriverById(_driverId!);
+
+      // ✅ PERBAIKAN: Check driverData.isNotEmpty karena service return Map<String, dynamic>
+      if (driverData.isNotEmpty && driverData['status'] != null) {
+        final String backendStatus = driverData['status'];
+
+        // Update local status jika berbeda
+        if (_driverStatus != backendStatus) {
+          setState(() {
+            _driverStatus = backendStatus;
+          });
+
+          print('✅ Driver status synced: $_driverStatus → $backendStatus');
+
+          // ✅ Handle perubahan status
+          if (backendStatus == 'active') {
+            // Driver kembali active, restart polling
+            _startPeriodicUpdates();
+            _startFastPolling();
+            _loadDriverRequests();
+            print('🔄 Driver active again, restarting polling...');
+          } else if (backendStatus == 'busy') {
+            // Driver busy, stop request polling
+            _requestPollingTimer?.cancel();
+            print('⏸️ Driver busy, stopping request polling...');
+          }
+        }
+      }
+    } catch (e) {
+      print('❌ Error syncing driver status: $e');
     }
   }
 
@@ -937,13 +919,19 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
+// Dialog dengan info order yang lebih detail
   void _showOrderAcceptedDialog(
-      Map<String, dynamic> requestData, VoidCallback onViewDetail) {
-    final orderId =
-        requestData['order']?['id']?.toString() ?? requestData['id'].toString();
+      Map<String, dynamic> requestData, VoidCallback onContactCustomer) {
+    final order = requestData['order'] ?? {};
+    final orderId = order['id']?.toString() ?? requestData['id'].toString();
+    final customerName = order['customer']?['name'] ?? 'Customer';
+    final storeName = order['store']?['name'] ?? 'Store';
+    final totalAmount = _parseDouble(order['total_amount']);
+    final deliveryFee = _parseDouble(order['delivery_fee']);
 
     showDialog(
       context: context,
+      barrierDismissible: false, // ✅ TAMBAH: Prevent dismiss tanpa action
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: Colors.white,
@@ -967,13 +955,88 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   fontFamily: GlobalStyle.fontFamily,
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Order #$orderId',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontFamily: GlobalStyle.fontFamily,
-                  color: Colors.grey[600],
+              const SizedBox(height: 16),
+
+              // ✅ TAMBAH: Info order detail
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Order #$orderId',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                        Text(
+                          GlobalStyle.formatRupiah(totalAmount),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: GlobalStyle.primaryColor,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.person, size: 16, color: Colors.grey[600]),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Customer: $customerName',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[700],
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.store, size: 16, color: Colors.grey[600]),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Store: $storeName',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[700],
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.local_shipping,
+                            size: 16, color: Colors.grey[600]),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Delivery Fee: ${GlobalStyle.formatRupiah(deliveryFee)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[700],
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -983,7 +1046,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               child: ElevatedButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  onViewDetail();
+                  onContactCustomer(); // ✅ UBAH: Navigate ke detail page
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
@@ -992,7 +1055,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                   minimumSize: const Size(double.infinity, 45),
                 ),
                 child: Text(
-                  'View Order Details',
+                  'View Order Details', // ✅ UBAH: Text button
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -1127,35 +1190,38 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     super.dispose();
   }
 
-  // Helper methods for status
+  /// Helper methods for status
+  //Status color untuk busy state
   Color _getStatusColor(String status) {
     switch (status) {
       case 'active':
         return Colors.green;
       case 'busy':
-        return Colors.orange;
+        return Colors.orange; // ✅ TAMBAH: Orange untuk busy
       case 'inactive':
       default:
         return Colors.red;
     }
   }
 
+  //Status label untuk busy state
   String _getStatusLabel(String status) {
     switch (status) {
       case 'active':
-        return 'Active';
+        return 'Active - Ready for Orders';
       case 'busy':
-        return 'Busy';
+        return 'Busy - Processing Order'; // ✅ TAMBAH: Label untuk busy
       case 'inactive':
       default:
         return 'Inactive';
     }
   }
 
-  /// ✅ Driver request card with safe parsing
+  /// ✅ Driver request card with safe parsing & dengan status indicators lengkap
   Widget _buildDriverRequestCard(Map<String, dynamic> requestData, int index) {
     final Map<String, dynamic> orderData = requestData['order'] ?? {};
-    final String requestType = requestData['request_type'] ?? 'regular';
+    final String orderStatus = orderData['order_status'] ?? '';
+    final String deliveryStatus = orderData['delivery_status'] ?? '';
     final String urgency = requestData['urgency'] ?? 'normal';
     final double potentialEarnings =
         _parseDouble(requestData['potential_earnings']);
@@ -1183,10 +1249,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         orderData['notes'] ??
         orderData['description'] ??
         '';
-    final String location = requestData['location'] ??
-        orderData['delivery_address'] ??
-        orderData['deliveryAddress'] ??
-        '';
 
     return SlideTransition(
       position: _cardAnimations[index % _cardAnimations.length],
@@ -1202,14 +1264,14 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               offset: const Offset(0, 4),
             ),
           ],
-          // ✅ TAMBAHAN: Border indicator saat processing
+          // ✅ TAMBAH: Border berdasarkan status
           border: isProcessing
               ? Border.all(color: Colors.blue, width: 2)
-              : urgency == 'urgent'
-                  ? Border.all(color: Colors.red, width: 2)
-                  : urgency == 'high'
-                      ? Border.all(color: Colors.orange, width: 1)
-                      : null,
+              : orderStatus == 'preparing'
+                  ? Border.all(color: Colors.orange, width: 2)
+                  : urgency == 'urgent'
+                      ? Border.all(color: Colors.red, width: 2)
+                      : Border.all(color: Colors.blue, width: 1),
         ),
         child: Stack(
           children: [
@@ -1280,55 +1342,53 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header with type and urgency
+                    // ✅ TAMBAH: Status indicators
                     Row(
                       children: [
+                        // Order Status Badge
                         Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: requestType == 'jasa_titip'
-                                ? Colors.orange.withOpacity(0.1)
-                                : GlobalStyle.primaryColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            requestType == 'jasa_titip'
-                                ? Icons.local_shipping
-                                : Icons.shopping_bag,
-                            color: requestType == 'jasa_titip'
+                            color: orderStatus == 'preparing'
                                 ? Colors.orange
-                                : GlobalStyle.primaryColor,
-                            size: 20,
+                                : Colors.blue,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            orderStatus == 'preparing'
+                                ? 'Preparing'
+                                : 'Pending',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                requestType == 'jasa_titip'
-                                    ? 'Service Request'
-                                    : 'Regular Order',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                              Text(
-                                requestType == 'jasa_titip'
-                                    ? 'Request #$requestId'
-                                    : 'Order #$orderId',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                            ],
+                        const SizedBox(width: 8),
+
+                        // Delivery Status Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[600],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            'Delivery: ${deliveryStatus.toUpperCase()}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
+
+                        const Spacer(),
+
+                        // Urgency Badge
                         if (urgency != 'normal' && !isProcessing) ...[
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -1350,16 +1410,17 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           ),
                           const SizedBox(width: 8),
                         ],
-                        // ✅ UBAH: Status indicator berdasarkan processing state
+
+                        // Processing/Pending Status
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: isProcessing ? Colors.orange : Colors.blue,
+                            color: isProcessing ? Colors.orange : Colors.green,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            isProcessing ? 'Processing' : 'Pending',
+                            isProcessing ? 'Processing' : 'Available',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 11,
@@ -1369,15 +1430,61 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 16),
 
-                    // Customer & Store/Location Info (existing code...)
+                    // Header with order info
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: GlobalStyle.primaryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.shopping_bag,
+                            color: GlobalStyle.primaryColor,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Regular Order',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                              Text(
+                                'Order #$orderId',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Customer & Store Info
                     Row(
                       children: [
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // Customer Info
                               Row(
                                 children: [
                                   Icon(Icons.person,
@@ -1401,84 +1508,47 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              if (requestType == 'regular') ...[
-                                Row(
-                                  children: [
-                                    Icon(Icons.store,
-                                        size: 16, color: Colors.grey[600]),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Store:',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
+
+                              // Store Info
+                              Row(
+                                children: [
+                                  Icon(Icons.store,
+                                      size: 16, color: Colors.grey[600]),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Store:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
                                     ),
-                                  ],
-                                ),
-                                Text(
-                                  storeName,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    fontFamily: GlobalStyle.fontFamily,
                                   ),
+                                ],
+                              ),
+                              Text(
+                                storeName,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  fontFamily: GlobalStyle.fontFamily,
                                 ),
-                              ] else ...[
-                                Row(
-                                  children: [
-                                    Icon(Icons.location_on,
-                                        size: 16, color: Colors.grey[600]),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Location:',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  location.isNotEmpty
-                                      ? location
-                                      : 'Location not available',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[700],
-                                    fontFamily: GlobalStyle.fontFamily,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
+                              ),
                             ],
                           ),
                         ),
+
+                        // Price & Time Info
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            if (requestType == 'regular') ...[
-                              Text(
-                                GlobalStyle.formatRupiah(totalAmount),
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: GlobalStyle.primaryColor,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
+                            Text(
+                              GlobalStyle.formatRupiah(totalAmount),
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: GlobalStyle.primaryColor,
+                                fontFamily: GlobalStyle.fontFamily,
                               ),
-                            ] else ...[
-                              Text(
-                                GlobalStyle.formatRupiah(deliveryFee),
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.orange,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                            ],
+                            ),
                             Text(
                               DateFormat('dd/MM, HH:mm')
                                   .format(DateTime.parse(createdAt)),
@@ -1511,8 +1581,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                       ],
                     ),
 
-                    // Notes for service requests (existing code...)
-                    if (requestType == 'jasa_titip' && notes.isNotEmpty) ...[
+                    // Notes section (jika ada)
+                    if (notes.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Container(
                         width: double.infinity,
@@ -1526,7 +1596,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Request Notes:',
+                              'Order Notes:',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
@@ -1601,9 +1671,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                             style: ElevatedButton.styleFrom(
                               backgroundColor: isProcessing
                                   ? Colors.grey
-                                  : (requestType == 'jasa_titip'
-                                      ? Colors.orange
-                                      : GlobalStyle.primaryColor),
+                                  : GlobalStyle.primaryColor,
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
@@ -1890,6 +1958,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
               ),
               child: Column(
                 children: [
+                  // ✅ PERBAIKI: Header dengan status info
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1922,6 +1991,40 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                                 color: GlobalStyle.fontColor.withOpacity(0.7),
                                 fontSize: 12,
                                 fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                          // ✅ TAMBAH: Status info untuk busy
+                          if (_driverStatus == 'busy') ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: Colors.orange.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.work,
+                                    size: 14,
+                                    color: Colors.orange[800],
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Currently processing an order',
+                                    style: TextStyle(
+                                      color: Colors.orange[800],
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      fontFamily: GlobalStyle.fontFamily,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -1964,8 +2067,10 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                             ],
                           ),
                           child: ElevatedButton.icon(
-                            onPressed:
-                                _isUpdatingStatus ? null : _toggleDriverStatus,
+                            onPressed: _isUpdatingStatus ||
+                                    _driverStatus == 'busy'
+                                ? null
+                                : _toggleDriverStatus, // ✅ TAMBAH: Disable saat busy
                             icon: _isUpdatingStatus
                                 ? SizedBox(
                                     width: 20,
@@ -1978,7 +2083,10 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                                 : Icon(
                                     _driverStatus == 'active'
                                         ? Icons.toggle_on
-                                        : Icons.toggle_off,
+                                        : _driverStatus == 'busy'
+                                            ? Icons
+                                                .work // ✅ TAMBAH: Icon untuk busy
+                                            : Icons.toggle_off,
                                     color: Colors.white,
                                     size: 28,
                                   ),
@@ -1994,7 +2102,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _getStatusColor(_driverStatus),
-                              disabledBackgroundColor: Colors.grey,
+                              disabledBackgroundColor:
+                                  Colors.grey, // ✅ TAMBAH: Grey saat disabled
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(30),
                               ),
