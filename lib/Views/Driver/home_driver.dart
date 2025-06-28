@@ -80,13 +80,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
   Timer? _fastPollingTimer; // For active status
 
-  // ✅ TAMBAHAN: Debouncing untuk prevent multiple clicks
+  // Debouncing untuk prevent multiple clicks
   final Map<String, bool> _processingRequests = {};
 
-  // ✅ TAMBAHAN: Network state tracking
+  // Network state tracking
   bool _isOnline = true;
-
-  // ✅ Safe parsing methods untuk mengatasi conversion errors
 
   /// Parse double from various formats safely
   static double _parseDouble(dynamic value) {
@@ -215,7 +213,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     await Permission.location.request();
   }
 
-  // ✅ Enhanced authentication with better error handling
+  //Enhanced authentication with better error handling
   Future<void> _initializeAuthentication() async {
     setState(() {
       _isInitialLoading = true;
@@ -271,7 +269,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // ✅ Load initial data with better error handling
+  //Load initial data with better error handling
   Future<void> _loadInitialData() async {
     try {
       // Load data in parallel with individual error handling
@@ -298,7 +296,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-// ✅ Tambahkan method untuk validasi status request
+//method untuk validasi status request
   bool _isRequestStillValid(Map<String, dynamic> requestData) {
     final String status = requestData['status'] ?? 'pending';
     final String requestId = requestData['id'].toString();
@@ -386,8 +384,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   }
 
   /// ✅ Load driver stats with fallback for missing endpoint
-  // Ganti method _loadDriverStats() di home_driver.dart dengan:
-
   /// ✅ Load driver stats menggunakan perhitungan frontend
   Future<void> _loadDriverStats() async {
     try {
@@ -445,43 +441,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       print('ℹ️ Using default stats due to calculation error');
     }
   }
-  // Future<void> _loadDriverStats() async {
-  //   try {
-  //     print('📊 HomeDriver: Loading driver statistics...');
-  //
-  //     final stats = await DriverRequestService.getDriverRequestStats();
-  //
-  //     setState(() {
-  //       _requestStats = {
-  //         'total_requests': _parseInt(stats['total_requests']),
-  //         'accepted_requests': _parseInt(stats['accepted_requests']),
-  //         'pending_requests': _parseInt(stats['pending_requests']),
-  //         'acceptance_rate': _parseDouble(stats['acceptance_rate']),
-  //         'total_earnings': _parseDouble(stats['total_earnings']),
-  //       };
-  //     });
-  //
-  //     print('✅ HomeDriver: Driver stats loaded');
-  //   } catch (e) {
-  //     print('❌ HomeDriver: Error loading driver stats: $e');
-  //
-  //     // ✅ Use default stats instead of failing
-  //     setState(() {
-  //       _requestStats = {
-  //         'total_requests': 0,
-  //         'accepted_requests': 0,
-  //         'pending_requests': 0,
-  //         'acceptance_rate': 0.0,
-  //         'total_earnings': 0.0,
-  //       };
-  //     });
-  //
-  //     // Don't throw error - just use defaults
-  //     print('ℹ️ Using default stats due to endpoint unavailability');
-  //   }
-  // }
 
-  // ✅ Safe calculation of potential earnings
   double _calculateSafePotentialEarnings(Map<String, dynamic> request) {
     try {
       final order = request['order'];
@@ -553,7 +513,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // ✅ Set driver status with better error handling
+  //Set driver status with better error handling
   Future<void> _setDriverStatus(String newStatus) async {
     if (_driverId == null) {
       _showErrorDialog('Driver ID not found. Please login again.');
@@ -598,19 +558,18 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // ✅ Accept request with improved error handling
-  // ✅ Accept request dengan optimistic update + auto refresh
+  //Accept request dengan optimistic update + auto refresh
   Future<void> _acceptDriverRequest(Map<String, dynamic> requestData) async {
     final String requestId = requestData['id'].toString();
 
-    // ✅ Prevent double clicks
+    //Prevent double clicks
     if (_processingRequests[requestId] == true) {
       print('⚠️ Request $requestId already being processed');
       return;
     }
 
     try {
-      // ✅ Mark as processing
+      //Mark as processing
       setState(() {
         _processingRequests[requestId] = true;
         _driverRequests.removeWhere((r) => r['id'].toString() == requestId);
@@ -629,7 +588,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       final String requestType = requestData['request_type'] ?? 'regular';
       print('🎯 Request type determined: $requestType');
 
-      // ✅ PERBAIKAN NAVIGASI: Semua jenis request ke halaman detail yang sama
+      // Semua jenis request ke halaman detail yang sama
       if (requestType == 'jasa_titip') {
         print('📱 Navigating to DriverRequestDetailPage for service request');
         _showRequestAcceptedDialog(requestData, () {

@@ -26,7 +26,7 @@ class HistoryStorePage extends StatefulWidget {
 
 class _HistoryStorePageState extends State<HistoryStorePage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  // ✅ TAMBAHAN: Timer untuk check updates
+  //Timer untuk check updates
   Timer? _updateCheckTimer;
   String? _lastUpdateTime;
 
