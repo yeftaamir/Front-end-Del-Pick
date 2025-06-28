@@ -1,4 +1,3 @@
-
 // lib/Services/core/base_service.dart
 import 'dart:convert';
 import 'dart:io';
@@ -161,16 +160,89 @@ class BaseService {
     }
   }
 
-  /// Parse response body with error handling
+  /// Parse response body with improved error handling
   static Map<String, dynamic> parseResponse(http.Response response) {
     try {
-      final body = response.body;
+      final body = response.body.trim();
+
+      // Handle empty response
       if (body.isEmpty) {
-        return {};
+        return {
+          'message': 'Empty response',
+          'data': null,
+          'errors': null
+        };
       }
+
+      // Try to decode JSON
+      final decodedJson = jsonDecode(body);
+
+      // Handle different response types
+      if (decodedJson is Map<String, dynamic>) {
+        // Normal case - response is already a Map
+        return _normalizeResponse(decodedJson);
+      } else if (decodedJson is List) {
+        // Response is an array - wrap it in a standard format
+        return {
+          'message': 'Success',
+          'data': decodedJson,
+          'errors': null
+        };
+      } else if (decodedJson is String) {
+        // Response is a string - wrap it in a standard format
+        return {
+          'message': decodedJson,
+          'data': null,
+          'errors': null
+        };
+      } else {
+        // Response is some other type - wrap it in a standard format
+        return {
+          'message': 'Success',
+          'data': decodedJson,
+          'errors': null
+        };
+      }
+    } on FormatException catch (e) {
+      // JSON parsing failed - treat as plain text
+      return {
+        'message': response.body.isNotEmpty ? response.body : 'Invalid response format',
+        'data': null,
+        'errors': 'JSON parsing failed: $e'
+      };
+    } catch (e) {
+      // Other parsing errors
+      return {
+        'message': 'Failed to parse response',
+        'data': null,
+        'errors': e.toString()
+      };
+    }
+  }
+
+  /// Normalize response to ensure consistent format
+  static Map<String, dynamic> _normalizeResponse(Map<String, dynamic> response) {
+    return {
+      'message': response['message'] ?? 'Success',
+      'data': response['data'],
+      'errors': response['errors'],
+      // Preserve any additional fields
+      ...response,
+    };
+  }
+
+  /// Parse response with raw data access
+  static dynamic parseResponseRaw(http.Response response) {
+    try {
+      final body = response.body.trim();
+
+      if (body.isEmpty) {
+        return null;
+      }
+
       return jsonDecode(body);
     } catch (e) {
-      throw Exception('Failed to parse response: $e');
+      return response.body;
     }
   }
 
@@ -182,20 +254,31 @@ class BaseService {
 
     try {
       final errorData = parseResponse(response);
-      final message = errorData['message'] ?? 'Request failed';
+      final message = errorData['message'] ??
+          errorData['errors'] ??
+          'Request failed';
       throw Exception(message);
     } catch (e) {
+      // Fallback error messages
       switch (response.statusCode) {
         case 400:
-          throw Exception('Bad request');
+          throw Exception('Bad request - Invalid input data');
         case 401:
-          throw Exception('Unauthorized');
+          throw Exception('Unauthorized - Please login again');
         case 403:
-          throw Exception('Forbidden');
+          throw Exception('Forbidden - Access denied');
         case 404:
-          throw Exception('Not found');
+          throw Exception('Not found - Resource does not exist');
+        case 422:
+          throw Exception('Validation error - Please check your input');
+        case 429:
+          throw Exception('Too many requests - Please try again later');
         case 500:
-          throw Exception('Internal server error');
+          throw Exception('Internal server error - Please try again later');
+        case 502:
+          throw Exception('Bad gateway - Service temporarily unavailable');
+        case 503:
+          throw Exception('Service unavailable - Please try again later');
         default:
           throw Exception('Request failed with status ${response.statusCode}');
       }
@@ -221,7 +304,7 @@ class BaseService {
     }
   }
 
-  /// Generic API call method
+  /// Generic API call method with improved error handling
   static Future<Map<String, dynamic>> apiCall({
     required String method,
     required String endpoint,
@@ -231,27 +314,48 @@ class BaseService {
   }) async {
     late http.Response response;
 
-    switch (method.toUpperCase()) {
-      case 'GET':
-        response = await get(endpoint, queryParams: queryParams, requiresAuth: requiresAuth);
-        break;
-      case 'POST':
-        response = await post(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
-        break;
-      case 'PUT':
-        response = await put(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
-        break;
-      case 'PATCH':
-        response = await patch(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
-        break;
-      case 'DELETE':
-        response = await delete(endpoint, queryParams: queryParams, requiresAuth: requiresAuth);
-        break;
-      default:
-        throw Exception('Unsupported HTTP method: $method');
-    }
+    try {
+      switch (method.toUpperCase()) {
+        case 'GET':
+          response = await get(endpoint, queryParams: queryParams, requiresAuth: requiresAuth);
+          break;
+        case 'POST':
+          response = await post(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
+          break;
+        case 'PUT':
+          response = await put(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
+          break;
+        case 'PATCH':
+          response = await patch(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
+          break;
+        case 'DELETE':
+          response = await delete(endpoint, queryParams: queryParams, requiresAuth: requiresAuth);
+          break;
+        default:
+          throw Exception('Unsupported HTTP method: $method');
+      }
 
-    handleApiError(response);
-    return parseResponse(response);
+      handleApiError(response);
+      return parseResponse(response);
+    } catch (e) {
+      // Log the error for debugging
+      print('API Call Error: $e');
+      print('Endpoint: $endpoint');
+      print('Method: $method');
+      if (body != null) print('Body: $body');
+
+      rethrow;
+    }
+  }
+
+  /// Debug method to log response details
+  static void debugResponse(http.Response response) {
+    print('=== DEBUG RESPONSE ===');
+    print('Status Code: ${response.statusCode}');
+    print('Headers: ${response.headers}');
+    print('Body: ${response.body}');
+    print('Body Length: ${response.body.length}');
+    print('Body Type: ${response.body.runtimeType}');
+    print('=====================');
   }
 }
