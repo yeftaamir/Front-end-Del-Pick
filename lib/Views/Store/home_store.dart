@@ -1531,6 +1531,322 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
+  Widget _buildEnhancedHeader() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            GlobalStyle.lightColor.withOpacity(0.3),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Dashboard title
+                Text(
+                  'Dashboard Toko',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: GlobalStyle.fontFamily,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+
+                // Store name dengan fallback dan loading state
+                _buildStoreNameWidget(),
+
+                const SizedBox(height: 4),
+
+                // Store status dan info tambahan
+                _buildStoreInfoWidget(),
+
+                const SizedBox(height: 2),
+
+                // Date dengan format Indonesia
+                Text(
+                  _getFormattedDate(),
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Profile button dengan store avatar jika ada
+          _buildProfileButton(),
+        ],
+      ),
+    );
+  }
+
+// Widget untuk menampilkan nama toko
+  Widget _buildStoreNameWidget() {
+    if (_storeData == null) {
+      // Loading state
+      return Container(
+        height: 20,
+        width: 120,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(4),
+        ),
+      );
+    }
+
+    final storeName =
+        _storeData?['name']?.toString() ?? 'Nama Toko Tidak Diketahui';
+
+    return Text(
+      storeName,
+      style: TextStyle(
+        color: GlobalStyle.primaryColor,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        fontFamily: GlobalStyle.fontFamily,
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+// Widget untuk menampilkan info tambahan store
+  Widget _buildStoreInfoWidget() {
+    if (_storeData == null) return const SizedBox.shrink();
+
+    final storeStatus = _storeData?['status']?.toString() ?? 'unknown';
+    final rating = _parseDouble(_storeData?['rating']) ?? 0.0;
+    final totalProducts = _storeData?['total_products'] ?? 0;
+
+    return Row(
+      children: [
+        // Status indicator
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: _getStoreStatusColor(storeStatus),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            _getStoreStatusLabel(storeStatus),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 8),
+
+        // Rating jika ada
+        if (rating > 0) ...[
+          Icon(Icons.star, size: 12, color: Colors.amber),
+          const SizedBox(width: 2),
+          Text(
+            rating.toStringAsFixed(1),
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+
+        // Total produk
+        Text(
+          '$totalProducts produk',
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+
+// Profile button dengan avatar store jika ada
+  Widget _buildProfileButton() {
+    final storeImageUrl = _storeData?['image_url']?.toString();
+    final userAvatar = _userData?['avatar']?.toString();
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.pushNamed(context, ProfileStorePage.route);
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              GlobalStyle.primaryColor,
+              GlobalStyle.primaryColor.withOpacity(0.8),
+            ],
+          ),
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: GlobalStyle.primaryColor.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: _buildProfileIcon(storeImageUrl, userAvatar),
+      ),
+    );
+  }
+
+// Widget untuk profile icon
+  Widget _buildProfileIcon(String? storeImageUrl, String? userAvatar) {
+    // Prioritas: store image -> user avatar -> default icon
+    if (storeImageUrl != null && storeImageUrl.isNotEmpty) {
+      return ClipOval(
+        child: Image.network(
+          storeImageUrl,
+          width: 20,
+          height: 20,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildDefaultProfileIcon();
+          },
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return _buildDefaultProfileIcon();
+          },
+        ),
+      );
+    }
+
+    if (userAvatar != null && userAvatar.isNotEmpty) {
+      return ClipOval(
+        child: Image.network(
+          userAvatar,
+          width: 20,
+          height: 20,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildDefaultProfileIcon();
+          },
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return _buildDefaultProfileIcon();
+          },
+        ),
+      );
+    }
+
+    return _buildDefaultProfileIcon();
+  }
+
+  Widget _buildDefaultProfileIcon() {
+    return FaIcon(
+      FontAwesomeIcons.user,
+      size: 20,
+      color: Colors.white,
+    );
+  }
+
+// Helper methods
+  String _getFormattedDate() {
+    final now = DateTime.now();
+    final dayNames = [
+      'Minggu',
+      'Senin',
+      'Selasa',
+      'Rabu',
+      'Kamis',
+      'Jumat',
+      'Sabtu'
+    ];
+    final monthNames = [
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember'
+    ];
+
+    final dayName = dayNames[now.weekday % 7];
+    final monthName = monthNames[now.month - 1];
+
+    return '$dayName, ${now.day} $monthName ${now.year}';
+  }
+
+  Color _getStoreStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return Colors.green;
+      case 'inactive':
+        return Colors.orange;
+      case 'closed':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getStoreStatusLabel(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return 'AKTIF';
+      case 'inactive':
+        return 'NONAKTIF';
+      case 'closed':
+        return 'TUTUP';
+      default:
+        return 'UNKNOWN';
+    }
+  }
+
+// Enhanced store data processing
+//   void _processStoreData(Map<String, dynamic> storeData) {
+//     // Ensure all required store fields with defaults
+//     storeData['rating'] = storeData['rating'] ?? 0.0;
+//     storeData['review_count'] = storeData['review_count'] ?? 0;
+//     storeData['total_products'] = storeData['total_products'] ?? 0;
+//     storeData['status'] = storeData['status'] ?? 'active';
+//     storeData['name'] = storeData['name'] ?? 'Toko Saya';
+//     storeData['image_url'] = storeData['image_url']; // Keep null if not exists
+//
+//     print('📊 HomeStore: Store data processed');
+//     print('   - Name: ${storeData['name']}');
+//     print('   - Rating: ${storeData['rating']}');
+//     print('   - Review Count: ${storeData['review_count']}');
+//     print('   - Total Products: ${storeData['total_products']}');
+//     print('   - Status: ${storeData['status']}');
+//     print('   - Image URL: ${storeData['image_url']}');
+//   }
+
   Widget _buildPendingOrdersTab() {
     if (_isLoadingPending && _pendingOrders.isEmpty) {
       return _buildLoadingState();
@@ -2171,100 +2487,10 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       body: SafeArea(
         child: Column(
           children: [
-            // Enhanced Header
-            Container(
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white,
-                    GlobalStyle.lightColor.withOpacity(0.3),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 15,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Dashboard Toko',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: GlobalStyle.fontFamily,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _storeData?['name'] ?? 'Nama Toko',
-                          style: TextStyle(
-                            color: GlobalStyle.primaryColor,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          DateFormat('EEEE, dd MMMM yyyy')
-                              .format(DateTime.now()),
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.pushNamed(context, ProfileStorePage.route);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            GlobalStyle.primaryColor,
-                            GlobalStyle.primaryColor.withOpacity(0.8),
-                          ],
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: GlobalStyle.primaryColor.withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: FaIcon(
-                        FontAwesomeIcons.user,
-                        size: 20,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // Enhanced Header - GUNAKAN METHOD BARU
+            _buildEnhancedHeader(),
 
-            // Tab Bar
+            // Tab Bar (sisanya tetap sama)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
@@ -2350,16 +2576,14 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               ),
             ),
 
-            // Tab Views
+            // Tab Views (sisanya tetap sama)
             Expanded(
               child: Container(
                 margin: const EdgeInsets.only(top: 16),
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    // Pending Orders Tab
                     _buildPendingOrdersTab(),
-                    // Active Orders Tab
                     _buildActiveOrdersTab(),
                   ],
                 ),
