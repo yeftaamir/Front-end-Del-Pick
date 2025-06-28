@@ -669,7 +669,8 @@ class _StoreDetailState extends State<StoreDetail>
                   },
                 ),
                 _buildListMenu(),
-                if (hasItemsInCart) const SizedBox(height: 120),
+                // Fixed: Add extra padding to prevent overlap with cart summary
+                if (hasItemsInCart) const SizedBox(height: 180), // Increased from 120 to 180
               ],
             ),
           ),
@@ -1494,13 +1495,19 @@ class _StoreDetailState extends State<StoreDetail>
         availableStock: _getRemainingStock(item),
         initialQuantity: initialQuantity,
         onQuantityChanged: (int quantity) {
+          // Fixed: Remove double counting issue
+          // Just update the quantity directly without calling _addItemToCartOptimized
           if (quantity != initialQuantity) {
             _itemQuantities[item.id] = quantity;
-            if (quantity > initialQuantity) {
-              _addItemToCartOptimized(item);
-            } else {
-              setState(() {});
+            if (quantity > 0) {
+              _lastAddedItem = item;
+              _playSuccessSound();
+              _cartAnimationController.reset();
+              _cartAnimationController.forward();
+            } else if (quantity == 0 && _lastAddedItem?.id == item.id) {
+              _lastAddedItem = null;
             }
+            setState(() {});
           }
         },
         onZeroQuantity: _showZeroQuantityDialog,
