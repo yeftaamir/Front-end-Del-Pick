@@ -1291,22 +1291,16 @@ class _ProfileDriverPageState extends State<ProfileDriverPage> with TickerProvid
         padding: const EdgeInsets.symmetric(vertical: 32.0),
         child: Column(
           children: [
-            Container(
+            Image.asset(
+              'assets/images/delpick_image.png',
               width: 80,
               height: 80,
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(
-                Icons.delivery_dining,
-                size: 40,
-                color: Colors.grey[600],
-              ),
+              color: Colors.grey[400],
+              colorBlendMode: BlendMode.modulate,
             ),
             const SizedBox(height: 12),
             Text(
-              'DelPick Driver v1.0.0',
+              'DelPick v1.0.0',
               style: TextStyle(
                 color: Colors.grey[500],
                 fontSize: 14,
