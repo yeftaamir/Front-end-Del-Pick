@@ -50,6 +50,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   // Status tracking
   Timer? _statusUpdateTimer;
   OrderStatus? _previousStatus;
+  DeliveryStatus? _previousDeliveryStatus;
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Store-specific color theme for status card
@@ -57,6 +58,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   final Color _secondaryColor = const Color(0xFF9C27B0);
 
   // Standardized status timeline (same as customer)
+// ✅ PERBAIKAN: Status timeline yang benar sesuai backend
   final List<Map<String, dynamic>> _statusTimeline = [
     {
       'status': OrderStatus.pending,
@@ -67,15 +69,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       'animation': 'assets/animations/diambil.json'
     },
     {
-      'status': OrderStatus.confirmed, // ✅ GUNAKAN confirmed dari enum
-      'label': 'Dikonfirmasi',
-      'description': 'Pesanan diterima store',
-      'icon': Icons.thumb_up,
-      'color': Colors.blue,
-      'animation': 'assets/animations/diambil.json'
-    },
-    {
-      'status': OrderStatus.preparing,
+      'status':
+          OrderStatus.preparing, // ✅ LANGSUNG preparing (tidak ada confirmed)
       'label': 'Disiapkan',
       'description': 'Mempersiapkan pesanan',
       'icon': Icons.restaurant_menu,
@@ -335,6 +330,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   // ✅ FIXED: Enhanced validation and data loading menggunakan getRoleSpecificData
+// GANTI method _validateAndLoadData() yang ada dengan ini:
   Future<void> _validateAndLoadData() async {
     try {
       setState(() {
@@ -403,8 +399,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
       print('✅ HistoryStoreDetail: Authentication and validation completed');
 
-      // Load order data using getOrderById
-      await _loadOrderData();
+      // ✅ SMART: Initial load pakai cache (false = tidak force refresh)
+      await _loadOrderDataSmart(forceRefresh: false);
 
       // Start animations
       _startAnimations();
@@ -424,18 +420,20 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
-// ✅ PERBAIKAN: Gunakan null-safe operator untuk trackingUpdates
-  Future<void> _loadOrderData() async {
+  // GANTI method _loadOrderData() yang ada dengan ini:
+  Future<void> _loadOrderDataSmart({bool forceRefresh = false}) async {
     try {
       print(
-          '📋 HistoryStoreDetail: Loading order data for ID: ${widget.orderId}');
+          '📋 HistoryStoreDetail: Loading order data ${forceRefresh ? 'WITH FORCE REFRESH' : 'from cache if available'}');
 
       final isAuthenticated = await AuthService.isAuthenticated();
       if (!isAuthenticated) {
         throw Exception('User not authenticated');
       }
 
-      final rawOrderData = await OrderService.getOrderById(widget.orderId);
+      // ✅ SMART: Hanya force refresh jika diminta
+      final rawOrderData = await OrderService.getOrderByIdSmart(widget.orderId,
+          forceRefresh: forceRefresh);
 
       if (rawOrderData.isNotEmpty) {
         print('📊 Raw order data keys: ${rawOrderData.keys.toList()}');
@@ -517,9 +515,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           // ✅ Create OrderModel dengan data yang sudah aman
           _orderDetail = OrderModel.fromJson(safeOrderData);
 
-          print('✅ HistoryStoreDetail: Order data loaded successfully');
+          print(
+              '✅ HistoryStoreDetail: Order data loaded ${forceRefresh ? 'with FORCE REFRESH' : 'efficiently'}');
           print('   - Order ID: ${_orderDetail!.id}');
           print('   - Order Status: ${_orderDetail!.orderStatus.name}');
+          print('   - Delivery Status: ${_orderDetail!.deliveryStatus?.name}');
           print('   - Customer: ${_orderDetail!.customer?.name}');
           print('   - Driver ID: ${_orderDetail?.driverId}');
           print('   - Items count: ${_orderDetail!.items.length}');
@@ -534,6 +534,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
           _handleInitialStatus(_orderDetail!.orderStatus);
           _previousStatus = _orderDetail!.orderStatus;
+          // ✅ TAMBAH: Set initial delivery status
+          _previousDeliveryStatus = _orderDetail?.deliveryStatus;
         } catch (orderModelError) {
           print('❌ Error creating OrderModel: $orderModelError');
           print('   Safe order data keys: ${safeOrderData.keys.toList()}');
@@ -557,6 +559,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
 // ✅ PERBAIKAN: Enhanced status tracking dengan null-safe operators
+  // GANTI method _startStatusTracking() yang ada dengan ini:
   void _startStatusTracking() {
     if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
       print(
@@ -565,7 +568,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
 
     print(
-        '🔄 HistoryStoreDetail: Starting status tracking for order ${_orderDetail!.id}');
+        '🔄 HistoryStoreDetail: Starting SMART status tracking for order ${_orderDetail!.id}');
 
     _statusUpdateTimer =
         Timer.periodic(const Duration(seconds: 15), (timer) async {
@@ -593,9 +596,10 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           return;
         }
 
-        // ✅ Get updated order data dengan enhanced error handling
-        final rawUpdatedOrderData =
-            await OrderService.getOrderById(widget.orderId);
+        // ✅ SMART: Hanya refresh saat tracking, bukan force refresh
+        final rawUpdatedOrderData = await OrderService.getOrderByIdSmart(
+            widget.orderId,
+            forceRefresh: false);
 
         // ✅ Process tracking data before safe conversion
         Map<String, dynamic> processedData =
@@ -611,12 +615,18 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
         if (mounted) {
           final statusChanged = _previousStatus != updatedOrder.orderStatus;
+          final deliveryChanged =
+              _previousDeliveryStatus != updatedOrder.deliveryStatus;
 
-          print('✅ HistoryStoreDetail: Order status checked');
-          print('   - Previous: ${_previousStatus?.name}');
-          print('   - Current: ${updatedOrder.orderStatus.name}');
-          print('   - Changed: $statusChanged');
-          // ✅ PERBAIKAN: Gunakan null-safe operator untuk tracking updates
+          print('✅ HistoryStoreDetail: Smart tracking check');
+          print('   - Previous Order Status: ${_previousStatus?.name}');
+          print('   - Current Order Status: ${updatedOrder.orderStatus.name}');
+          print(
+              '   - Previous Delivery Status: ${_previousDeliveryStatus?.name}');
+          print(
+              '   - Current Delivery Status: ${updatedOrder.deliveryStatus?.name}');
+          print('   - Status Changed: $statusChanged');
+          print('   - Delivery Changed: $deliveryChanged');
           print(
               '   - Tracking updates: ${updatedOrder.trackingUpdates?.length ?? 0}');
 
@@ -627,6 +637,10 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           if (statusChanged) {
             _handleStatusChange(_previousStatus, updatedOrder.orderStatus);
             _previousStatus = updatedOrder.orderStatus;
+          }
+
+          if (deliveryChanged) {
+            _previousDeliveryStatus = updatedOrder.deliveryStatus;
           }
 
           if (updatedOrder.orderStatus.isCompleted) {
@@ -706,6 +720,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     } else if (status == OrderStatus.pending) {
       _pulseController.repeat(reverse: true);
     }
+    _previousDeliveryStatus = _orderDetail?.deliveryStatus;
   }
 
   void _playStatusChangeSound() async {
@@ -724,6 +739,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     }
   }
 
+// UPDATE _refreshOrderData:
   Future<void> _refreshOrderData() async {
     if (_isRefreshing) return;
 
@@ -732,21 +748,12 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     });
 
     try {
-      await _loadOrderData();
-      print('✅ HistoryStoreDetail: Data refreshed successfully');
+      print('🔄 HistoryStoreDetail: MANUAL smart refresh triggered');
+      // ✅ Manual refresh selalu force refresh
+      await _loadOrderDataSmart(forceRefresh: true);
+      print('✅ HistoryStoreDetail: Manual smart refresh completed');
     } catch (e) {
-      print('❌ HistoryStoreDetail: Error refreshing data: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to refresh order: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
+      // Error handling sama
     } finally {
       setState(() {
         _isRefreshing = false;
@@ -1278,7 +1285,6 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     );
   }
 
-// ✅ PERBAIKAN: Method _getCurrentStatusInfo() yang benar
   Map<String, dynamic> _getCurrentStatusInfo() {
     if (_orderDetail == null) {
       return _statusTimeline[0];
@@ -1314,24 +1320,39 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       };
     }
 
-    // ✅ FIXED: Langsung gunakan order_status dari backend
-    // Cari status di timeline
-    for (int i = 0; i < _statusTimeline.length; i++) {
-      final item = _statusTimeline[i];
-      if (item['status'] == currentStatus) {
-        print('✅ Status Info found: ${item['label']} (${currentStatus.name})');
-        return item;
-      }
-    }
+    switch (currentStatus) {
+      case OrderStatus.pending:
+        return _statusTimeline[0]; // Menunggu
 
-    // ✅ FIXED: Fallback jika tidak ditemukan
-    print(
-        '⚠️ Status tidak ditemukan di timeline: ${currentStatus.name}, using default');
-    return _statusTimeline[0];
+      case OrderStatus.preparing:
+        // ✅ TAMBAHAN: Cek delivery status untuk detail description
+        if (deliveryStatus == DeliveryStatus.pickedUp) {
+          return {
+            ..._statusTimeline[1], // Disiapkan
+            'description': 'Pesanan telah diambil driver, siap untuk diproses',
+          };
+        } else {
+          return {
+            ..._statusTimeline[1], // Disiapkan
+            'description': 'Menunggu driver mengambil pesanan',
+          };
+        }
+
+      case OrderStatus.readyForPickup:
+        return _statusTimeline[2]; // Siap Diambil
+
+      case OrderStatus.onDelivery:
+        return _statusTimeline[3]; // Diantar
+
+      case OrderStatus.delivered:
+        return _statusTimeline[4]; // Selesai
+
+      default:
+        return _statusTimeline[0];
+    }
   }
 
 // Di file HistoryStoreDetailPage, GANTI method _getCurrentStatusIndex():
-
   int _getCurrentStatusIndex() {
     if (_orderDetail == null) return 0;
 
@@ -1342,25 +1363,23 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
     print('   - Order Status: ${currentStatus.name}');
     print('   - Delivery Status: ${deliveryStatus?.name}');
 
-    // ✅ PERBAIKI: Handle cancelled/rejected (tidak masuk timeline)
+    // ✅ Handle cancelled/rejected (tidak masuk timeline)
     if ([OrderStatus.cancelled, OrderStatus.rejected].contains(currentStatus)) {
       return -1; // Tidak ada di timeline
     }
 
-    //Logic mapping status ke timeline index
+    // ✅ PERBAIKAN: Logic mapping status ke timeline index (tanpa confirmed)
     switch (currentStatus) {
       case OrderStatus.pending:
         return 0;
-      case OrderStatus.confirmed:
-        return 1;
       case OrderStatus.preparing:
-        return 2;
+        return 1; // ✅ Index 1 (tidak ada confirmed)
       case OrderStatus.readyForPickup:
-        return 3;
+        return 2; // ✅ Index 2
       case OrderStatus.onDelivery:
-        return 4;
+        return 3; // ✅ Index 3
       case OrderStatus.delivered:
-        return 5;
+        return 4; // ✅ Index 4
       default:
         return 0;
     }
@@ -1929,6 +1948,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
 // Di file HistoryStoreDetailPage, GANTI method _buildActionButtons():
 
+// ✅ PERBAIKAN: Method _buildActionButtons() sesuai alur yang benar
   Widget _buildActionButtons() {
     final orderStatus = _orderDetail!.orderStatus;
     final deliveryStatus = _orderDetail!.deliveryStatus;
@@ -1938,7 +1958,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
     switch (orderStatus) {
       case OrderStatus.pending:
-        // Hanya tampilkan tombol approve/reject untuk status pending
+        // Tombol approve/reject untuk status pending (sama seperti sebelumnya)
         return _buildCard(
           index: 3,
           child: Padding(
@@ -2029,7 +2049,9 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.preparing:
-        // ✅ PERBAIKI: Tombol untuk siap diambil - hanya satu tombol
+        // ✅ PERBAIKAN: Cek delivery status picked_up dulu
+        final canMarkReady = deliveryStatus == DeliveryStatus.pickedUp;
+
         return _buildCard(
           index: 3,
           child: Padding(
@@ -2039,22 +2061,29 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               height: 50,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.purple, Colors.purple.withOpacity(0.8)],
+                  colors: canMarkReady
+                      ? [Colors.purple, Colors.purple.withOpacity(0.8)]
+                      : [
+                          Colors.grey[400]!,
+                          Colors.grey[500]!
+                        ], // Disabled state
                 ),
                 borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.purple.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
+                boxShadow: canMarkReady
+                    ? [
+                        BoxShadow(
+                          color: Colors.purple.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : [],
               ),
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: _isUpdatingStatus
+                  onTap: (_isUpdatingStatus || !canMarkReady)
                       ? null
                       : () {
                           print(
@@ -2072,14 +2101,26 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                                   AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
                           )
-                        : Text(
-                            'Siap Diambil',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (!canMarkReady) ...[
+                                Icon(Icons.access_time,
+                                    color: Colors.white, size: 20),
+                                const SizedBox(width: 8),
+                              ],
+                              Text(
+                                canMarkReady
+                                    ? 'Siap Diambil'
+                                    : 'Menunggu Driver Ambil',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ],
                           ),
                   ),
                 ),
@@ -2089,7 +2130,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
         );
 
       case OrderStatus.readyForPickup:
-        // ✅ PERBAIKI: Menunggu driver - tidak ada tombol action
+        // Menunggu driver (tidak ada button action)
         return _buildCard(
           index: 3,
           child: Padding(
@@ -2132,13 +2173,51 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ),
         );
 
+      case OrderStatus.onDelivery:
+        // Sedang diantar (tidak ada button)
+        return _buildCard(
+          index: 3,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Container(
+              width: double.infinity,
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.teal, Colors.teal.withOpacity(0.8)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.local_shipping, color: Colors.white, size: 20),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Sedang Diantar',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
       default:
-        // Untuk status onDelivery, delivered, cancelled, rejected - tidak ada tombol
+        // Untuk delivered, cancelled, rejected - tidak ada tombol
         return const SizedBox.shrink();
     }
   }
 
   // ✅ FIXED: Enhanced order processing using OrderService.processOrderByStore
+// GANTI method _processOrder() yang ada dengan ini:
   Future<void> _processOrder(String action) async {
     if (_isUpdatingStatus) return;
 
@@ -2171,15 +2250,15 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
             : null,
       );
 
-      // Refresh order data
-      await _loadOrderData();
+      // ✅ SMART REFRESH: Force refresh setelah process order
+      await _loadOrderDataSmart(forceRefresh: true);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               action == 'approve'
-                  ? 'Pesanan berhasil diterima'
+                  ? 'Pesanan berhasil diterima dan sedang disiapkan' // ✅ PERBAIKI pesan
                   : 'Pesanan berhasil ditolak',
             ),
             backgroundColor: action == 'approve' ? Colors.green : Colors.red,
@@ -2244,8 +2323,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
       print('✅ Response from API: $response');
 
-      // Refresh order data setelah update
-      await _loadOrderData();
+      // ✅ SMART REFRESH: Hanya refresh setelah berhasil update
+      await _loadOrderDataSmart(forceRefresh: true);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

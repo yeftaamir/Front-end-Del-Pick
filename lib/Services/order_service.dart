@@ -214,6 +214,43 @@ class OrderService {
     }
   }
 
+// GANTI getOrderByIdWithRefresh dengan smart refresh
+  static Future<Map<String, dynamic>> getOrderByIdSmart(String orderId,
+      {bool forceRefresh = false}) async {
+    try {
+      final isValid = await _fastValidateAuth();
+      if (!isValid) throw Exception('Authentication required');
+
+      final queryParams = <String, String>{};
+
+      // ✅ Hanya force refresh jika diminta explicitly
+      if (forceRefresh) {
+        queryParams['_t'] = DateTime.now().millisecondsSinceEpoch.toString();
+        queryParams['refresh'] = 'true';
+        _log('🔄 Smart refresh: Force refresh requested');
+      }
+
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: '$_baseEndpoint/$orderId',
+        queryParams: queryParams.isNotEmpty ? queryParams : null,
+        requiresAuth: true,
+      );
+
+      if (response['data'] != null) {
+        _fastProcessOrderData(response['data']);
+        _log(
+            'Order details retrieved ${forceRefresh ? 'with force refresh' : 'from cache'}');
+        return response['data'];
+      }
+
+      throw Exception('Order not found or invalid response');
+    } catch (e) {
+      _log('Get order by ID smart error: $e');
+      throw Exception('Failed to get order: $e');
+    }
+  }
+
   /// Process order by store - Optimized
   static Future<Map<String, dynamic>> processOrderByStore({
     required String orderId,
