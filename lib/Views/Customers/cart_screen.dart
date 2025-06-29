@@ -55,7 +55,7 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
-  // ✅ PERBAIKAN: Simplified state management - backend handle delivery fee calculation
+  // ✅ PERBAIKAN: Enhanced state management dengan quantity control
   double _estimatedDeliveryFee = 0;
   String? _deliveryAddress;
   double? _latitude;
@@ -68,9 +68,14 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   bool _isCreatingOrder = false;
   String? _orderNotes = '';
 
-  // ✅ FIXED: Anti-double submission
+  // ✅ FIXED: Enhanced anti-double submission
   bool _hasSubmittedOrder = false;
   Timer? _submitDebounceTimer;
+  DateTime? _lastSubmitAttempt;
+  static const Duration _submitCooldown = Duration(seconds: 3);
+
+  // ✅ BARU: Local quantity management for cart editing
+  Map<int, int> _localQuantities = {};
 
   // Location specific variables
   bool _isLoadingLocation = false;
@@ -94,9 +99,23 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   // ✅ FIXED: Notes controller for driver
   late TextEditingController _notesController;
 
-  // Helper to get item quantity from external map
+  // ✅ BARU: Helper to get item quantity with local updates
   int _getItemQuantity(MenuItemModel item) {
-    return widget.itemQuantities?[item.id] ?? 0;
+    return _localQuantities[item.id] ?? widget.itemQuantities?[item.id] ?? 0;
+  }
+
+  // ✅ BARU: Update local quantity
+  void _updateItemQuantity(MenuItemModel item, int newQuantity) {
+    setState(() {
+      if (newQuantity <= 0) {
+        _localQuantities.remove(item.id);
+      } else {
+        _localQuantities[item.id] = newQuantity;
+      }
+    });
+
+    // Recalculate delivery fee if distance changed due to total weight/value
+    _calculateEstimatedDeliveryFee();
   }
 
   @override
@@ -107,6 +126,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     _initializeStoreLocation();
     _loadInitialData();
     _initializeLocation();
+
+    // ✅ BARU: Initialize local quantities from widget
+    _localQuantities = Map<int, int>.from(widget.itemQuantities ?? {});
   }
 
   // ✅ FIXED: Initialize controllers properly
@@ -313,7 +335,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     if (_latitude != null && _longitude != null &&
         _storeLatitude != null && _storeLongitude != null) {
 
-      _storeDistance = calculateDistance(
+      // ✅ PERBAIKAN: Use exact haversine algorithm from backend
+      _storeDistance = _calculateHaversineDistance(
           _latitude!, _longitude!, _storeLatitude!, _storeLongitude!);
 
       final calculatedFee = calculateDeliveryFee(_storeDistance!);
@@ -330,18 +353,35 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ FIXED: Round delivery fee to nearest 1000 for cash payment
-  double calculateDeliveryFee(double distance) {
-    double rawFee = distance * 2500;
-    // Round up to nearest 1000 to make cash payment easier
-    double roundedFee = (rawFee / 1000).ceil() * 1000;
-    // Minimum fee 3000
-    return roundedFee < 3000 ? 3000 : roundedFee;
+  // ✅ PERBAIKAN: Haversine algorithm yang sama dengan backend
+  double _calculateHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // Earth radius in kilometers
+
+    // Convert degrees to radians
+    double _degreesToRadians(double degrees) => degrees * (pi / 180);
+
+    final double dLat = _degreesToRadians(lat2 - lat1);
+    final double dLon = _degreesToRadians(lon2 - lon1);
+
+    final double a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(_degreesToRadians(lat1)) * cos(_degreesToRadians(lat2)) *
+            sin(dLon / 2) * sin(dLon / 2);
+
+    final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+    return earthRadius * c;
   }
 
-  double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    double distanceInMeters = Geolocator.distanceBetween(lat1, lon1, lat2, lon2);
-    return distanceInMeters / 1000;
+  // ✅ PERBAIKAN: Enhanced delivery fee calculation (align dengan backend)
+  double calculateDeliveryFee(double distance) {
+    // Menggunakan rumus yang sama dengan backend: distance * 2500
+    double rawFee = distance * 2500;
+
+    // Round up to nearest 1000 for easier cash payment (same as backend)
+    double roundedFee = (rawFee / 1000).ceil() * 1000;
+
+    // Minimum fee 3000 (same as backend)
+    return roundedFee < 3000 ? 3000 : roundedFee;
   }
 
   String _getFormattedDistance() {
@@ -450,7 +490,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Jarak: ${_getFormattedDistance()}',
+                            'Jarak: ${_getFormattedDistance()} (Haversine)',
                             style: TextStyle(
                               fontSize: 12,
                               color: GlobalStyle.primaryColor,
@@ -600,6 +640,120 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ✅ BARU: Widget untuk quantity control
+  Widget _buildQuantityControls(MenuItemModel item) {
+    final quantity = _getItemQuantity(item);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: quantity > 1 ? GlobalStyle.primaryColor : Colors.grey[300],
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: IconButton(
+            padding: EdgeInsets.zero,
+            icon: Icon(
+              Icons.remove,
+              size: 16,
+              color: quantity > 1 ? Colors.white : Colors.grey[500],
+            ),
+            onPressed: quantity > 1 ? () => _updateItemQuantity(item, quantity - 1) : null,
+          ),
+        ),
+        Container(
+          width: 40,
+          alignment: Alignment.center,
+          child: Text(
+            '$quantity',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: GlobalStyle.fontColor,
+            ),
+          ),
+        ),
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: GlobalStyle.primaryColor,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: IconButton(
+            padding: EdgeInsets.zero,
+            icon: const Icon(
+              Icons.add,
+              size: 16,
+              color: Colors.white,
+            ),
+            onPressed: () => _updateItemQuantity(item, quantity + 1),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ BARU: Widget untuk remove item completely
+  Widget _buildRemoveButton(MenuItemModel item) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.red.withOpacity(0.3)),
+      ),
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        icon: Icon(
+          Icons.delete_outline,
+          size: 16,
+          color: Colors.red[600],
+        ),
+        onPressed: () => _showRemoveItemDialog(item),
+      ),
+    );
+  }
+
+  Future<void> _showRemoveItemDialog(MenuItemModel item) async {
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text('Hapus Item'),
+        content: Text('Hapus "${item.name}" dari keranjang?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Batal',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              'Hapus',
+              style: TextStyle(
+                color: Colors.red[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldRemove == true) {
+      _updateItemQuantity(item, 0);
+    }
+  }
+
   @override
   void dispose() {
     _slideController.dispose();
@@ -618,13 +772,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     double total = 0;
     for (var item in widget.cartItems) {
       final quantity = _getItemQuantity(item);
-      total += item.price * quantity;
+      if (quantity > 0) { // ✅ BARU: Only count items with positive quantity
+        total += item.price * quantity;
+      }
     }
     return total;
   }
 
   double get estimatedTotal {
     return subtotal + _estimatedDeliveryFee;
+  }
+
+  // ✅ BARU: Get items with positive quantity
+  List<MenuItemModel> get activeItems {
+    return widget.cartItems.where((item) => _getItemQuantity(item) > 0).toList();
   }
 
   Future<void> _playSound(String assetPath) async {
@@ -638,7 +799,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
   // ✅ PERBAIKAN: Updated untuk struktur backend yang baru
   List<Map<String, dynamic>> _prepareOrderItems() {
-    return widget.cartItems.map((item) {
+    return activeItems.map((item) {
       final quantity = _getItemQuantity(item);
       return {
         'id': item.id,              // Frontend menggunakan 'id'
@@ -788,23 +949,50 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ✅ FIXED: Anti-double submission and enhanced validation
+  // ✅ PERBAIKAN: Enhanced anti-double submission with stronger protection
   Future<void> _createOrder() async {
-    // ✅ FIXED: Prevent double submission
+    // ✅ FIXED: Multiple layers of protection against double submission
+    final now = DateTime.now();
+
+    // Check if already submitted
     if (_hasSubmittedOrder || _isCreatingOrder) {
       print('⚠️ CartScreen: Order submission already in progress, ignoring...');
       return;
     }
 
-    // ✅ FIXED: Debounce rapid clicks
+    // Check cooldown period
+    if (_lastSubmitAttempt != null &&
+        now.difference(_lastSubmitAttempt!) < _submitCooldown) {
+      print('⚠️ CartScreen: Still in cooldown period, ignoring...');
+      await _showErrorDialog(
+          'Tunggu Sebentar',
+          'Mohon tunggu ${_submitCooldown.inSeconds} detik sebelum mencoba lagi.'
+      );
+      return;
+    }
+
+    // Check if debounce timer is still active
     if (_submitDebounceTimer != null && _submitDebounceTimer!.isActive) {
       print('⚠️ CartScreen: Debouncing rapid clicks...');
       return;
     }
 
-    _submitDebounceTimer = Timer(const Duration(milliseconds: 2000), () {
-      // Reset debounce after 2 seconds
+    // ✅ BARU: Validate cart has active items
+    if (activeItems.isEmpty) {
+      await _showErrorDialog(
+          'Keranjang Kosong',
+          'Tidak ada item dalam keranjang. Tambahkan item terlebih dahulu.'
+      );
+      return;
+    }
+
+    // Set debounce timer
+    _submitDebounceTimer = Timer(const Duration(milliseconds: 3000), () {
+      // Reset debounce after 3 seconds
     });
+
+    // Set last attempt time
+    _lastSubmitAttempt = now;
 
     // Validate customer access first
     final hasAccess = await AuthService.validateCustomerAccess();
@@ -886,6 +1074,39 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       fontStyle: FontStyle.italic,
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  // ✅ BARU: Show order summary in loading dialog
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '${activeItems.length} item - ${GlobalStyle.formatRupiah(estimatedTotal)}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: GlobalStyle.primaryColor,
+                          ),
+                        ),
+                        if (_orderNotes != null && _orderNotes!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '"${_orderNotes!.trim()}"',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -895,9 +1116,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
 
     try {
-      print('🚀 CartScreen: Creating order with new OrderService...');
+      print('🚀 CartScreen: Creating order with enhanced OrderService...');
       print('   - Store ID: ${widget.storeId}');
-      print('   - Items count: ${widget.cartItems.length}');
+      print('   - Items count: ${activeItems.length}');
       print('   - Notes: $_orderNotes');
 
       // ✅ FIXED: Ensure notes are sent properly
@@ -908,7 +1129,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       final orderResponse = await OrderService.placeOrder(
         storeId: widget.storeId.toString(),
         items: _prepareOrderItems(),
-        notes: notes, // ✅ FIXED: Send notes properly
+        notes: notes,
       );
 
       // Close creating order dialog
@@ -951,7 +1172,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
             updatedAt: DateTime.now(),
             orderStatus: OrderStatus.pending,
             deliveryStatus: DeliveryStatus.pending,
-            items: widget.cartItems.map((item) =>
+            items: activeItems.map((item) =>
             // Create basic OrderItemModel from MenuItemModel
             // This is a simplified conversion for navigation
             OrderItemModel(
@@ -995,6 +1216,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _isCreatingOrder = false;
         _hasSubmittedOrder = false;
       });
+
+      // Reset last attempt time so user can retry
+      _lastSubmitAttempt = null;
 
       // ✅ PERBAIKAN: Enhanced error messages based on service errors
       String errorMessage = 'Terjadi kesalahan saat membuat pesanan';
@@ -1223,7 +1447,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ],
         ),
       )
-          : widget.cartItems.isEmpty
+          : activeItems.isEmpty
           ? Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1294,7 +1518,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 child: _buildLocationCard(),
               ),
 
-              // Order items
+              // Order items with quantity controls
               _buildCard(
                 index: 1,
                 child: Column(
@@ -1316,16 +1540,33 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                               fontFamily: GlobalStyle.fontFamily,
                             ),
                           ),
+                          const Spacer(),
+                          // ✅ BARU: Show total items count
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: GlobalStyle.primaryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${activeItems.length} item',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: GlobalStyle.primaryColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
                     ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      itemCount: widget.cartItems.length,
+                      itemCount: activeItems.length,
                       separatorBuilder: (context, index) => const Divider(height: 1),
                       itemBuilder: (context, index) {
-                        final item = widget.cartItems[index];
+                        final item = activeItems[index];
                         final quantity = _getItemQuantity(item);
                         return ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -1365,19 +1606,38 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                                 item.formatPrice(),
                                 style: const TextStyle(color: Colors.grey),
                               ),
-                              Text(
-                                'Quantity: $quantity',
-                                style: const TextStyle(color: Colors.grey),
+                              const SizedBox(height: 8),
+                              // ✅ BARU: Quantity controls in cart
+                              Row(
+                                children: [
+                                  _buildQuantityControls(item),
+                                  const SizedBox(width: 12),
+                                  _buildRemoveButton(item),
+                                ],
                               ),
                             ],
                           ),
-                          trailing: Text(
-                            GlobalStyle.formatRupiah(item.price * quantity),
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: GlobalStyle.primaryColor,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                GlobalStyle.formatRupiah(item.price * quantity),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: GlobalStyle.primaryColor,
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'x$quantity',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       },
@@ -1430,7 +1690,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                                   children: [
                                     const SizedBox(width: 4),
                                     Text(
-                                      'Jarak: ${_getFormattedDistance()} (dibulatkan untuk kemudahan bayar tunai)',
+                                      'Jarak: ${_getFormattedDistance()} × Rp2.500 (dibulatkan)',
                                       style: TextStyle(
                                         fontSize: 11,
                                         color: Colors.grey[600],
@@ -1446,7 +1706,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      // ✅ FIXED: Enhanced info section
+                      // ✅ FIXED: Enhanced info section with haversine mention
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -1466,11 +1726,31 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Biaya pengiriman dibulatkan ke atas (kelipatan Rp1.000) untuk kemudahan pembayaran tunai.',
+                                    'Jarak dihitung menggunakan algoritma Haversine untuk akurasi maksimal.',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.blue[700],
                                       fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.calculate_outlined,
+                                  size: 16,
+                                  color: Colors.blue[700],
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Biaya: Jarak × Rp2.500/km, dibulatkan ke atas (kelipatan Rp1.000).',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.blue[700],
                                     ),
                                   ),
                                 ),
@@ -1528,7 +1808,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               ),
               child: ElevatedButton(
                 // ✅ FIXED: Enhanced button state management
-                onPressed: (_isCreatingOrder || _isLoading || _hasSubmittedOrder) ? null : _createOrder,
+                onPressed: (_isCreatingOrder || _isLoading || _hasSubmittedOrder || activeItems.isEmpty) ? null : _createOrder,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   disabledBackgroundColor: Colors.grey,
