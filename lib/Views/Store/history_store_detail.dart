@@ -947,7 +947,7 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Status Pesanan Toko',
+                          'Status Pesanan Store',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,

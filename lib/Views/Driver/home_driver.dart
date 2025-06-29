@@ -468,23 +468,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-  // Determine request type from order data
-  String _determineRequestType(Map<String, dynamic> orderData) {
-    final items = orderData['items'] ?? orderData['order_items'] ?? [];
-    final notes = orderData['notes'] ?? '';
-    final description = orderData['description'] ?? '';
-
-    if (items.isEmpty ||
-        notes.toLowerCase().contains('titip') ||
-        notes.toLowerCase().contains('belikan') ||
-        description.toLowerCase().contains('titip') ||
-        description.toLowerCase().contains('belikan')) {
-      return 'jasa_titip';
-    }
-
-    return 'regular';
-  }
-
   // Polling berdasarkan status driver
   void _startPeriodicUpdates() {
     _requestPollingTimer?.cancel(); // Cancel existing timer
@@ -1070,75 +1053,6 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
-  void _showRequestAcceptedDialog(
-      Map<String, dynamic> requestData, VoidCallback onContactCustomer) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Lottie.asset(
-                'assets/animations/check_animation.json',
-                width: 150,
-                height: 150,
-                repeat: false,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Service Request Accepted!',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Please contact the customer for further coordination.',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontFamily: GlobalStyle.fontFamily,
-                  color: Colors.grey[600],
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-          actions: [
-            Center(
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  onContactCustomer();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: GlobalStyle.primaryColor,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20)),
-                  minimumSize: const Size(double.infinity, 45),
-                ),
-                child: Text(
-                  'Contact Customer',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontFamily: GlobalStyle.fontFamily,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
@@ -1175,6 +1089,66 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         );
       },
     );
+  }
+
+// ✅ FIXED: Method _calculateDriverStats dengan akses Map yang benar
+  Map<String, dynamic> _calculateDriverStats() {
+    try {
+      // Filter completed orders dari _driverRequests
+      final completedOrders = _driverRequests.where((request) {
+        final orderData = request['order'];
+        if (orderData == null) return false;
+
+        final String orderStatus = orderData['order_status'] ?? '';
+        final String deliveryStatus = orderData['delivery_status'] ?? '';
+
+        return orderStatus == 'delivered' && deliveryStatus == 'delivered';
+      }).toList();
+
+      // Calculate total earnings dari delivery fee
+      final totalEarnings = completedOrders.fold(0.0, (sum, request) {
+        final orderData = request['order'];
+        if (orderData == null) return sum;
+
+        final double deliveryFee = _parseDouble(orderData['delivery_fee']);
+        return sum + deliveryFee; // Driver mendapat 100% delivery fee
+      });
+
+      // Calculate total delivery fee
+      final totalDeliveryFee = completedOrders.fold(0.0, (sum, request) {
+        final orderData = request['order'];
+        if (orderData == null) return sum;
+
+        final double deliveryFee = _parseDouble(orderData['delivery_fee']);
+        return sum + deliveryFee;
+      });
+
+      final totalOrders = _driverRequests.length;
+      final completedCount = completedOrders.length;
+
+      return {
+        'total_orders': totalOrders,
+        'completed_orders': completedCount,
+        'total_earnings': totalEarnings,
+        'total_delivery_fee': totalDeliveryFee,
+        'completion_rate':
+            totalOrders > 0 ? (completedCount / totalOrders) : 0.0,
+        'average_earning_per_order':
+            completedCount > 0 ? (totalEarnings / completedCount) : 0.0,
+      };
+    } catch (e) {
+      print('❌ Error calculating driver stats: $e');
+
+      // Return default stats on error
+      return {
+        'total_orders': 0,
+        'completed_orders': 0,
+        'total_earnings': 0.0,
+        'total_delivery_fee': 0.0,
+        'completion_rate': 0.0,
+        'average_earning_per_order': 0.0,
+      };
+    }
   }
 
   @override
@@ -1215,6 +1189,115 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       default:
         return 'Inactive';
     }
+  }
+
+// ✅ FIXED: _buildDriverStatsCard menggunakan _requestStats yang sudah di-load
+  Widget _buildDriverStatsCard() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            GlobalStyle.primaryColor,
+            GlobalStyle.primaryColor.withOpacity(0.8),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: GlobalStyle.primaryColor.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Statistik Driver',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatItem(
+                'Total Order',
+                '${_parseInt(_requestStats['total_requests'])}',
+                Icons.assignment,
+              ),
+              _buildStatItem(
+                'Delivered',
+                '${_parseInt(_requestStats['accepted_requests'])}',
+                Icons.check_circle,
+              ),
+              _buildStatItem(
+                'Penghasilan',
+                GlobalStyle.formatRupiah(
+                    _parseDouble(_requestStats['total_earnings'])),
+                Icons.account_balance_wallet,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatItem(
+                'Hari Ini',
+                GlobalStyle.formatRupiah(
+                    _parseDouble(_requestStats['today_earnings'])),
+                Icons.today,
+              ),
+              _buildStatItem(
+                'Rate',
+                '${_parseDouble(_requestStats['acceptance_rate']).toStringAsFixed(1)}%',
+                Icons.trending_up,
+              ),
+              _buildStatItem(
+                'Selesai',
+                '${_parseInt(_requestStats['completed_today'])}',
+                Icons.done_all,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(
+          icon,
+          color: Colors.white,
+          size: 24,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.8),
+            fontSize: 10,
+          ),
+        ),
+      ],
+    );
   }
 
   /// ✅ Driver request card with safe parsing & dengan status indicators lengkap
@@ -2120,8 +2203,9 @@ class _HomeDriverPageState extends State<HomeDriverPage>
             ),
 
             // Stats Row
-            _buildStatsRow(),
+            // _buildStatsRow(),
 
+            _buildDriverStatsCard(),
             // Request List
             Expanded(
               child: RefreshIndicator(

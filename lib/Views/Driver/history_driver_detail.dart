@@ -1715,10 +1715,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
   }
 
   double _calculateEstimatedEarnings() {
-    const double baseDeliveryFee = 5000.0;
-    const double commissionRate = 0.8;
-
-    // ✅ FIX: Safe conversion untuk delivery fee dengan fallback
+    // ✅ FIX: Driver mendapat 100% delivery fee sesuai backend alignment
     double deliveryFee = 0.0;
 
     if (_currentOrder != null) {
@@ -1727,7 +1724,19 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
       deliveryFee = _safeParseDouble(_orderData['delivery_fee']);
     }
 
-    return baseDeliveryFee + (deliveryFee * commissionRate);
+    // ✅ BACKEND-ALIGNED: Driver earning = 100% delivery fee (tidak ada potongan)
+    return deliveryFee;
+  }
+
+  // ✅ NEW: Helper method untuk menampilkan driver earning yang akan diterima
+  String _getDriverEarningInfo() {
+    final driverEarning = _calculateEstimatedEarnings();
+
+    if (driverEarning > 0) {
+      return 'Penghasilan Driver: ${GlobalStyle.formatRupiah(driverEarning)}';
+    } else {
+      return 'Biaya pengiriman belum tersedia';
+    }
   }
 
   // ✅ ADD: Helper method untuk mendapatkan info lokasi
@@ -2576,6 +2585,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     final totalAmount = _safeParseDouble(_orderData['total_amount']);
     final deliveryFee = _safeParseDouble(_orderData['delivery_fee']);
     final subtotal = totalAmount - deliveryFee;
+    final driverEarning =
+        _calculateEstimatedEarnings(); // ✅ Driver earning = delivery fee
 
     return _buildCard(
       index: 3,
@@ -2613,6 +2624,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
               ],
             ),
             const SizedBox(height: 20),
+
+            // ✅ ITEMS LIST (same as before)
             ..._orderItems.map<Widget>((item) {
               final itemName = item['name']?.toString() ?? 'Unknown Item';
               final quantity = _safeParseInt(item['quantity']);
@@ -2725,6 +2738,8 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                 ),
               );
             }).toList(),
+
+            // ✅ PAYMENT BREAKDOWN
             Container(
               margin: const EdgeInsets.symmetric(vertical: 16),
               height: 1,
@@ -2733,6 +2748,54 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
             _buildPaymentRow('Subtotal', subtotal),
             const SizedBox(height: 12),
             _buildPaymentRow('Biaya Pengiriman', deliveryFee),
+
+            // ✅ DRIVER EARNING SECTION (NEW)
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Colors.green.withOpacity(0.3),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.account_balance_wallet,
+                        color: Colors.green[700],
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Penghasilan Driver',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: Colors.green[700],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    GlobalStyle.formatRupiah(driverEarning),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: Colors.green[700],
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ✅ TOTAL PAYMENT
             Container(
               margin: const EdgeInsets.symmetric(vertical: 16),
               height: 2,

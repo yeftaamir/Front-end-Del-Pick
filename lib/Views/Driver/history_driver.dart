@@ -76,6 +76,25 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
     },
   ];
 
+  String _formatDeliveryFeeWithDistance(double deliveryFee, double distanceKm) {
+    if (deliveryFee > 0 && distanceKm > 0) {
+      return '${GlobalStyle.formatRupiah(deliveryFee)} (${distanceKm.toStringAsFixed(1)}km)';
+    } else if (deliveryFee > 0) {
+      return GlobalStyle.formatRupiah(deliveryFee);
+    }
+    return 'Gratis';
+  }
+
+  String _formatEarningsInfo(DriverRequestModel request) {
+    final earnings = request.driverEarnings;
+    final orderStatus = request.order?.orderStatus;
+
+    if (orderStatus == OrderStatus.delivered && earnings > 0) {
+      return 'Penghasilan: ${request.formattedEarnings} (100% delivery fee)';
+    }
+    return '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -209,25 +228,82 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
       );
 
       // ✅ Debug response structure
-      print('📥 API Response: ${response.toString()}');
+      print('📥 API Response structure: ${response.runtimeType}');
+      print('📥 API Response keys: ${response.keys.toList()}');
 
       final List<dynamic> requestsList = response['requests'] ?? [];
       _totalPages = response['totalPages'] ?? 1;
+
+      print('📊 Fetched ${requestsList.length} requests from API');
 
       List<DriverRequestModel> newRequests = [];
       for (int i = 0; i < requestsList.length; i++) {
         try {
           final requestJson = requestsList[i];
-          print('🔍 Processing request $i: ${requestJson.toString()}');
+          print(
+              '🔍 Processing request $i: Order ID ${requestJson['order_id']}');
 
           final request = DriverRequestModel.fromJson(requestJson);
+
+          // ✅ BACKEND ALIGNED: Debug delivery fee calculation sesuai backend logic
+          if (request.order != null) {
+            final order = request.order!;
+            final deliveryFee = order.deliveryFee;
+            final totalAmount = order.totalAmount;
+            final itemsTotal = order.itemsTotal;
+            final driverEarnings = request.driverEarnings;
+            final orderStatus = order.orderStatus.value;
+            final deliveryStatus = order.deliveryStatus?.value ?? 'pending';
+
+            print('💰 Order ${request.orderId} - Backend Aligned Calculation:');
+            print(
+                '   📦 Total Amount: ${GlobalStyle.formatRupiah(totalAmount)}');
+            print(
+                '   🛍️ Items Total: ${GlobalStyle.formatRupiah(itemsTotal)}');
+            print(
+                '   🚚 Delivery Fee: ${GlobalStyle.formatRupiah(deliveryFee)}');
+            print(
+                '   💵 Driver Earnings: ${GlobalStyle.formatRupiah(driverEarnings)} (${deliveryFee == driverEarnings ? '100% delivery fee' : 'Custom calculation'})');
+            print('   📍 Order Status: $orderStatus');
+            print('   🚛 Delivery Status: $deliveryStatus');
+
+            // ✅ Backend distance calculation verification
+            if (order.destinationLatitude != null &&
+                order.destinationLongitude != null) {
+              final estimatedDistance = order.estimatedDistanceKm;
+              print(
+                  '   📏 Estimated Distance: ${estimatedDistance.toStringAsFixed(2)} km (from delivery fee)');
+              print('   🎯 Destination: ${request.destinationInfo}');
+            }
+
+            // ✅ Earnings eligibility check sesuai backend
+            final isEarningsEligible =
+                (orderStatus == 'delivered' && deliveryStatus == 'delivered');
+            print('   ✅ Earnings Eligible: $isEarningsEligible');
+
+            // ✅ Store and customer info
+            if (order.store != null) {
+              print('   🏪 Store: ${order.store!.name}');
+            }
+            if (order.customer != null) {
+              print('   👤 Customer: ${order.customer!.name}');
+            }
+
+            print('   📱 Items Count: ${order.totalItems}');
+            print(
+                '   ⏰ Created: ${DateFormat('dd/MM/yyyy HH:mm').format(request.createdAt)}');
+            print('   ═══════════════════════════════════════');
+          }
+
           newRequests.add(request);
-          print('✅ Successfully parsed request $i');
+          print(
+              '✅ Successfully parsed request ${i + 1}/${requestsList.length}');
         } catch (e, stackTrace) {
           print('❌ Error processing request $i: $e');
           print('❌ Stack trace: $stackTrace');
           print('❌ Raw data: ${requestsList[i]}');
           // Continue dengan request lainnya, jangan stop
+          continue;
         }
       }
 
@@ -244,6 +320,20 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
 
       print(
           '✅ HistoryDriver: Successfully loaded ${newRequests.length} requests');
+      print('📈 Total requests in memory: ${_driverRequests.length}');
+      print('📄 Current page: $_currentPage/$_totalPages');
+
+      // ✅ Summary statistics
+      final completedRequests = _driverRequests
+          .where((r) => r.order?.orderStatus.value == 'delivered')
+          .length;
+      final totalEarnings = _driverRequests
+          .where((r) => r.order?.orderStatus.value == 'delivered')
+          .fold(0.0, (sum, r) => sum + r.driverEarnings);
+
+      print('📊 Driver Statistics:');
+      print('   🎯 Completed Orders: $completedRequests');
+      print('   💰 Total Earnings: ${GlobalStyle.formatRupiah(totalEarnings)}');
     } catch (e, stackTrace) {
       print('❌ HistoryDriver: Error fetching requests: $e');
       print('❌ Stack trace: $stackTrace');
@@ -288,10 +378,46 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
 
 // ===== FILTERING BERDASARKAN ORDER STATUS =====
 
-// ===== FILTERING BERDASARKAN ORDER STATUS & DELIVERY STATUS =====
+  void _debugDeliveryFeeCalculation(DriverRequestModel request) {
+    final order = request.order;
+    if (order == null) return;
+
+    print('🔍 Delivery Fee Debug for Order ${request.orderId}:');
+    print('   Backend Calculation:');
+    print('   - Raw Delivery Fee: ${order.deliveryFee}');
+    print('   - Estimated Distance: ${order.estimatedDistanceKm} km');
+    print('   - Calculation Method: euclidean distance × 2000');
+
+    if (order.destinationLatitude != null &&
+        order.destinationLongitude != null) {
+      print(
+          '   - Destination: ${order.destinationLatitude}, ${order.destinationLongitude}');
+      print('   - Is IT Del: ${order.isDeliveryToITDel}');
+    }
+
+    print('   Driver Earnings:');
+    print('   - Earnings Amount: ${request.driverEarnings}');
+    print(
+        '   - Earnings = 100% Delivery Fee: ${request.driverEarnings == order.deliveryFee}');
+
+    print('   Order Totals:');
+    print('   - Items Total: ${order.itemsTotal}');
+    print('   - Delivery Fee: ${order.deliveryFee}');
+    print('   - Grand Total: ${order.totalAmount}');
+    print(
+        '   - Backend Formula: items_total + delivery_fee = ${order.itemsTotal + order.deliveryFee}');
+    print(
+        '   - Formula Check: ${(order.itemsTotal + order.deliveryFee) == order.totalAmount}');
+  }
 
   List<DriverRequestModel> getFilteredRequests(int tabIndex) {
-    if (tabIndex == 0) return _driverRequests; // Semua
+    if (tabIndex == 0) {
+      // Debug semua requests untuk delivery fee
+      for (var request in _driverRequests) {
+        _debugDeliveryFeeCalculation(request);
+      }
+      return _driverRequests; // Semua
+    }
 
     final tabData = _tabs[tabIndex];
     final tabStatuses = tabData['statuses'] as List<String>?;
@@ -304,18 +430,36 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
       final orderStatus = order.orderStatus.value.toLowerCase();
       final deliveryStatus = order.deliveryStatus?.value?.toLowerCase() ?? '';
 
-      // ✅ PERBAIKAN: Khusus untuk tab "Diantar" - cek delivery status
-      if (tabData['label'] == 'Diantar') {
-        return orderStatus == 'on_delivery' && deliveryStatus == 'on_way';
-      }
+      // ✅ BACKEND ALIGNED: Filter berdasarkan kombinasi order_status dan delivery_status
+      switch (tabData['label']) {
+        case 'Diantar':
+          return orderStatus == 'on_delivery' && deliveryStatus == 'on_way';
 
-      // ✅ PERBAIKAN: Untuk tab "Selesai" - cek delivery status delivered
-      if (tabData['label'] == 'Selesai') {
-        return orderStatus == 'delivered' && deliveryStatus == 'delivered';
-      }
+        case 'Selesai':
+          final isCompleted =
+              orderStatus == 'delivered' && deliveryStatus == 'delivered';
+          if (isCompleted) {
+            // Debug earnings untuk completed orders
+            print(
+                '💰 Completed Order ${request.orderId}: Earnings = ${request.formattedEarnings}');
+          }
+          return isCompleted;
 
-      // Untuk tab lainnya, gunakan order status
-      return tabStatuses.contains(orderStatus);
+        case 'Siap Diambil':
+          return orderStatus == 'ready_for_pickup';
+
+        case 'Diproses':
+          return ['confirmed', 'preparing'].contains(orderStatus);
+
+        case 'Menunggu':
+          return orderStatus == 'pending';
+
+        case 'Dibatalkan':
+          return ['cancelled', 'rejected'].contains(orderStatus);
+
+        default:
+          return tabStatuses.contains(orderStatus);
+      }
     }).toList();
   }
 
@@ -358,12 +502,33 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
     final orderDate = request.createdAt;
     final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(orderDate);
     final orderStatus = order.orderStatus;
+    final deliveryStatus = order.deliveryStatus?.value ?? 'pending';
     final statusColor = orderStatus.color;
     final statusText = orderStatus.displayName;
     final customerName = order.customer?.name ?? 'Unknown Customer';
     final customerAvatar = order.customer?.avatar ?? '';
     final totalItems = order.totalItems;
-    final driverEarnings = request.driverEarnings;
+
+    // ✅ BACKEND ALIGNED: Delivery fee calculation sesuai backend
+    final deliveryFee = order.deliveryFee; // Backend: euclidean distance * 2000
+    final totalAmount =
+        order.totalAmount; // Backend: items total + delivery fee
+    final itemsTotal = order.itemsTotal; // Backend: total amount - delivery fee
+    final driverEarnings = request.driverEarnings; // Backend: 100% delivery fee
+    final estimatedDistance =
+        order.estimatedDistanceKm; // Backend: delivery fee / 2000
+
+    // ✅ Earnings eligibility sesuai backend logic
+    final isDelivered =
+        (orderStatus.value == 'delivered' && deliveryStatus == 'delivered');
+    final showEarnings = isDelivered && driverEarnings > 0;
+
+    print('🎨 Building card for Order ${request.orderId}:');
+    print('   💰 Total: ${GlobalStyle.formatRupiah(totalAmount)}');
+    print('   🛍️ Items: ${GlobalStyle.formatRupiah(itemsTotal)}');
+    print('   🚚 Delivery: ${GlobalStyle.formatRupiah(deliveryFee)}');
+    print('   💵 Earnings: ${GlobalStyle.formatRupiah(driverEarnings)}');
+    print('   📊 Show Earnings: $showEarnings');
 
     final animationIndex = index < _cardAnimations.length ? index : 0;
 
@@ -384,7 +549,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
+                // ✅ Header with Order ID and Status
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -405,7 +570,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                 ),
                 const SizedBox(height: 12),
 
-                // Customer info
+                // ✅ Customer info
                 Row(
                   children: [
                     _buildAvatar(customerAvatar, Icons.person),
@@ -437,7 +602,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                 ),
                 const SizedBox(height: 12),
 
-                // ✅ PERBAIKAN: Store info dengan nama dari API berdasarkan store ID
+                // ✅ Store info dengan nama dari API berdasarkan store ID
                 Row(
                   children: [
                     _buildAvatar(order.store?.imageUrl, Icons.store),
@@ -446,10 +611,8 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // ✅ FIX: Future builder untuk nama toko dari store ID
                           FutureBuilder<String>(
-                            future: _getStoreName(
-                                order.storeId), // ✅ Ambil nama dari store ID
+                            future: _getStoreName(order.storeId),
                             builder: (context, snapshot) {
                               final storeName = snapshot.data ??
                                   (order.store?.name ?? 'Loading...');
@@ -465,54 +628,238 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '$totalItems item',
+                            '$totalItems item${totalItems > 1 ? 's' : ''}',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[600],
                             ),
                           ),
+                          // ✅ BACKEND ALIGNED: Distance info dari delivery fee calculation
+                          if (estimatedDistance > 0) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              '≈ ${estimatedDistance.toStringAsFixed(1)} km',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.blue[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
                   ],
                 ),
-                const Divider(height: 24),
 
-                // Bottom section
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                // ✅ BACKEND ALIGNED: Delivery destination info
+                if (order.destinationLatitude != null &&
+                    order.destinationLongitude != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                    ),
+                    child: Row(
                       children: [
-                        Text(
-                          'Total Pesanan',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[700],
-                          ),
+                        Icon(
+                          Icons.location_on,
+                          size: 14,
+                          color: Colors.blue[700],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          order.formatTotalAmount(),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: GlobalStyle.primaryColor,
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            request.destinationInfo, // IT Del atau koordinat
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.blue[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
                     ),
-                    if (driverEarnings > 0)
+                  ),
+                ],
+
+                const Divider(height: 24),
+
+                // ✅ BACKEND ALIGNED: Payment breakdown dan earnings section
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    // ✅ Left side - Payment breakdown
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Total amount (items + delivery)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Total Pesanan',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              Text(
+                                GlobalStyle.formatRupiah(totalAmount),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: GlobalStyle.primaryColor,
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // ✅ BACKEND ALIGNED: Breakdown jika ada delivery fee
+                          if (deliveryFee > 0) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '• Items',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  GlobalStyle.formatRupiah(itemsTotal),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '• Delivery',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  GlobalStyle.formatRupiah(deliveryFee),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    // ✅ Right side - Earnings atau status button
+                    if (showEarnings)
                       _buildEarningsChip(driverEarnings)
+                    else if (orderStatus.isCompleted)
+                      _buildStatusButton(statusText, statusColor)
                     else
-                      _buildDetailButton(), // ✅ PERBAIKAN: Tombol hijau
+                      _buildDetailButton(),
                   ],
                 ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+// ✅ Status button untuk completed orders tanpa earnings
+  Widget _buildStatusButton(String statusText, Color statusColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: statusColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: statusColor.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.check_circle,
+            color: statusColor,
+            size: 20,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            statusText,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: statusColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+// ✅ Enhanced detail button
+  Widget _buildDetailButton() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.green,
+            Colors.green.withOpacity(0.8),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.3),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.visibility,
+            color: Colors.white,
+            size: 16,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Detail',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              fontFamily: GlobalStyle.fontFamily,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -524,6 +871,10 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
       decoration: BoxDecoration(
         color: GlobalStyle.lightColor,
         borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: GlobalStyle.primaryColor.withOpacity(0.2),
+          width: 1,
+        ),
       ),
       child: imageUrl != null && imageUrl.isNotEmpty
           ? ClipRRect(
@@ -551,7 +902,11 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withOpacity(0.3),
+          width: 1,
+        ),
       ),
       child: Text(
         text,
@@ -559,12 +914,14 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
           fontSize: 12,
           fontWeight: FontWeight.w600,
           color: color,
+          fontFamily: GlobalStyle.fontFamily,
         ),
       ),
     );
   }
 
   Widget _buildEarningsChip(double earnings) {
+    // ✅ BACKEND ALIGNED: Driver mendapat 100% delivery fee sesuai backend logic
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -575,9 +932,9 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
       child: Column(
         children: [
           Text(
-            'Penghasilan',
+            'Penghasilan Driver', // ✅ CHANGE: Lebih spesifik
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 11,
               color: Colors.green[700],
             ),
           ),
@@ -590,38 +947,15 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
               color: Colors.green[700],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailButton() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.green, // ✅ CHANGE: Hijau, bukan abu-abu
-            Colors.green.withOpacity(0.8),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.green.withOpacity(0.3), // ✅ CHANGE: Shadow hijau
-            blurRadius: 6,
-            offset: const Offset(0, 2),
+          // ✅ ADD: Tampilkan info delivery fee source
+          Text(
+            '(Delivery Fee)',
+            style: TextStyle(
+              fontSize: 9,
+              color: Colors.green[600],
+            ),
           ),
         ],
-      ),
-      child: Text(
-        'Lihat Detail',
-        style: TextStyle(
-          color: Colors.white, // ✅ CHANGE: Text putih untuk kontras
-          fontWeight: FontWeight.w600,
-          fontSize: 14,
-          fontFamily: GlobalStyle.fontFamily,
-        ),
       ),
     );
   }
