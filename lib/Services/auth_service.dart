@@ -8,11 +8,14 @@ class AuthService {
   static const String _baseEndpoint = '/auth';
   static const bool _debugMode = false; // Toggle for development debugging
 
+  // ✅ SUPPORTED ROLES (HANYA 3 ROLE)
+  static const List<String> _supportedRoles = ['customer', 'store', 'driver'];
+
   static void _log(String message) {
     if (_debugMode) print(message);
   }
 
-  /// Login user with email and password - Optimized version
+  /// Login user with email and password - Optimized untuk 3 role dengan 7 hari token
   static Future<Map<String, dynamic>> login({
     required String email,
     required String password,
@@ -37,9 +40,17 @@ class AuthService {
           throw Exception('Invalid login response: missing user or token');
         }
 
-        // Batch save authentication data
+        // ✅ VALIDASI ROLE (HANYA 3 ROLE YANG DIDUKUNG)
+        final userRole = user['role']?.toString().toLowerCase();
+        if (!_supportedRoles.contains(userRole)) {
+          throw Exception(
+              'Unsupported user role: $userRole. Only customer, store, and driver are supported.');
+        }
+
+        // Batch save authentication data (token akan expired setelah 7 hari)
         await Future.wait([
-          TokenService.saveToken(token),
+          TokenService.saveToken(
+              token), // ✅ Automatically saves with 7 days expiry
           TokenService.saveUserRole(user['role']),
           TokenService.saveUserId(user['id'].toString()),
         ]);
@@ -50,7 +61,8 @@ class AuthService {
         // Save complete user data
         await TokenService.saveUserData(loginData);
 
-        _log('Login successful for user: ${user['name']} (${user['role']})');
+        _log(
+            'Login successful for user: ${user['name']} (${user['role']}) - Token valid for 7 days');
         return loginData;
       }
 
@@ -61,7 +73,7 @@ class AuthService {
     }
   }
 
-  /// Logout user - Optimized cleanup
+  /// Logout user - Enhanced cleanup for 7 days token
   static Future<bool> logout() async {
     try {
       // Try server-side logout with timeout
@@ -71,20 +83,22 @@ class AuthService {
           endpoint: '$_baseEndpoint/logout',
           requiresAuth: true,
         ).timeout(Duration(seconds: 5));
+        _log('Server-side logout successful');
       } catch (e) {
-        _log('Server-side logout failed: $e');
-        // Continue with local cleanup
+        _log('Server-side logout failed: $e (continuing with local cleanup)');
+        // Continue with local cleanup even if server logout fails
       }
 
-      // Clear all local authentication data
+      // Clear all local authentication data (termasuk token 7 hari)
       await TokenService.clearAll();
-      _log('Logout completed successfully');
+      _log('Logout completed successfully - all 7-day session data cleared');
       return true;
     } catch (e) {
       _log('Logout error: $e');
       // Still try to clear local data on error
       try {
         await TokenService.clearAll();
+        _log('Local session data cleared despite logout error');
       } catch (clearError) {
         _log('Failed to clear local data: $clearError');
       }
@@ -92,9 +106,15 @@ class AuthService {
     }
   }
 
-  /// Get current user profile - Optimized
+  /// Get current user profile - Enhanced untuk 3 role
   static Future<Map<String, dynamic>> getProfile() async {
     try {
+      // Validate session sebelum request
+      final sessionValid = await isSessionValid();
+      if (!sessionValid) {
+        throw Exception('Session expired after 7 days. Please login again.');
+      }
+
       final response = await BaseService.apiCall(
         method: 'GET',
         endpoint: '$_baseEndpoint/profile',
@@ -104,10 +124,16 @@ class AuthService {
       if (response['data'] != null) {
         final profileData = response['data'];
 
+        // ✅ VALIDASI ROLE pada profile data
+        final userRole = profileData['role']?.toString().toLowerCase();
+        if (!_supportedRoles.contains(userRole)) {
+          throw Exception('Profile contains unsupported role: $userRole');
+        }
+
         // Process images based on role
         await _processProfileImages(profileData);
 
-        // Update cached user data
+        // Update cached user data (maintain 7-day session)
         await TokenService.saveUserData({'user': profileData});
 
         return profileData;
@@ -120,11 +146,17 @@ class AuthService {
     }
   }
 
-  /// Update user profile - Optimized
+  /// Update user profile - Enhanced untuk 3 role
   static Future<Map<String, dynamic>> updateProfile({
     required Map<String, dynamic> updateData,
   }) async {
     try {
+      // Validate session before update
+      final sessionValid = await isSessionValid();
+      if (!sessionValid) {
+        throw Exception('Session expired after 7 days. Please login again.');
+      }
+
       final response = await BaseService.apiCall(
         method: 'PUT',
         endpoint: '$_baseEndpoint/profile',
@@ -141,6 +173,7 @@ class AuthService {
           TokenService.saveUserData({'user': updatedProfile}),
         ]);
 
+        _log('Profile updated successfully for 7-day session user');
         return updatedProfile;
       }
 
@@ -151,7 +184,7 @@ class AuthService {
     }
   }
 
-  /// Register new user - Optimized
+  /// Register new user - Enhanced validation untuk 3 role saja
   static Future<Map<String, dynamic>> register({
     required String name,
     required String email,
@@ -161,6 +194,12 @@ class AuthService {
     Map<String, dynamic>? additionalData,
   }) async {
     try {
+      // ✅ VALIDASI ROLE saat register
+      if (!_supportedRoles.contains(role.toLowerCase())) {
+        throw Exception(
+            'Invalid role: $role. Only customer, store, and driver are supported.');
+      }
+
       final registerData = {
         'name': name,
         'email': email,
@@ -177,6 +216,7 @@ class AuthService {
         requiresAuth: false,
       );
 
+      _log('Registration successful for role: $role');
       return response['data'] ?? {};
     } catch (e) {
       _log('Registration error: $e');
@@ -184,10 +224,21 @@ class AuthService {
     }
   }
 
-  /// Get cached user data - Optimized
+  /// Get cached user data - Enhanced untuk 7 hari session
   static Future<Map<String, dynamic>?> getUserData() async {
     try {
       final userData = await TokenService.getUserData();
+
+      if (userData != null) {
+        // Check if cached data is still valid (within 7 days)
+        final sessionValid = await isSessionValid();
+        if (!sessionValid) {
+          _log('Cached user data invalid - 7 day session expired');
+          await TokenService.clearAll();
+          return null;
+        }
+      }
+
       _log(
           'Retrieved user data: ${userData != null ? userData.keys.toList() : 'null'}');
       return userData;
@@ -197,10 +248,18 @@ class AuthService {
     }
   }
 
-  /// Get user role from cache - Optimized
+  /// Get user role from cache - Enhanced validation
   static Future<String?> getUserRole() async {
     try {
       final role = await TokenService.getUserRole();
+
+      // ✅ VALIDASI ROLE dari cache
+      if (role != null && !_supportedRoles.contains(role.toLowerCase())) {
+        _log('Invalid cached role: $role, clearing session');
+        await TokenService.clearAll();
+        return null;
+      }
+
       _log('Retrieved user role: $role');
       return role;
     } catch (e) {
@@ -209,7 +268,7 @@ class AuthService {
     }
   }
 
-  /// Get user ID from cache - Optimized
+  /// Get user ID from cache - Enhanced
   static Future<String?> getUserId() async {
     try {
       final userId = await TokenService.getUserId();
@@ -221,60 +280,29 @@ class AuthService {
     }
   }
 
-  /// Check authentication - Optimized with batch operations
-  // static Future<bool> isAuthenticated() async {
-  //   try {
-  //     // Batch check all required authentication data
-  //     final results = await Future.wait([
-  //       TokenService.isAuthenticated(),
-  //       getUserRole(),
-  //       getUserId(),
-  //     ]);
-  //
-  //     final hasToken = results[0] as bool;
-  //     final userRole = results[1] as String?;
-  //     final userId = results[2] as String?;
-  //
-  //     if (!hasToken) {
-  //       _log('No authentication token found');
-  //       return false;
-  //     }
-  //
-  //     if (userRole == null || userRole.isEmpty) {
-  //       _log('No user role found');
-  //       return false;
-  //     }
-  //
-  //     if (userId == null || userId.isEmpty) {
-  //       _log('No user ID found');
-  //       return false;
-  //     }
-  //
-  //     _log('User is authenticated - Role: $userRole, ID: $userId');
-  //     return true;
-  //   } catch (e) {
-  //     _log('Error checking authentication: $e');
-  //     return false;
-  //   }
-  // }
-
-  /// Refresh user data from server - Optimized
+  /// Refresh user data from server - Enhanced untuk 7 hari session
   static Future<Map<String, dynamic>?> refreshUserData() async {
     try {
-      _log('Refreshing user data from server...');
+      _log('Refreshing user data from server (validating 7-day session)...');
       final profile = await getProfile();
-      _log('User data refreshed successfully');
+      _log('User data refreshed successfully with valid 7-day session');
       return profile;
     } catch (e) {
       _log('Error refreshing user data: $e');
+
+      // If refresh fails due to expired session, clear all data
+      if (e.toString().contains('expired') || e.toString().contains('7 days')) {
+        await TokenService.clearAll();
+      }
+
       return null;
     }
   }
 
-  /// Get role-specific data - Optimized
+  /// Get role-specific data - Enhanced untuk 3 role saja
   static Future<Map<String, dynamic>?> getRoleSpecificData() async {
     try {
-      _log('Getting role-specific data...');
+      _log('Getting role-specific data for supported roles...');
 
       // Batch check authentication and get role
       final authCheck = await Future.wait([
@@ -286,16 +314,18 @@ class AuthService {
       final userRole = authCheck[1] as String?;
 
       if (!isAuth) {
-        _log('User not authenticated');
+        _log('User not authenticated or 7-day session expired');
         return null;
       }
 
-      if (userRole == null) {
-        _log('No user role found');
+      if (userRole == null ||
+          !_supportedRoles.contains(userRole.toLowerCase())) {
+        _log('Invalid or unsupported user role: $userRole');
+        await TokenService.clearAll(); // Clear invalid session
         return null;
       }
 
-      _log('User role: $userRole');
+      _log('User role: $userRole (supported)');
 
       // Get cached user data
       final userData = await getUserData();
@@ -321,13 +351,14 @@ class AuthService {
     }
   }
 
-  /// Process data based on user role - Optimized
+  /// Process data based on user role - Updated untuk 3 role saja
   static Future<Map<String, dynamic>?> _processRoleSpecificData(
       Map<String, dynamic> data, String role) async {
     try {
       _log('Processing role-specific data for role: $role');
       _log('Input data structure: ${data.keys.toList()}');
 
+      // ✅ HANYA PROSES 3 ROLE YANG DIDUKUNG
       switch (role.toLowerCase()) {
         case 'customer':
           return await _processCustomerSpecificData(data);
@@ -336,8 +367,9 @@ class AuthService {
         case 'driver':
           return await _processDriverSpecificData(data);
         default:
-          _log('Unknown role: $role, returning data as-is');
-          return data;
+          _log('Unsupported role: $role, clearing session');
+          await TokenService.clearAll();
+          return null;
       }
     } catch (e) {
       _log('Error processing role-specific data: $e');
@@ -345,7 +377,7 @@ class AuthService {
     }
   }
 
-  /// Process customer data - Optimized
+  /// Process customer data - Enhanced
   static Future<Map<String, dynamic>> _processCustomerSpecificData(
       Map<String, dynamic> data) async {
     try {
@@ -397,7 +429,7 @@ class AuthService {
     }
   }
 
-  /// Process store data - Optimized
+  /// Process store data - Enhanced
   static Future<Map<String, dynamic>> _processStoreSpecificData(
       Map<String, dynamic> data) async {
     try {
@@ -420,7 +452,7 @@ class AuthService {
         };
       }
 
-      // Fetch store data from server if not found
+      // Fetch store data from server if not found (dengan validasi 7 hari)
       _log('No store data found, attempting to fetch from server...');
       final freshProfile = await getProfile();
       if (freshProfile != null && freshProfile['store'] != null) {
@@ -440,10 +472,12 @@ class AuthService {
     }
   }
 
-  /// Process driver data - Optimized
+  /// Process driver data - Enhanced
   static Future<Map<String, dynamic>> _processDriverSpecificData(
       Map<String, dynamic> data) async {
     try {
+      _log('Processing driver-specific data...');
+
       if (data['driver'] != null) {
         await _processDriverData(data);
         return data;
@@ -456,6 +490,17 @@ class AuthService {
         };
       }
 
+      // Try to fetch driver data from server
+      _log('No driver data found, attempting to fetch from server...');
+      final freshProfile = await getProfile();
+      if (freshProfile != null && freshProfile['driver'] != null) {
+        await _processDriverData({'driver': freshProfile['driver']});
+        return {
+          'user': freshProfile,
+          'driver': freshProfile['driver'],
+        };
+      }
+
       return data;
     } catch (e) {
       _log('Error processing driver-specific data: $e');
@@ -463,7 +508,7 @@ class AuthService {
     }
   }
 
-  /// Email verification - Optimized
+  /// Email verification - Enhanced
   static Future<bool> verifyEmail(String token) async {
     try {
       await BaseService.apiCall(
@@ -478,7 +523,7 @@ class AuthService {
     }
   }
 
-  /// Resend verification email - Optimized
+  /// Resend verification email - Enhanced
   static Future<bool> resendVerification(String email) async {
     try {
       await BaseService.apiCall(
@@ -494,7 +539,7 @@ class AuthService {
     }
   }
 
-  /// Forgot password - Optimized
+  /// Forgot password - Enhanced
   static Future<bool> forgotPassword(String email) async {
     try {
       await BaseService.apiCall(
@@ -510,7 +555,7 @@ class AuthService {
     }
   }
 
-  /// Reset password - Optimized
+  /// Reset password - Enhanced
   static Future<bool> resetPassword({
     required String token,
     required String newPassword,
@@ -533,9 +578,11 @@ class AuthService {
     }
   }
 
-  // PRIVATE HELPER METHODS - OPTIMIZED
+  // ==============================
+  // PRIVATE HELPER METHODS
+  // ==============================
 
-  /// Process login data - Optimized
+  /// Process login data - Enhanced untuk 3 role
   static Future<void> _processLoginData(Map<String, dynamic> loginData) async {
     final user = loginData['user'];
     if (user == null) return;
@@ -547,6 +594,7 @@ class AuthService {
       user['avatar'] = ImageService.getImageUrl(user['avatar']);
     }
 
+    // ✅ PROSES BERDASARKAN 3 ROLE YANG DIDUKUNG
     switch (role) {
       case 'driver':
         await _processDriverData(loginData);
@@ -557,10 +605,13 @@ class AuthService {
       case 'customer':
         _log('Customer login data processed');
         break;
+      default:
+        _log('Unsupported role in login data: $role');
+        break;
     }
   }
 
-  /// Process driver data - Optimized
+  /// Process driver data - Enhanced
   static Future<void> _processDriverData(Map<String, dynamic> loginData) async {
     _log('Processing driver data...');
 
@@ -582,11 +633,11 @@ class AuthService {
       // Keep nullable location fields as they are
       // driver['latitude'] and driver['longitude'] can be null
 
-      _log('Driver data processed');
+      _log('Driver data processed successfully');
     }
   }
 
-  /// Process store data - Optimized
+  /// Process store data - Enhanced
   static Future<void> _processStoreData(Map<String, dynamic> loginData) async {
     _log('Processing store data...');
 
@@ -616,13 +667,13 @@ class AuthService {
         _log('Store ID found: ${store['id']}');
       }
 
-      _log('Store data processed');
+      _log('Store data processed successfully');
     } else {
       _log('No store data found in loginData');
     }
   }
 
-  /// Process profile images - Optimized
+  /// Process profile images - Enhanced
   static Future<void> _processProfileImages(
       Map<String, dynamic> profileData) async {
     // Process user avatar
@@ -654,10 +705,10 @@ class AuthService {
     }
   }
 
-  /// Validate customer access - Optimized
+  /// Validate customer access - Enhanced dengan 7 hari validation
   static Future<bool> validateCustomerAccess() async {
     try {
-      _log('Validating customer access...');
+      _log('Validating customer access with 7-day session...');
 
       // Batch check authentication and role
       final checks = await Future.wait([
@@ -669,7 +720,7 @@ class AuthService {
       final userRole = checks[1] as String?;
 
       if (!isAuth) {
-        _log('User not authenticated');
+        _log('User not authenticated or 7-day session expired');
         return false;
       }
 
@@ -685,7 +736,7 @@ class AuthService {
         return false;
       }
 
-      _log('Customer access validated');
+      _log('Customer access validated with valid 7-day session');
       return true;
     } catch (e) {
       _log('Error validating customer access: $e');
@@ -693,7 +744,7 @@ class AuthService {
     }
   }
 
-  /// Get customer data - Optimized
+  /// Get customer data - Enhanced
   static Future<Map<String, dynamic>?> getCustomerData() async {
     try {
       _log('Getting customer data...');
@@ -731,13 +782,20 @@ class AuthService {
     if (!_debugMode) return;
 
     try {
-      print('🔍 ====== DEBUG USER DATA ======');
+      print('🔍 ====== DEBUG USER DATA (3 ROLES + 7 DAYS SESSION) ======');
 
       final isAuth = await isAuthenticated();
       print('🔍 Is Authenticated: $isAuth');
 
+      final sessionValid = await isSessionValid();
+      print('🔍 Session Valid (7 days): $sessionValid');
+
+      final remainingDays = await getSessionRemainingDays();
+      print('🔍 Remaining Days: $remainingDays');
+
       final role = await getUserRole();
-      print('🔍 User role: $role');
+      print(
+          '🔍 User role: $role (supported: ${_supportedRoles.contains(role?.toLowerCase())})');
 
       final userId = await getUserId();
       print('🔍 User ID: $userId');
@@ -759,9 +817,15 @@ class AuthService {
     }
   }
 
-  /// Check if user has specific role - Optimized
+  /// Check if user has specific role - Enhanced validation
   static Future<bool> hasRole(String requiredRole) async {
     try {
+      // ✅ VALIDASI ROLE YANG DIDUKUNG
+      if (!_supportedRoles.contains(requiredRole.toLowerCase())) {
+        _log('Checking for unsupported role: $requiredRole');
+        return false;
+      }
+
       final userRole = await getUserRole();
       return userRole?.toLowerCase() == requiredRole.toLowerCase();
     } catch (e) {
@@ -770,10 +834,10 @@ class AuthService {
     }
   }
 
-  /// Ensure user data is valid - Optimized
+  /// Ensure user data is valid - Enhanced dengan 7 hari validation
   static Future<bool> ensureValidUserData() async {
     try {
-      _log('Ensuring valid user data...');
+      _log('Ensuring valid user data with 7-day session...');
 
       // Batch check authentication and cached data
       final checks = await Future.wait([
@@ -787,17 +851,24 @@ class AuthService {
       final role = checks[2] as String?;
 
       if (!isAuth) {
-        _log('User not authenticated');
+        _log('User not authenticated or 7-day session expired');
         return false;
       }
 
-      if (cachedData == null || role == null) {
-        _log('No cached data or role, refreshing...');
+      // ✅ VALIDASI ROLE
+      if (role == null || !_supportedRoles.contains(role.toLowerCase())) {
+        _log('Invalid or unsupported role: $role');
+        await TokenService.clearAll();
+        return false;
+      }
+
+      if (cachedData == null) {
+        _log('No cached data, refreshing with 7-day session validation...');
         final freshData = await refreshUserData();
         return freshData != null;
       }
 
-      _log('User data is valid');
+      _log('User data is valid with valid 7-day session');
       return true;
     } catch (e) {
       _log('Error ensuring valid user data: $e');
@@ -805,7 +876,7 @@ class AuthService {
     }
   }
 
-  /// Check if user session is still valid (token not expired)
+  /// Check if user session is still valid (token not expired after 7 days)
   static Future<bool> isSessionValid() async {
     try {
       final isAuthenticated = await TokenService.isAuthenticated();
@@ -816,12 +887,12 @@ class AuthService {
 
       final isTokenValid = await TokenService.isTokenValid();
       if (!isTokenValid) {
-        _log('Session invalid: token expired');
+        _log('Session invalid: token expired after 7 days');
         await TokenService.clearAll();
         return false;
       }
 
-      _log('Session is valid');
+      _log('Session is valid (within 7 days)');
       return true;
     } catch (e) {
       _log('Error checking session validity: $e');
@@ -852,12 +923,12 @@ class AuthService {
   /// Validate session and refresh if needed
   static Future<bool> validateAndRefreshSession() async {
     try {
-      _log('Validating and refreshing session...');
+      _log('Validating and refreshing 7-day session...');
 
       // Check if session is still valid
-      final isValid = await isSessionValid();
-      if (!isValid) {
-        _log('Session invalid, need to re-authenticate');
+      final sessionValid = await isSessionValid();
+      if (!sessionValid) {
+        _log('7-day session invalid, need to re-authenticate');
         return false;
       }
 
@@ -870,21 +941,21 @@ class AuthService {
         // Optionally refresh user data from server to ensure token is still valid
         try {
           await refreshUserData();
-          _log('Session refreshed successfully');
+          _log('7-day session refreshed successfully');
         } catch (e) {
-          _log('Failed to refresh session: $e');
+          _log('Failed to refresh 7-day session: $e');
           return false;
         }
       }
 
       return true;
     } catch (e) {
-      _log('Error validating and refreshing session: $e');
+      _log('Error validating and refreshing 7-day session: $e');
       return false;
     }
   }
 
-  /// Check authentication with enhanced validation
+  /// Check authentication with enhanced validation for 7 days session
   static Future<bool> isAuthenticated() async {
     try {
       // First check basic authentication
@@ -893,14 +964,24 @@ class AuthService {
         return false;
       }
 
-      // Then validate session
+      // Then validate session (7 days)
       final sessionValid = await isSessionValid();
       if (!sessionValid) {
-        _log('Authentication failed: session invalid');
+        _log('Authentication failed: 7-day session invalid');
         return false;
       }
 
-      _log('User is authenticated with valid session');
+      // ✅ VALIDASI ROLE
+      final userRole = await getUserRole();
+      if (userRole == null ||
+          !_supportedRoles.contains(userRole.toLowerCase())) {
+        _log('Authentication failed: unsupported role $userRole');
+        await TokenService.clearAll();
+        return false;
+      }
+
+      _log(
+          'User is authenticated with valid 7-day session and supported role: $userRole');
       return true;
     } catch (e) {
       _log('Error checking authentication: $e');
@@ -908,7 +989,7 @@ class AuthService {
     }
   }
 
-  /// Basic authentication check (existing logic)
+  /// Basic authentication check (existing logic) - Enhanced
   static Future<bool> _checkBasicAuthentication() async {
     try {
       // Batch check all required authentication data
@@ -943,5 +1024,15 @@ class AuthService {
       _log('Error in basic authentication check: $e');
       return false;
     }
+  }
+
+  /// Get supported roles list
+  static List<String> getSupportedRoles() {
+    return List.from(_supportedRoles);
+  }
+
+  /// Check if role is supported
+  static bool isRoleSupported(String role) {
+    return _supportedRoles.contains(role.toLowerCase());
   }
 }

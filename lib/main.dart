@@ -132,10 +132,11 @@ Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
   }
 
   try {
-    // Check authentication and token validity first
+    // Check authentication and token validity first (dengan 7 hari expiry)
     final isAuthenticated = await AuthService.isAuthenticated();
     if (!isAuthenticated) {
-      throw Exception('Authentication token expired. Please login again.');
+      throw Exception(
+          'Authentication token expired after 7 days. Please login again.');
     }
 
     // Use OrderService.getOrderDetail to fetch order details
@@ -176,17 +177,17 @@ Future<Map<String, dynamic>> _getOrderData(String? orderId) async {
   }
 }
 
-// ✅ Helper function to determine the initial route based on authentication status
+// ✅ Enhanced helper function untuk menentukan initial route (HANYA 3 ROLE)
 Future<String> _determineInitialRoute() async {
   try {
-    print('🔍 Determining initial route...');
+    print('🔍 Determining initial route for 3 roles only...');
 
-    // Check if user is authenticated and session is valid
+    // Check if user is authenticated and session is valid (7 days)
     final isAuthenticated = await AuthService.isAuthenticated();
     print('🔐 Is authenticated: $isAuthenticated');
 
     if (!isAuthenticated) {
-      print('❌ User not authenticated or session expired');
+      print('❌ User not authenticated or session expired after 7 days');
       return LoginPage.route;
     }
 
@@ -196,13 +197,17 @@ Future<String> _determineInitialRoute() async {
 
     // Validate session is still valid (not expired after 7 days)
     final isSessionValid = await AuthService.isSessionValid();
-    print('✅ Session valid: $isSessionValid');
+    print('✅ Session valid (7 days): $isSessionValid');
 
     if (!isSessionValid) {
-      print('⏰ Session expired, clearing token');
+      print('⏰ Session expired after 7 days, clearing token');
       await TokenService.clearAll();
       return LoginPage.route;
     }
+
+    // Get remaining days and warn if close to expiry
+    final remainingDays = await AuthService.getSessionRemainingDays();
+    print('📅 Token expires in $remainingDays days');
 
     // Get user data to determine role
     final userData = await AuthService.getUserData();
@@ -214,7 +219,7 @@ Future<String> _determineInitialRoute() async {
       return LoginPage.route;
     }
 
-    // Determine home route based on user role
+    // Determine home route based on user role (HANYA 3 ROLE)
     final role = userData['user']?['role']?.toString().toLowerCase() ?? '';
     print('🎭 User role: $role');
 
@@ -229,11 +234,11 @@ Future<String> _determineInitialRoute() async {
       case 'driver':
         print('🚗 Navigating to Driver Home');
         return HomeDriverPage.route;
-      case 'admin':
-        print('👑 Navigating to Admin Home');
-        return '/Admin/HomePage';
       default:
-        print('❓ Unknown role: $role, redirecting to login');
+        print(
+            '❓ Unknown role: $role (admin not supported), redirecting to login');
+        // Clear data untuk role yang tidak didukung
+        await TokenService.clearAll();
         return LoginPage.route;
     }
   } catch (e) {
@@ -426,16 +431,12 @@ class MyApp extends StatelessWidget {
         );
       },
 
-      // ========== ADMIN ROUTES ==========
-      '/Admin/HomePage': (context) => const InternetConnectivityWrapper(
-            child: Scaffold(
-              body: Center(child: Text('Admin Home Page - To be implemented')),
-            ),
-          ),
+      // ========== REMOVED: ADMIN ROUTES (TIDAK DIPERLUKAN) ==========
+      // Admin tidak lagi didukung dalam aplikasi ini
     };
   }
 
-  // ✅ Helper methods (same as before)
+  // ✅ Helper methods (updated untuk 7 hari token expiry)
   Widget _buildHistoryDetailPage(dynamic arguments) {
     if (arguments is OrderModel) {
       print('✅ Direct OrderModel navigation');
@@ -508,7 +509,9 @@ class MyApp extends StatelessWidget {
       final error = snapshot.error.toString();
       print('Error loading order data: $error');
 
-      if (error.contains('token') || error.contains('authentication')) {
+      if (error.contains('token') ||
+          error.contains('authentication') ||
+          error.contains('7 days')) {
         return _buildAuthErrorPage(context);
       }
 
@@ -618,7 +621,7 @@ class MyApp extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Your session has expired after 7 days. Please login again to continue.',
+                'Your session has expired after 7 days. Please login again to continue using the app.',
                 style: TextStyle(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
@@ -632,6 +635,10 @@ class MyApp extends StatelessWidget {
                     (route) => false,
                   );
                 },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GlobalStyle.primaryColor,
+                  foregroundColor: Colors.white,
+                ),
                 child: const Text('Login Again'),
               ),
             ],
@@ -667,6 +674,14 @@ class MyApp extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      SizedBox(height: 10),
+                      Text(
+                        'Checking session validity (7 days)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -700,7 +715,7 @@ class MyApp extends StatelessWidget {
           routes: _buildRoutes(),
           navigatorKey: GlobalNavigatorContext.navigatorKey,
 
-          // ✅ Enhanced route generator
+          // ✅ Enhanced route generator (untuk 3 role saja)
           onGenerateRoute: (RouteSettings settings) {
             print('🛣️ onGenerateRoute called for: ${settings.name}');
             print(
