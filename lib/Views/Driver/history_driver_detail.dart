@@ -2582,11 +2582,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     if (_orderItems.isEmpty) return const SizedBox.shrink();
 
     // ✅ FIX: Safe numeric conversion untuk total amounts
-    final totalAmount = _safeParseDouble(_orderData['total_amount']);
-    final deliveryFee = _safeParseDouble(_orderData['delivery_fee']);
-    final subtotal = totalAmount - deliveryFee;
-    final driverEarning =
-        _calculateEstimatedEarnings(); // ✅ Driver earning = delivery fee
+    final subtotal = _safeParseDouble(_orderData['subtotal']);
+    final deliveryFee = _safeParseDouble(_orderData['delivery_fee']); // hasil perhitungan jarak x 2500
+    final totalAmount = subtotal + deliveryFee;
+    final driverEarning = _calculateEstimatedEarnings(); // Driver earning = delivery fee
 
     return _buildCard(
       index: 3,
