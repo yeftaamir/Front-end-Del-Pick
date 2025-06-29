@@ -2630,7 +2630,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
               final quantity = _safeParseInt(item['quantity']);
               final price = _safeParseDouble(item['price']);
               final imageUrl = item['image_url']?.toString() ?? '';
-              final totalPrice = price * quantity;
+              final subtotal = _orderItems.fold<double>(0, (sum, item) => sum + (_safeParseDouble(item['total_price'])));
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
@@ -2724,7 +2724,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          GlobalStyle.formatRupiah(totalPrice),
+                          GlobalStyle.formatRupiah(subtotal),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
