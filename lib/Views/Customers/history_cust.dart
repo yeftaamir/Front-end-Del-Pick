@@ -289,6 +289,23 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     });
   }
 
+  // 1. TAMBAH method helper untuk menghitung grand total
+  double _calculateGrandTotal(OrderModel order) {
+    final totalAmount = order.totalAmount;
+    final deliveryFee = order.deliveryFee ?? 0.0;
+    return totalAmount + deliveryFee;
+  }
+
+// 2. TAMBAH method helper untuk format grand total
+  String _formatGrandTotal(OrderModel order) {
+    final grandTotal = _calculateGrandTotal(order);
+    return NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    ).format(grandTotal);
+  }
+
   Future<void> _retryFetchStore(int storeId) async {
     try {
       final storeResponse = await StoreService.getStoreById(storeId.toString());
@@ -311,6 +328,60 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     } catch (e) {
       _log('Error retrying store fetch for $storeId: $e');
     }
+  }
+
+  Widget _buildOrderFooterSimple(OrderModel order) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Total Pembayaran',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey[700],
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 4),
+            // ✅ PERBAIKAN: Tampilkan grand total (total amount + delivery fee)
+            Text(
+              _formatGrandTotal(order),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: GlobalStyle.primaryColor,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+            // ✅ TAMBAH: Info breakdown kecil
+            Text(
+              'Subtotal + Ongkir',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[500],
+                fontStyle: FontStyle.italic,
+                fontFamily: GlobalStyle.fontFamily,
+              ),
+            ),
+          ],
+        ),
+        ElevatedButton(
+          onPressed: () => _navigateToDetail(order),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: GlobalStyle.primaryColor,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          child: const Text('Lihat Detail',
+              style: TextStyle(fontWeight: FontWeight.w500)),
+        ),
+      ],
+    );
   }
 
   PreferredSizeWidget _buildTabBar() {
@@ -986,7 +1057,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
                   ],
                 ),
                 const Divider(height: 24),
-                _buildOrderFooter(order),
+                // ✅ GUNAKAN: Footer yang sudah diperbaiki
+                _buildOrderFooter(order), // atau _buildOrderFooterSimple(order)
               ],
             ),
           ),

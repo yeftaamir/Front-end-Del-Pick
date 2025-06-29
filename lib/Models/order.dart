@@ -1,7 +1,3 @@
-// ========================================
-// Order Model - Enhanced Version with Backend-Aligned Implementation
-// ========================================
-
 import 'dart:convert';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order_enum.dart';
@@ -58,9 +54,6 @@ class OrderModel {
     this.items = const [],
   });
 
-  // ========================================
-  // SAFE PARSING METHODS
-  // ========================================
   static int _parseInt(dynamic value) {
     if (value == null) return 0;
     if (value is int) return value;

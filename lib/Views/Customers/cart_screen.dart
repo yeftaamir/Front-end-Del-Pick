@@ -99,6 +99,25 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   // ✅ FIXED: Notes controller for driver
   late TextEditingController _notesController;
 
+  // ✅ PERBAIKAN: Getter yang sesuai dengan struktur backend
+
+  // Items subtotal = total harga items (sesuai total_amount di backend)
+  double get itemsSubtotal {
+    double total = 0;
+    for (var item in widget.cartItems) {
+      final quantity = _getItemQuantity(item);
+      if (quantity > 0) {
+        total += item.price * quantity;
+      }
+    }
+    return total;
+  }
+
+  // Grand total = subtotal + delivery fee (sesuai backend structure)
+  double get grandTotal {
+    return itemsSubtotal + _estimatedDeliveryFee;
+  }
+
   // ✅ BARU: Helper to get item quantity with local updates
   int _getItemQuantity(MenuItemModel item) {
     return _localQuantities[item.id] ?? widget.itemQuantities?[item.id] ?? 0;
@@ -116,6 +135,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
     // Recalculate delivery fee if distance changed due to total weight/value
     _calculateEstimatedDeliveryFee();
+  }
+
+  // ✅ BARU: Get items with positive quantity
+  List<MenuItemModel> get activeItems {
+    return widget.cartItems
+        .where((item) => _getItemQuantity(item) > 0)
+        .toList();
   }
 
   @override
@@ -152,7 +178,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
     _cardControllers = List.generate(
       4, // Location, items, payment, submit button
-          (index) => AnimationController(
+      (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 100)),
       ),
@@ -186,7 +212,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     if (widget.storeLatitude != null && widget.storeLongitude != null) {
       _storeLatitude = widget.storeLatitude;
       _storeLongitude = widget.storeLongitude;
-      print('✅ CartScreen: Store location initialized: $_storeLatitude, $_storeLongitude');
+      print(
+          '✅ CartScreen: Store location initialized: $_storeLatitude, $_storeLongitude');
     }
 
     if (widget.storeDistance != null) {
@@ -202,7 +229,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     if (widget.customerLatitude != null && widget.customerLongitude != null) {
       _latitude = widget.customerLatitude;
       _longitude = widget.customerLongitude;
-      print('✅ CartScreen: Customer location initialized: $_latitude, $_longitude');
+      print(
+          '✅ CartScreen: Customer location initialized: $_latitude, $_longitude');
     }
 
     _calculateEstimatedDeliveryFee();
@@ -214,16 +242,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         double fee = calculateDeliveryFee(_storeDistance!);
         _estimatedDeliveryFee = fee;
       });
-      print('✅ CartScreen: Estimated delivery fee calculated: ${GlobalStyle.formatRupiah(_estimatedDeliveryFee)}');
+      print(
+          '✅ CartScreen: Estimated delivery fee calculated: ${GlobalStyle.formatRupiah(_estimatedDeliveryFee)}');
       return;
     }
 
-    if (_latitude != null && _longitude != null &&
-        _storeLatitude != null && _storeLongitude != null) {
+    if (_latitude != null &&
+        _longitude != null &&
+        _storeLatitude != null &&
+        _storeLongitude != null) {
       _updateDeliveryFee();
       print('✅ CartScreen: Estimated delivery fee calculated from coordinates');
     } else {
-      print('⚠️ CartScreen: Cannot calculate estimated delivery fee - missing location data');
+      print(
+          '⚠️ CartScreen: Cannot calculate estimated delivery fee - missing location data');
     }
   }
 
@@ -249,7 +281,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
       // Get store details if location is not available
       if (_storeLatitude == null || _storeLongitude == null) {
-        final storeData = await StoreService.getStoreById(widget.storeId.toString());
+        final storeData =
+            await StoreService.getStoreById(widget.storeId.toString());
 
         if (storeData['success'] == true && storeData['data'] != null) {
           final store = storeData['data'];
@@ -258,7 +291,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           if (_storeDetail != null) {
             _storeLatitude = _storeDetail!.latitude;
             _storeLongitude = _storeDetail!.longitude;
-            print('✅ CartScreen: Store location loaded from API: $_storeLatitude, $_storeLongitude');
+            print(
+                '✅ CartScreen: Store location loaded from API: $_storeLatitude, $_storeLongitude');
             _updateDeliveryFee();
           }
         }
@@ -316,7 +350,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
       print('✅ CartScreen: User location obtained: $_latitude, $_longitude');
       _updateDeliveryFee();
-
     } catch (e) {
       print('❌ CartScreen: Error getting location: $e');
       setState(() {
@@ -332,9 +365,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     print('   - User location: $_latitude, $_longitude');
     print('   - Store location: $_storeLatitude, $_storeLongitude');
 
-    if (_latitude != null && _longitude != null &&
-        _storeLatitude != null && _storeLongitude != null) {
-
+    if (_latitude != null &&
+        _longitude != null &&
+        _storeLatitude != null &&
+        _storeLongitude != null) {
       // ✅ PERBAIKAN: Use exact haversine algorithm from backend
       _storeDistance = _calculateHaversineDistance(
           _latitude!, _longitude!, _storeLatitude!, _storeLongitude!);
@@ -349,13 +383,14 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       print('   - Distance: ${_getFormattedDistance()}');
       print('   - Fee: ${GlobalStyle.formatRupiah(_estimatedDeliveryFee)}');
     } else {
-      print('⚠️ CartScreen: Cannot update delivery fee - missing location data');
+      print(
+          '⚠️ CartScreen: Cannot update delivery fee - missing location data');
     }
   }
 
-  // ✅ PERBAIKAN: Haversine algorithm yang sama dengan backend
-  double _calculateHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double earthRadius = 6371; // Earth radius in kilometers
+  double _calculateHaversineDistance(
+      double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // ✅ SAMA: Earth radius 6371 km
 
     // Convert degrees to radians
     double _degreesToRadians(double degrees) => degrees * (pi / 180);
@@ -364,19 +399,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     final double dLon = _degreesToRadians(lon2 - lon1);
 
     final double a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_degreesToRadians(lat1)) * cos(_degreesToRadians(lat2)) *
-            sin(dLon / 2) * sin(dLon / 2);
+        cos(_degreesToRadians(lat1)) *
+            cos(_degreesToRadians(lat2)) *
+            sin(dLon / 2) *
+            sin(dLon / 2);
 
     final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
 
-    return earthRadius * c;
+    return earthRadius * c; // ✅ SAMA: Hasil dalam kilometer
   }
 
-  // ✅ PERBAIKAN: Enhanced delivery fee calculation (align dengan backend)
-  double calculateDeliveryFee(double distance) {
-    // Menggunakan rumus yang sama dengan backend: distance * 2500
-    double rawFee = distance * 2500;
-    return rawFee;
+// ✅ SAMA: Formula delivery fee calculation
+  double calculateDeliveryFee(double distanceInKm) {
+    double rawFee = distanceInKm * 2000; // ✅ SAMA: × 2000
+    return rawFee.ceil().toDouble(); // ✅ SAMA: Math.ceil()
   }
 
   String _getFormattedDistance() {
@@ -516,7 +552,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 )
               else
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: Colors.green.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(6),
@@ -572,7 +609,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               TextField(
                 controller: _notesController,
                 decoration: InputDecoration(
-                  hintText: 'Contoh: Tolong hubungi saat sampai, rumah cat biru di sebelah warung',
+                  hintText:
+                      'Contoh: Tolong hubungi saat sampai, rumah cat biru di sebelah warung',
                   hintStyle: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[500],
@@ -589,7 +627,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   fillColor: Colors.grey[50],
                   filled: true,
                 ),
@@ -601,7 +640,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               const SizedBox(height: 8),
               // Helper text
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.blue.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(6),
@@ -655,7 +695,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               size: 16,
               color: quantity > 1 ? Colors.white : Colors.grey[500],
             ),
-            onPressed: quantity > 1 ? () => _updateItemQuantity(item, quantity - 1) : null,
+            onPressed: quantity > 1
+                ? () => _updateItemQuantity(item, quantity - 1)
+                : null,
           ),
         ),
         Container(
@@ -749,6 +791,211 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
+  // ✅ PERBAIKAN: Updated untuk struktur backend yang baru
+  List<Map<String, dynamic>> _prepareOrderItems() {
+    return activeItems.map((item) {
+      final quantity = _getItemQuantity(item);
+      return {
+        'id': item.id, // Frontend menggunakan 'id'
+        'menu_item_id': item.id, // Backend expect 'menu_item_id'
+        'quantity': quantity,
+        'notes': '',
+      };
+    }).toList();
+  }
+
+  // ✅ PERBAIKAN: Updated payment details widget
+  Widget _buildPaymentDetails() {
+    return _buildCard(
+      index: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.payment, color: GlobalStyle.primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  'Rincian Pembayaran',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: GlobalStyle.fontColor,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[200]!),
+              ),
+              child: Column(
+                children: [
+                  // ✅ FIXED: Subtotal sesuai backend (total_amount)
+                  _buildPaymentRow('Subtotal', itemsSubtotal),
+                  const SizedBox(height: 4),
+                  // Helper text untuk subtotal
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${activeItems.length} item × harga per-pcs',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ✅ FIXED: Biaya pengiriman sesuai backend (delivery_fee)
+                  _buildPaymentRow('Biaya Pengiriman', _estimatedDeliveryFee),
+                  if (_storeDistance != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(
+                            'Jarak: ${_getFormattedDistance()} × Rp2.500/km',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const Divider(thickness: 1, height: 24),
+
+                  // ✅ FIXED: Grand total = subtotal + delivery fee
+                  _buildPaymentRow('Total Pembayaran', grandTotal,
+                      isTotal: true),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ✅ ENHANCED: Info section dengan penjelasan struktur pembayaran
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: Colors.blue[700],
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Struktur Pembayaran DelPick',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue[700],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildInfoRow('Subtotal', 'Total harga semua item pesanan'),
+                  _buildInfoRow('Biaya Pengiriman',
+                      'Dihitung berdasarkan jarak Toko - IT Del'),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.monetization_on_outlined,
+                          size: 14,
+                          color: Colors.green[700],
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Pembayaran: Tunai kepada driver (COD)',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ BARU: Helper widget untuk info row
+  Widget _buildInfoRow(String label, String description) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '• ',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.blue[600],
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.blue[700],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              description,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.blue[600],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _slideController.dispose();
@@ -763,26 +1010,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  double get subtotal {
-    double total = 0;
-    for (var item in widget.cartItems) {
-      final quantity = _getItemQuantity(item);
-      if (quantity > 0) { // ✅ BARU: Only count items with positive quantity
-        total += item.price * quantity;
-      }
-    }
-    return total;
-  }
-
-  double get estimatedTotal {
-    return subtotal + _estimatedDeliveryFee;
-  }
-
-  // ✅ BARU: Get items with positive quantity
-  List<MenuItemModel> get activeItems {
-    return widget.cartItems.where((item) => _getItemQuantity(item) > 0).toList();
-  }
-
   Future<void> _playSound(String assetPath) async {
     try {
       await _audioPlayer.stop();
@@ -792,21 +1019,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ PERBAIKAN: Updated untuk struktur backend yang baru
-  List<Map<String, dynamic>> _prepareOrderItems() {
-    return activeItems.map((item) {
-      final quantity = _getItemQuantity(item);
-      return {
-        'id': item.id,              // Frontend menggunakan 'id'
-        'menu_item_id': item.id,    // Backend expect 'menu_item_id'
-        'quantity': quantity,
-        'notes': '',
-      };
-    }).toList();
-  }
-
   Future<void> _handleLocationAccess() async {
-    final result = await Navigator.pushNamed(context, LocationAccessScreen.route);
+    final result =
+        await Navigator.pushNamed(context, LocationAccessScreen.route);
 
     if (result is Map<String, dynamic> && result['address'] != null) {
       setState(() {
@@ -959,10 +1174,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     if (_lastSubmitAttempt != null &&
         now.difference(_lastSubmitAttempt!) < _submitCooldown) {
       print('⚠️ CartScreen: Still in cooldown period, ignoring...');
-      await _showErrorDialog(
-          'Tunggu Sebentar',
-          'Mohon tunggu ${_submitCooldown.inSeconds} detik sebelum mencoba lagi.'
-      );
+      await _showErrorDialog('Tunggu Sebentar',
+          'Mohon tunggu ${_submitCooldown.inSeconds} detik sebelum mencoba lagi.');
       return;
     }
 
@@ -974,10 +1187,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
     // ✅ BARU: Validate cart has active items
     if (activeItems.isEmpty) {
-      await _showErrorDialog(
-          'Keranjang Kosong',
-          'Tidak ada item dalam keranjang. Tambahkan item terlebih dahulu.'
-      );
+      await _showErrorDialog('Keranjang Kosong',
+          'Tidak ada item dalam keranjang. Tambahkan item terlebih dahulu.');
       return;
     }
 
@@ -992,10 +1203,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     // Validate customer access first
     final hasAccess = await AuthService.validateCustomerAccess();
     if (!hasAccess) {
-      await _showErrorDialog(
-          'Akses Ditolak',
-          'Anda harus login sebagai customer untuk membuat pesanan.'
-      );
+      await _showErrorDialog('Akses Ditolak',
+          'Anda harus login sebagai customer untuk membuat pesanan.');
       return;
     }
 
@@ -1080,14 +1289,15 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     child: Column(
                       children: [
                         Text(
-                          '${activeItems.length} item - ${GlobalStyle.formatRupiah(estimatedTotal)}',
+                          '${activeItems.length} item - ${GlobalStyle.formatRupiah(grandTotal)}',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: GlobalStyle.primaryColor,
                           ),
                         ),
-                        if (_orderNotes != null && _orderNotes!.trim().isNotEmpty) ...[
+                        if (_orderNotes != null &&
+                            _orderNotes!.trim().isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Text(
                             '"${_orderNotes!.trim()}"',
@@ -1111,10 +1321,16 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
 
     try {
-      print('🚀 CartScreen: Creating order with enhanced OrderService...');
+      print('🚀 CartScreen: Creating order with backend-aligned structure...');
       print('   - Store ID: ${widget.storeId}');
       print('   - Items count: ${activeItems.length}');
-      print('   - Notes: $_orderNotes');
+      print(
+          '   - Expected subtotal: ${GlobalStyle.formatRupiah(itemsSubtotal)}');
+      print(
+          '   - Expected delivery fee: ${GlobalStyle.formatRupiah(_estimatedDeliveryFee)}');
+      print(
+          '   - Expected grand total: ${GlobalStyle.formatRupiah(grandTotal)}');
+      print('   - Notes: "$_orderNotes"');
 
       // ✅ FIXED: Ensure notes are sent properly
       final notes = _orderNotes?.trim() ?? '';
@@ -1133,14 +1349,45 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       if (orderResponse.isNotEmpty && orderResponse['id'] != null) {
         print('✅ CartScreen: Order created successfully!');
         print('   - Order ID: ${orderResponse['id']}');
-        print('   - Backend automatically started driver search');
+
+        // ✅ VALIDATE: Check backend calculations match frontend
+        if (orderResponse['total_amount'] != null) {
+          final backendSubtotal =
+              double.tryParse(orderResponse['total_amount'].toString()) ?? 0.0;
+          final frontendSubtotal = itemsSubtotal;
+
+          print(
+              '   - Backend subtotal (total_amount): ${GlobalStyle.formatRupiah(backendSubtotal)}');
+          print(
+              '   - Frontend subtotal calculated: ${GlobalStyle.formatRupiah(frontendSubtotal)}');
+
+          if ((backendSubtotal - frontendSubtotal).abs() > 0.01) {
+            print('⚠️ MISMATCH: Subtotal calculation difference detected!');
+          }
+        }
+
+        if (orderResponse['delivery_fee'] != null) {
+          final backendDeliveryFee =
+              double.tryParse(orderResponse['delivery_fee'].toString()) ?? 0.0;
+          final frontendDeliveryFee = _estimatedDeliveryFee;
+
+          print(
+              '   - Backend delivery fee: ${GlobalStyle.formatRupiah(backendDeliveryFee)}');
+          print(
+              '   - Frontend delivery fee calculated: ${GlobalStyle.formatRupiah(frontendDeliveryFee)}');
+
+          if ((backendDeliveryFee - frontendDeliveryFee).abs() > 0.01) {
+            print('⚠️ MISMATCH: Delivery fee calculation difference detected!');
+          }
+        }
 
         // Show success and get order details
         await _showOrderCreatedSuccess(orderResponse['id'].toString());
 
         // ✅ PERBAIKAN: Get full order details for navigation
         try {
-          final orderDetails = await OrderService.getOrderById(orderResponse['id'].toString());
+          final orderDetails =
+              await OrderService.getOrderById(orderResponse['id'].toString());
           final createdOrder = OrderModel.fromJson(orderDetails);
 
           setState(() {
@@ -1161,31 +1408,33 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
             id: int.parse(orderResponse['id'].toString()),
             customerId: _userData?['id'] ?? 0,
             storeId: widget.storeId,
-            totalAmount: subtotal,
-            deliveryFee: orderResponse['delivery_fee']?.toDouble() ?? _estimatedDeliveryFee,
+            totalAmount: itemsSubtotal,
+            deliveryFee: orderResponse['delivery_fee']?.toDouble() ??
+                _estimatedDeliveryFee,
             createdAt: DateTime.now(),
             updatedAt: DateTime.now(),
             orderStatus: OrderStatus.pending,
             deliveryStatus: DeliveryStatus.pending,
-            items: activeItems.map((item) =>
-            // Create basic OrderItemModel from MenuItemModel
-            // This is a simplified conversion for navigation
-            OrderItemModel(
-              id: 0,
-              orderId: int.parse(orderResponse['id'].toString()),
-              menuItemId: item.id,
-              name: item.name,
-              description: item.description,
-              imageUrl: item.imageUrl,
-              category: item.category,
-              quantity: _getItemQuantity(item),
-              price: item.price,
-              notes: '',
-              menuItem: null,
-              createdAt: null,
-              updatedAt: null,
-            )
-            ).toList(),
+            items: activeItems
+                .map((item) =>
+                    // Create basic OrderItemModel from MenuItemModel
+                    // This is a simplified conversion for navigation
+                    OrderItemModel(
+                      id: 0,
+                      orderId: int.parse(orderResponse['id'].toString()),
+                      menuItemId: item.id,
+                      name: item.name,
+                      description: item.description,
+                      imageUrl: item.imageUrl,
+                      category: item.category,
+                      quantity: _getItemQuantity(item),
+                      price: item.price,
+                      notes: '',
+                      menuItem: null,
+                      createdAt: null,
+                      updatedAt: null,
+                    ))
+                .toList(),
           );
 
           setState(() {
@@ -1218,12 +1467,16 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       // ✅ PERBAIKAN: Enhanced error messages based on service errors
       String errorMessage = 'Terjadi kesalahan saat membuat pesanan';
 
-      if (e.toString().contains('authentication') || e.toString().contains('Access denied')) {
+      if (e.toString().contains('authentication') ||
+          e.toString().contains('Access denied')) {
         errorMessage = 'Sesi login Anda telah berakhir. Silakan login kembali.';
-      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
-        errorMessage = 'Koneksi internet bermasalah. Periksa koneksi Anda dan coba lagi.';
+      } else if (e.toString().contains('network') ||
+          e.toString().contains('connection')) {
+        errorMessage =
+            'Koneksi internet bermasalah. Periksa koneksi Anda dan coba lagi.';
       } else if (e.toString().contains('validation')) {
-        errorMessage = 'Data pesanan tidak valid. Periksa item dan lokasi Anda.';
+        errorMessage =
+            'Data pesanan tidak valid. Periksa item dan lokasi Anda.';
       } else {
         errorMessage = 'Gagal membuat pesanan: $e';
       }
@@ -1232,6 +1485,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
+  // ✅ PERBAIKAN: Update success dialog to show backend data structure
   Future<void> _showOrderCreatedSuccess(String orderId) async {
     await _playSound('audio/kring.mp3');
 
@@ -1291,11 +1545,98 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+                const SizedBox(height: 16),
+
+                // ✅ ENHANCED: Show payment breakdown
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Rincian Pesanan',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green[700],
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Subtotal (${activeItems.length} item):',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green[600],
+                            ),
+                          ),
+                          Text(
+                            GlobalStyle.formatRupiah(itemsSubtotal),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Biaya Pengiriman:',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green[600],
+                            ),
+                          ),
+                          Text(
+                            GlobalStyle.formatRupiah(_estimatedDeliveryFee),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Total Pembayaran:',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            GlobalStyle.formatRupiah(grandTotal),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
                 // ✅ FIXED: Show notes if provided
                 if (_orderNotes != null && _orderNotes!.trim().isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
                       color: Colors.green.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -1337,7 +1678,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 const SizedBox(height: 8),
                 // ✅ BARU: Informasi auto driver search
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: Colors.blue.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
@@ -1415,446 +1757,328 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       ),
       body: _isLoading
           ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 150,
-              height: 150,
-              child: Lottie.asset(
-                'assets/animations/loading_animation.json',
-                errorBuilder: (context, error, stackTrace) {
-                  return CircularProgressIndicator(
-                    color: GlobalStyle.primaryColor,
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              "Memuat Data...",
-              style: TextStyle(
-                color: GlobalStyle.primaryColor,
-                fontWeight: FontWeight.w500,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      )
-          : activeItems.isEmpty
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 200,
-              height: 200,
-              child: Lottie.asset(
-                'assets/animations/empty_cart.json',
-                errorBuilder: (context, error, stackTrace) {
-                  return Icon(
-                    Icons.shopping_cart_outlined,
-                    size: 100,
-                    color: Colors.grey[400],
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              "Keranjang Kosong",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[700],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                "Tambahkan beberapa item untuk mulai memesan",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.grey[500],
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.shopping_bag_outlined),
-              label: const Text("Mulai Belanja"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GlobalStyle.primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-            ),
-          ],
-        ),
-      )
-          : Stack(
-        children: [
-          ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              // Location card with notes
-              _buildCard(
-                index: 0,
-                child: _buildLocationCard(),
-              ),
-
-              // Order items with quantity controls
-              _buildCard(
-                index: 1,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        children: [
-                          Icon(Icons.restaurant_menu,
-                              color: GlobalStyle.primaryColor),
-                          const SizedBox(width: 8),
-                          Text(
-                            storeName,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: GlobalStyle.fontColor,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                          const Spacer(),
-                          // ✅ BARU: Show total items count
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: GlobalStyle.primaryColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '${activeItems.length} item',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: GlobalStyle.primaryColor,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: activeItems.length,
-                      separatorBuilder: (context, index) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final item = activeItems[index];
-                        final quantity = _getItemQuantity(item);
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                          leading: SizedBox(
-                            width: 60,
-                            height: 60,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: ImageService.displayImage(
-                                imageSource: item.imageUrl ?? '',
-                                width: 60,
-                                height: 60,
-                                fit: BoxFit.cover,
-                                placeholder: Container(
-                                  color: Colors.grey[300],
-                                  child: const Icon(Icons.image, color: Colors.white70),
-                                ),
-                                errorWidget: Container(
-                                  color: Colors.grey[300],
-                                  child: const Icon(Icons.image_not_supported, color: Colors.white70),
-                                ),
-                              ),
-                            ),
-                          ),
-                          title: Text(
-                            item.name,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: GlobalStyle.fontColor,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.formatPrice(),
-                                style: const TextStyle(color: Colors.grey),
-                              ),
-                              const SizedBox(height: 8),
-                              // ✅ BARU: Quantity controls in cart
-                              Row(
-                                children: [
-                                  _buildQuantityControls(item),
-                                  const SizedBox(width: 12),
-                                  _buildRemoveButton(item),
-                                ],
-                              ),
-                            ],
-                          ),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                GlobalStyle.formatRupiah(item.price * quantity),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: GlobalStyle.primaryColor,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'x$quantity',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 150,
+                    height: 150,
+                    child: Lottie.asset(
+                      'assets/animations/loading_animation.json',
+                      errorBuilder: (context, error, stackTrace) {
+                        return CircularProgressIndicator(
+                          color: GlobalStyle.primaryColor,
                         );
                       },
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Memuat Data...",
+                    style: TextStyle(
+                      color: GlobalStyle.primaryColor,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
               ),
-
-              // Payment details
-              _buildCard(
-                index: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+            )
+          : activeItems.isEmpty
+              ? Center(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.payment, color: GlobalStyle.primaryColor),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Rincian Pembayaran',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: GlobalStyle.fontColor,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                        ],
+                      SizedBox(
+                        width: 200,
+                        height: 200,
+                        child: Lottie.asset(
+                          'assets/animations/empty_cart.json',
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(
+                              Icons.shopping_cart_outlined,
+                              size: 100,
+                              color: Colors.grey[400],
+                            );
+                          },
+                        ),
                       ),
                       const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[50],
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey[200]!),
+                      Text(
+                        "Keranjang Kosong",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[700],
                         ),
-                        child: Column(
-                          children: [
-                            _buildPaymentRow('Subtotal', subtotal),
-                            const SizedBox(height: 12),
-                            _buildPaymentRow('Biaya Pengiriman', _estimatedDeliveryFee),
-                            if (_storeDistance != null)
+                      ),
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          "Tambahkan beberapa item untuk mulai memesan",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      ElevatedButton.icon(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.shopping_bag_outlined),
+                        label: const Text("Mulai Belanja"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GlobalStyle.primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : Stack(
+                  children: [
+                    ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        // Location card with notes
+                        _buildCard(
+                          index: 0,
+                          child: _buildLocationCard(),
+                        ),
+
+                        // Order items with quantity controls
+                        _buildCard(
+                          index: 1,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Padding(
-                                padding: const EdgeInsets.only(top: 4.0),
+                                padding: const EdgeInsets.all(16.0),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
-                                    const SizedBox(width: 4),
+                                    Icon(Icons.restaurant_menu,
+                                        color: GlobalStyle.primaryColor),
+                                    const SizedBox(width: 8),
                                     Text(
-                                      'Jarak: ${_getFormattedDistance()} × Rp2.500',
+                                      storeName,
                                       style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey[600],
-                                        fontStyle: FontStyle.italic,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: GlobalStyle.fontColor,
+                                        fontFamily: GlobalStyle.fontFamily,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    // ✅ BARU: Show total items count
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: GlobalStyle.primaryColor
+                                            .withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        '${activeItems.length} item',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: GlobalStyle.primaryColor,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            const Divider(thickness: 1, height: 24),
-                            _buildPaymentRow('Total', estimatedTotal, isTotal: true),
-                          ],
+                              ListView.separated(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: activeItems.length,
+                                separatorBuilder: (context, index) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = activeItems[index];
+                                  final quantity = _getItemQuantity(item);
+                                  return ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 16.0, vertical: 8.0),
+                                    leading: SizedBox(
+                                      width: 60,
+                                      height: 60,
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: ImageService.displayImage(
+                                          imageSource: item.imageUrl ?? '',
+                                          width: 60,
+                                          height: 60,
+                                          fit: BoxFit.cover,
+                                          placeholder: Container(
+                                            color: Colors.grey[300],
+                                            child: const Icon(Icons.image,
+                                                color: Colors.white70),
+                                          ),
+                                          errorWidget: Container(
+                                            color: Colors.grey[300],
+                                            child: const Icon(
+                                                Icons.image_not_supported,
+                                                color: Colors.white70),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    title: Text(
+                                      item.name,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: GlobalStyle.fontColor,
+                                        fontFamily: GlobalStyle.fontFamily,
+                                      ),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item.formatPrice(),
+                                          style: const TextStyle(
+                                              color: Colors.grey),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        // ✅ BARU: Quantity controls in cart
+                                        Row(
+                                          children: [
+                                            _buildQuantityControls(item),
+                                            const SizedBox(width: 12),
+                                            _buildRemoveButton(item),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    trailing: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          GlobalStyle.formatRupiah(
+                                              item.price * quantity),
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: GlobalStyle.primaryColor,
+                                            fontFamily: GlobalStyle.fontFamily,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'x$quantity',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      // ✅ FIXED: Enhanced info section with haversine mention
-                      Container(
-                        padding: const EdgeInsets.all(12),
+
+                        // Payment details
+                        _buildPaymentDetails(),
+
+                        // Add some bottom spacing
+                        const SizedBox(height: 100),
+                      ],
+                    ),
+
+                    // Order button
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  size: 16,
-                                  color: Colors.blue[700],
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Jarak dihitung menggunakan algoritma Haversine untuk akurasi maksimal.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.blue[700],
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.calculate_outlined,
-                                  size: 16,
-                                  color: Colors.blue[700],
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Biaya: Jarak × Rp2.500/km, dibulatkan ke atas (kelipatan Rp1.000).',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.blue[700],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.payment,
-                                  size: 16,
-                                  color: Colors.blue[700],
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Pembayaran hanya menerima tunai saat ini.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.blue[700],
-                                    ),
-                                  ),
-                                ),
-                              ],
+                          color: Colors.white,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                              offset: const Offset(0, -5),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Add some bottom spacing
-              const SizedBox(height: 100),
-            ],
-          ),
-
-          // Order button
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, -5),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                // ✅ FIXED: Enhanced button state management
-                onPressed: (_isCreatingOrder || _isLoading || _hasSubmittedOrder || activeItems.isEmpty) ? null : _createOrder,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: GlobalStyle.primaryColor,
-                  disabledBackgroundColor: Colors.grey,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                  elevation: 2,
-                ),
-                child: _isCreatingOrder || _isLoading
-                    ? const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Text(
-                      'Memproses...',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                )
-                    : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.shopping_cart_checkout),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Buat Pesanan - ${GlobalStyle.formatRupiah(estimatedTotal)}',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        child: ElevatedButton(
+                          // ✅ FIXED: Enhanced button state management
+                          onPressed: (_isCreatingOrder ||
+                                  _isLoading ||
+                                  _hasSubmittedOrder ||
+                                  activeItems.isEmpty)
+                              ? null
+                              : _createOrder,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: GlobalStyle.primaryColor,
+                            disabledBackgroundColor: Colors.grey,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(30),
+                            ),
+                            elevation: 2,
+                          ),
+                          child: _isCreatingOrder || _isLoading
+                              ? const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    SizedBox(width: 12),
+                                    Text(
+                                      'Memproses...',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.shopping_cart_checkout),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Buat Pesanan - ${GlobalStyle.formatRupiah(grandTotal)}',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
