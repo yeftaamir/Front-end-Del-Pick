@@ -186,7 +186,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
 
     if (isRefresh) {
       _currentPage = 1;
-      _storeNamesCache.clear(); // ✅ ADD: Clear store names cache on refresh
+      _storeNamesCache.clear();
     }
 
     setState(() {
@@ -208,16 +208,26 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
         sortOrder: 'desc',
       );
 
+      // ✅ Debug response structure
+      print('📥 API Response: ${response.toString()}');
+
       final List<dynamic> requestsList = response['requests'] ?? [];
       _totalPages = response['totalPages'] ?? 1;
 
       List<DriverRequestModel> newRequests = [];
-      for (var requestJson in requestsList) {
+      for (int i = 0; i < requestsList.length; i++) {
         try {
+          final requestJson = requestsList[i];
+          print('🔍 Processing request $i: ${requestJson.toString()}');
+
           final request = DriverRequestModel.fromJson(requestJson);
           newRequests.add(request);
-        } catch (e) {
-          print('Error processing request: $e');
+          print('✅ Successfully parsed request $i');
+        } catch (e, stackTrace) {
+          print('❌ Error processing request $i: $e');
+          print('❌ Stack trace: $stackTrace');
+          print('❌ Raw data: ${requestsList[i]}');
+          // Continue dengan request lainnya, jangan stop
         }
       }
 
@@ -234,8 +244,9 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
 
       print(
           '✅ HistoryDriver: Successfully loaded ${newRequests.length} requests');
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('❌ HistoryDriver: Error fetching requests: $e');
+      print('❌ Stack trace: $stackTrace');
       setState(() {
         _isLoading = false;
         _isLoadingMore = false;
@@ -277,14 +288,33 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
 
 // ===== FILTERING BERDASARKAN ORDER STATUS =====
 
+// ===== FILTERING BERDASARKAN ORDER STATUS & DELIVERY STATUS =====
+
   List<DriverRequestModel> getFilteredRequests(int tabIndex) {
     if (tabIndex == 0) return _driverRequests; // Semua
 
-    final tabStatuses = _tabs[tabIndex]['statuses'] as List<String>?;
+    final tabData = _tabs[tabIndex];
+    final tabStatuses = tabData['statuses'] as List<String>?;
     if (tabStatuses == null) return _driverRequests;
 
     return _driverRequests.where((request) {
-      final orderStatus = request.order?.orderStatus.value.toLowerCase() ?? '';
+      final order = request.order;
+      if (order == null) return false;
+
+      final orderStatus = order.orderStatus.value.toLowerCase();
+      final deliveryStatus = order.deliveryStatus?.value?.toLowerCase() ?? '';
+
+      // ✅ PERBAIKAN: Khusus untuk tab "Diantar" - cek delivery status
+      if (tabData['label'] == 'Diantar') {
+        return orderStatus == 'on_delivery' && deliveryStatus == 'on_way';
+      }
+
+      // ✅ PERBAIKAN: Untuk tab "Selesai" - cek delivery status delivered
+      if (tabData['label'] == 'Selesai') {
+        return orderStatus == 'delivered' && deliveryStatus == 'delivered';
+      }
+
+      // Untuk tab lainnya, gunakan order status
       return tabStatuses.contains(orderStatus);
     }).toList();
   }
