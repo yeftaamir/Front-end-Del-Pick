@@ -1,8 +1,8 @@
 // ========================================
-// Order Model - Enhanced Version with Backend-Aligned Delivery Fee
+// Order Model - Enhanced Version with Backend-Aligned Implementation
 // ========================================
 
-import 'dart:convert'; // ✅ TAMBAH: Import untuk jsonDecode
+import 'dart:convert';
 import 'package:del_pick/Models/driver.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'package:del_pick/Models/order_item.dart';
@@ -58,7 +58,9 @@ class OrderModel {
     this.items = const [],
   });
 
-  // ✅ PERBAIKAN: Enhanced safe parsing methods
+  // ========================================
+  // SAFE PARSING METHODS
+  // ========================================
   static int _parseInt(dynamic value) {
     if (value == null) return 0;
     if (value is int) return value;
@@ -71,9 +73,7 @@ class OrderModel {
     if (value == null) return 0.0;
     if (value is double) return value;
     if (value is int) return value.toDouble();
-    if (value is String) {
-      return double.tryParse(value) ?? 0.0;
-    }
+    if (value is String) return double.tryParse(value) ?? 0.0;
     return 0.0;
   }
 
@@ -101,21 +101,19 @@ class OrderModel {
     return null;
   }
 
-  // ✅ PERBAIKAN: Safe parsing untuk customer
+  // ========================================
+  // RELATIONSHIP PARSING METHODS
+  // ========================================
   static UserModel? _parseCustomer(dynamic customerData) {
     try {
       if (customerData == null) return null;
-
       if (customerData is Map<String, dynamic>) {
         return UserModel.fromJson(customerData);
       }
-
       if (customerData is String && customerData.isNotEmpty) {
-        print('⚠️ Customer data is String, trying to parse: $customerData');
         final Map<String, dynamic> parsedCustomer = jsonDecode(customerData);
         return UserModel.fromJson(parsedCustomer);
       }
-
       return null;
     } catch (e) {
       print('❌ Error parsing customer data: $e');
@@ -123,21 +121,16 @@ class OrderModel {
     }
   }
 
-  // ✅ PERBAIKAN: Safe parsing untuk store
   static StoreModel? _parseStore(dynamic storeData) {
     try {
       if (storeData == null) return null;
-
       if (storeData is Map<String, dynamic>) {
         return StoreModel.fromJson(storeData);
       }
-
       if (storeData is String && storeData.isNotEmpty) {
-        print('⚠️ Store data is String, trying to parse: $storeData');
         final Map<String, dynamic> parsedStore = jsonDecode(storeData);
         return StoreModel.fromJson(parsedStore);
       }
-
       return null;
     } catch (e) {
       print('❌ Error parsing store data: $e');
@@ -145,21 +138,16 @@ class OrderModel {
     }
   }
 
-  // ✅ PERBAIKAN: Safe parsing untuk driver
   static DriverModel? _parseDriver(dynamic driverData) {
     try {
       if (driverData == null) return null;
-
       if (driverData is Map<String, dynamic>) {
         return DriverModel.fromJson(driverData);
       }
-
       if (driverData is String && driverData.isNotEmpty) {
-        print('⚠️ Driver data is String, trying to parse: $driverData');
         final Map<String, dynamic> parsedDriver = jsonDecode(driverData);
         return DriverModel.fromJson(parsedDriver);
       }
-
       return null;
     } catch (e) {
       print('❌ Error parsing driver data: $e');
@@ -167,9 +155,89 @@ class OrderModel {
     }
   }
 
+  static List<Map<String, dynamic>>? _parseTrackingUpdates(dynamic value) {
+    try {
+      if (value == null) return null;
+      if (value is String && value.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(value);
+          if (decoded is List) {
+            return List<Map<String, dynamic>>.from(decoded);
+          }
+        } catch (e) {
+          print('⚠️ Failed to parse tracking_updates JSON: $e');
+          return [];
+        }
+      }
+      if (value is List) {
+        return List<Map<String, dynamic>>.from(value);
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error parsing tracking updates: $e');
+      return [];
+    }
+  }
+
+  static List<OrderItemModel> _parseOrderItems(Map<String, dynamic> json) {
+    try {
+      List<dynamic>? itemsData;
+
+      // Backend bisa return 'items' atau 'order_items'
+      if (json['items'] != null) {
+        itemsData = json['items'] as List?;
+      } else if (json['order_items'] != null) {
+        itemsData = json['order_items'] as List?;
+      }
+
+      if (itemsData == null || itemsData.isEmpty) return [];
+
+      return itemsData
+          .map((item) {
+            try {
+              if (item is Map<String, dynamic>) {
+                final safeItem = Map<String, dynamic>.from(item);
+                safeItem['price'] = _parseDouble(item['price']);
+                safeItem['quantity'] = _parseInt(item['quantity']);
+                return OrderItemModel.fromJson(safeItem);
+              }
+              return OrderItemModel.fromJson(item);
+            } catch (e) {
+              print('❌ Error parsing order item: $e');
+              return null;
+            }
+          })
+          .where((item) => item != null)
+          .cast<OrderItemModel>()
+          .toList();
+    } catch (e) {
+      print('❌ Error parsing order items: $e');
+      return [];
+    }
+  }
+
+  // ========================================
+  // FACTORY CONSTRUCTOR WITH ENHANCED ENUM PARSING
+  // ========================================
   factory OrderModel.fromJson(Map<String, dynamic> json) {
     try {
       print('🔍 Parsing Order JSON: ${json.toString()}');
+
+      // ✅ ENHANCED: Parse enum dengan debugging
+      final orderStatusRaw = json['order_status'] ?? 'pending';
+      final deliveryStatusRaw = json['delivery_status'] ?? 'pending';
+
+      final orderStatus = OrderStatus.fromString(orderStatusRaw);
+      final deliveryStatus = DeliveryStatus.fromString(deliveryStatusRaw);
+
+      // ✅ DEBUG: Log parsed enum values
+      print('📊 Order #${json['id']}:');
+      print(
+          '   - Raw orderStatus: "$orderStatusRaw" → Parsed: ${orderStatus.value}');
+      print(
+          '   - Raw deliveryStatus: "$deliveryStatusRaw" → Parsed: ${deliveryStatus.value}');
+      print(
+          '   - Is on delivery: ${orderStatus == OrderStatus.onDelivery && deliveryStatus == DeliveryStatus.onWay}');
 
       return OrderModel(
         id: _parseInt(json['id']),
@@ -177,29 +245,20 @@ class OrderModel {
         storeId: _parseInt(json['store_id']),
         driverId:
             json['driver_id'] != null ? _parseInt(json['driver_id']) : null,
-        orderStatus:
-            OrderStatusExtension.fromString(json['order_status'] ?? 'pending'),
-        deliveryStatus: DeliveryStatusExtension.fromString(
-            json['delivery_status'] ?? 'pending'),
+        orderStatus: orderStatus,
+        deliveryStatus: deliveryStatus,
         totalAmount: _parseDouble(json['total_amount']),
         deliveryFee: _parseDouble(json['delivery_fee']),
         destinationLatitude: _parseNullableDouble(json['destination_latitude']),
         destinationLongitude:
             _parseNullableDouble(json['destination_longitude']),
-
-        // ✅ PERBAIKAN: Enhanced date parsing
         estimatedPickupTime: _parseDateTime(json['estimated_pickup_time']),
         actualPickupTime: _parseDateTime(json['actual_pickup_time']),
         estimatedDeliveryTime: _parseDateTime(json['estimated_delivery_time']),
         actualDeliveryTime: _parseDateTime(json['actual_delivery_time']),
-
-        // ✅ PERBAIKAN: Handle tracking_updates yang mungkin string JSON
         trackingUpdates: _parseTrackingUpdates(json['tracking_updates']),
-
         createdAt: _parseDateTime(json['created_at']) ?? DateTime.now(),
         updatedAt: _parseDateTime(json['updated_at']) ?? DateTime.now(),
-
-        // ✅ PERBAIKAN: Safe relationship parsing
         customer: _parseCustomer(json['customer']),
         store: _parseStore(json['store']),
         driver: _parseDriver(json['driver']),
@@ -212,6 +271,9 @@ class OrderModel {
     }
   }
 
+  // ========================================
+  // TO JSON METHOD
+  // ========================================
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -242,6 +304,9 @@ class OrderModel {
     };
   }
 
+  // ========================================
+  // COPY WITH METHOD
+  // ========================================
   OrderModel copyWith({
     int? id,
     int? customerId,
@@ -291,99 +356,25 @@ class OrderModel {
     );
   }
 
-  // ✅ PERBAIKAN: Helper method untuk parse tracking updates
-  static List<Map<String, dynamic>>? _parseTrackingUpdates(dynamic value) {
-    try {
-      if (value == null) return null;
-
-      if (value is String && value.isNotEmpty) {
-        try {
-          final decoded = jsonDecode(value);
-          if (decoded is List) {
-            return List<Map<String, dynamic>>.from(decoded);
-          }
-        } catch (e) {
-          print('⚠️ Failed to parse tracking_updates JSON: $e');
-          return [];
-        }
-      }
-
-      if (value is List) {
-        return List<Map<String, dynamic>>.from(value);
-      }
-
-      return [];
-    } catch (e) {
-      print('❌ Error parsing tracking updates: $e');
-      return [];
-    }
-  }
-
-  // ✅ PERBAIKAN: Helper method untuk parse order items (support multiple structures)
-  static List<OrderItemModel> _parseOrderItems(Map<String, dynamic> json) {
-    try {
-      List<dynamic>? itemsData;
-
-      // Backend bisa return 'items' atau 'order_items'
-      if (json['items'] != null) {
-        itemsData = json['items'] as List?;
-      } else if (json['order_items'] != null) {
-        itemsData = json['order_items'] as List?;
-      }
-
-      if (itemsData == null || itemsData.isEmpty) return [];
-
-      return itemsData
-          .map((item) {
-            try {
-              if (item is Map<String, dynamic>) {
-                final safeItem = Map<String, dynamic>.from(item);
-                safeItem['price'] = _parseDouble(item['price']);
-                safeItem['quantity'] = _parseInt(item['quantity']);
-                return OrderItemModel.fromJson(safeItem);
-              }
-              return OrderItemModel.fromJson(item);
-            } catch (e) {
-              print('❌ Error parsing order item: $e');
-              // Return a default item or skip this item
-              return null;
-            }
-          })
-          .where((item) => item != null)
-          .cast<OrderItemModel>()
-          .toList();
-    } catch (e) {
-      print('❌ Error parsing order items: $e');
-      return [];
-    }
-  }
-
-  // ✅ BACKEND-ALIGNED: Utility methods sesuai backend calculation
+  // ========================================
+  // UTILITY METHODS
+  // ========================================
   double get subtotal => items.fold(0, (sum, item) => sum + item.totalPrice);
-
-  // ✅ FIXED: Grand total sekarang totalAmount sudah include delivery fee dari backend
-  double get grandTotal => totalAmount; // Backend sudah include delivery fee
-
-  // ✅ NEW: Separate calculation for items only (excludes delivery fee)
+  double get grandTotal => totalAmount;
   double get itemsTotal => totalAmount - deliveryFee;
 
-  // ✅ BACKEND-ALIGNED: Delivery fee calculation info
   String get deliveryFeeCalculationInfo {
     if (destinationLatitude != null &&
         destinationLongitude != null &&
         store != null) {
-      // Backend menggunakan euclideanDistance calculation
-      // Jarak dalam degree, kemudian * 111 untuk convert ke km, kemudian * 2000 untuk biaya
       return 'Dihitung berdasarkan jarak dari toko ke destinasi';
     }
     return 'Biaya pengiriman flat rate';
   }
 
-  // ✅ NEW: Destinasi information sesuai backend
   bool get isDeliveryToITDel {
     const itDelLat = 2.3834831864787818;
     const itDelLng = 99.14857915147614;
-
     if (destinationLatitude != null && destinationLongitude != null) {
       return (destinationLatitude! - itDelLat).abs() < 0.0001 &&
           (destinationLongitude! - itDelLng).abs() < 0.0001;
@@ -400,15 +391,16 @@ class OrderModel {
     return 'Destinasi tidak tersedia';
   }
 
-  // ✅ BACKEND-ALIGNED: Distance estimation dari delivery fee
   double get estimatedDistanceKm {
     if (deliveryFee > 0) {
-      // Reverse calculation dari backend: distance_km ≈ delivery_fee / 2000
       return deliveryFee / 2000;
     }
     return 0.0;
   }
 
+  // ========================================
+  // FORMATTING METHODS
+  // ========================================
   String formatTotalAmount() {
     return 'Rp ${totalAmount.toStringAsFixed(0).replaceAllMapped(
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
@@ -430,7 +422,6 @@ class OrderModel {
         )}';
   }
 
-  // ✅ FIXED: Format items total (totalAmount - deliveryFee)
   String formatItemsTotal() {
     return 'Rp ${itemsTotal.toStringAsFixed(0).replaceAllMapped(
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
@@ -449,6 +440,9 @@ class OrderModel {
     return '${createdAt.day}/${createdAt.month}/${createdAt.year} ${createdAt.hour}:${createdAt.minute.toString().padLeft(2, '0')}';
   }
 
+  // ========================================
+  // STATUS METHODS
+  // ========================================
   String get statusMessage {
     switch (orderStatus) {
       case OrderStatus.pending:
@@ -475,16 +469,17 @@ class OrderModel {
   bool get hasDriver => driverId != null && driver != null;
   int get totalItems => items.fold(0, (sum, item) => sum + item.quantity);
 
-  // ✅ TAMBAH: Helper methods untuk checking specific status combinations
+  // ✅ HELPER METHODS untuk checking specific status combinations
   bool get isOnDelivery =>
       orderStatus == OrderStatus.onDelivery &&
       deliveryStatus == DeliveryStatus.onWay;
-
   bool get isDelivered =>
       orderStatus == OrderStatus.delivered &&
       deliveryStatus == DeliveryStatus.delivered;
 
-  // Helper methods untuk tracking
+  // ========================================
+  // TRACKING METHODS
+  // ========================================
   String? get currentLocationDescription {
     if (trackingUpdates?.isNotEmpty == true) {
       final lastUpdate = trackingUpdates!.last;
@@ -529,11 +524,10 @@ class OrderModel {
     }
   }
 
-  // ✅ BACKEND-ALIGNED: Driver earning calculation
-  double get driverEarning {
-    // Backend: Driver mendapat 100% dari delivery fee
-    return deliveryFee;
-  }
+  // ========================================
+  // PAYMENT METHODS
+  // ========================================
+  double get driverEarning => deliveryFee;
 
   String get formattedDriverEarning {
     return 'Rp ${driverEarning.toStringAsFixed(0).replaceAllMapped(
@@ -542,7 +536,6 @@ class OrderModel {
         )}';
   }
 
-  // ✅ NEW: Payment breakdown for UI display
   Map<String, double> get paymentBreakdown {
     return {
       'items_total': itemsTotal,
@@ -559,11 +552,13 @@ class OrderModel {
     };
   }
 
-  // ✅ NEW: Order summary untuk display
   String get orderSummary {
     return '$totalItems item(s) • ${formatGrandTotal()} • ${statusMessage}';
   }
 
+  // ========================================
+  // OBJECT METHODS
+  // ========================================
   @override
   String toString() {
     return 'OrderModel(id: $id, orderStatus: ${orderStatus.value}, deliveryStatus: ${deliveryStatus.value})';

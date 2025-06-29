@@ -73,6 +73,16 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
   Timer? _statusUpdateTimer;
   OrderStatus? _previousOrderStatus;
   DeliveryStatus? _previousDeliveryStatus;
+  bool _canCancelOrder() {
+    if (_orderDetail == null) return false;
+
+    final orderStatus = _orderDetail!.orderStatus;
+    final deliveryStatus = _orderDetail!.deliveryStatus;
+
+    // Hanya bisa cancel jika kedua status masih pending
+    return orderStatus == OrderStatus.pending &&
+        deliveryStatus == DeliveryStatus.pending;
+  }
 
   // Customer-specific color theme for status card
   final Color _primaryColor = const Color(0xFF4A90E2);
@@ -81,23 +91,23 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
   // ✅ PERBAIKAN: Updated status timeline sesuai alur yang benar
   final List<Map<String, dynamic>> _statusTimeline = [
     {
-      'status': OrderStatus.pending,
+      'status': 'waiting', // pending + pending
       'label': 'Menunggu',
-      'description': 'Menunggu konfirmasi toko',
+      'description': 'Menunggu konfirmasi toko dan driver',
       'icon': Icons.hourglass_empty,
       'color': Colors.orange,
       'animation': 'assets/animations/diambil.json'
     },
     {
-      'status': OrderStatus.confirmed,
-      'label': 'Dikonfirmasi',
-      'description': 'Pesanan dikonfirmasi toko',
-      'icon': Icons.check_circle_outline,
+      'status': 'processing', // preparing + pending ATAU pending + picked_up
+      'label': 'Diproses',
+      'description': 'Sedang diproses',
+      'icon': Icons.sync,
       'color': Colors.blue,
-      'animation': 'assets/animations/diambil.json'
+      'animation': 'assets/animations/diproses.json'
     },
     {
-      'status': OrderStatus.preparing,
+      'status': 'preparing', // preparing + picked_up
       'label': 'Disiapkan',
       'description': 'Pesanan sedang disiapkan',
       'icon': Icons.restaurant,
@@ -105,25 +115,25 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       'animation': 'assets/animations/diproses.json'
     },
     {
-      'status': OrderStatus.readyForPickup,
-      'label': 'Siap Diantar',
-      'description': 'Pesanan siap untuk diantar',
+      'status': 'ready', // ready_for_pickup + picked_up
+      'label': 'Siap Diambil',
+      'description': 'Pesanan siap untuk diambil',
       'icon': Icons.shopping_bag,
       'color': Colors.indigo,
       'animation': 'assets/animations/diproses.json'
     },
     {
-      'status': OrderStatus.onDelivery,
-      'label': 'Sedang Diantarkan',
-      'description': 'Pesanan dalam perjalanan',
+      'status': 'delivering', // on_delivery + on_way
+      'label': 'Diantar',
+      'description': 'Pesanan sedang diantar',
       'icon': Icons.delivery_dining,
       'color': Colors.teal,
       'animation': 'assets/animations/diantar.json'
     },
     {
-      'status': OrderStatus.delivered,
-      'label': 'Pengantaran Selesai',
-      'description': 'Pesanan telah diterima',
+      'status': 'completed', // delivered + delivered
+      'label': 'Selesai',
+      'description': 'Pesanan telah selesai',
       'icon': Icons.celebration,
       'color': Colors.green,
       'animation': 'assets/animations/pesanan_selesai.json'
@@ -141,7 +151,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     // Initialize animation controllers for each card section
     _cardControllers = List.generate(
       6, // Number of card sections
-          (index) => AnimationController(
+      (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 200)),
       ),
@@ -324,7 +334,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
       // ✅ Use updated OrderService.getOrderById()
       final rawOrderData =
-      await OrderService.getOrderById(widget.order.id.toString());
+          await OrderService.getOrderById(widget.order.id.toString());
 
       // ✅ IMPORTANT: Convert all nested maps safely before creating OrderModel
       final safeOrderData = _safeMapConversion(rawOrderData);
@@ -436,82 +446,84 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
   // ✅ PERBAIKAN: Enhanced status tracking dengan logika yang benar
   void _startStatusTracking() {
     if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
-      print('⚠️ HistoryDetailPage: Order is completed, skipping status tracking');
+      print(
+          '⚠️ HistoryDetailPage: Order is completed, skipping status tracking');
       return;
     }
 
-    print('🔄 HistoryDetailPage: Starting status tracking for order ${_orderDetail!.id}');
+    print(
+        '🔄 HistoryDetailPage: Starting status tracking for order ${_orderDetail!.id}');
 
     _statusUpdateTimer =
         Timer.periodic(const Duration(seconds: 15), (timer) async {
-          if (!mounted) {
-            print('⚠️ HistoryDetailPage: Widget unmounted, stopping timer');
-            timer.cancel();
-            return;
-          }
+      if (!mounted) {
+        print('⚠️ HistoryDetailPage: Widget unmounted, stopping timer');
+        timer.cancel();
+        return;
+      }
 
-          try {
-            print('📡 HistoryDetailPage: Checking order status update...');
+      try {
+        print('📡 HistoryDetailPage: Checking order status update...');
 
-            // ✅ Ensure valid session before API call
-            final hasValidSession = await AuthService.ensureValidUserData();
-            if (!hasValidSession) {
-              print('❌ HistoryDetailPage: Invalid session, stopping tracking');
-              timer.cancel();
-              return;
-            }
+        // ✅ Ensure valid session before API call
+        final hasValidSession = await AuthService.ensureValidUserData();
+        if (!hasValidSession) {
+          print('❌ HistoryDetailPage: Invalid session, stopping tracking');
+          timer.cancel();
+          return;
+        }
 
-            // ✅ Get updated order data with safe conversion
-            final rawUpdatedOrderData =
+        // ✅ Get updated order data with safe conversion
+        final rawUpdatedOrderData =
             await OrderService.getOrderById(widget.order.id.toString());
-            final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
-            final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
+        final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
+        final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
 
-            if (mounted) {
-              final orderStatusChanged = _previousOrderStatus != updatedOrder.orderStatus;
-              final deliveryStatusChanged = _previousDeliveryStatus != updatedOrder.deliveryStatus;
+        if (mounted) {
+          final orderStatusChanged =
+              _previousOrderStatus != updatedOrder.orderStatus;
+          final deliveryStatusChanged =
+              _previousDeliveryStatus != updatedOrder.deliveryStatus;
 
-              print('✅ HistoryDetailPage: Order status checked');
-              print('   - Previous Order Status: ${_previousOrderStatus?.name}');
-              print('   - Current Order Status: ${updatedOrder.orderStatus.name}');
-              print('   - Previous Delivery Status: ${_previousDeliveryStatus?.name}');
-              print('   - Current Delivery Status: ${updatedOrder.deliveryStatus.name}');
-              print('   - Order Status Changed: $orderStatusChanged');
-              print('   - Delivery Status Changed: $deliveryStatusChanged');
+          print('✅ HistoryDetailPage: Order status checked');
+          print('   - Previous Order Status: ${_previousOrderStatus?.name}');
+          print('   - Current Order Status: ${updatedOrder.orderStatus.name}');
+          print(
+              '   - Previous Delivery Status: ${_previousDeliveryStatus?.name}');
+          print(
+              '   - Current Delivery Status: ${updatedOrder.deliveryStatus.name}');
+          print('   - Order Status Changed: $orderStatusChanged');
+          print('   - Delivery Status Changed: $deliveryStatusChanged');
 
-              setState(() {
-                _orderDetail = updatedOrder;
-              });
+          setState(() {
+            _orderDetail = updatedOrder;
+          });
 
-              // ✅ Handle status change notifications
-              if (orderStatusChanged || deliveryStatusChanged) {
-                _handleStatusChange(
-                    _previousOrderStatus,
-                    updatedOrder.orderStatus,
-                    _previousDeliveryStatus,
-                    updatedOrder.deliveryStatus
-                );
-                _previousOrderStatus = updatedOrder.orderStatus;
-                _previousDeliveryStatus = updatedOrder.deliveryStatus;
-              }
-
-              // ✅ Stop tracking if order is completed
-              if (updatedOrder.orderStatus.isCompleted) {
-                print('✅ HistoryDetailPage: Order completed, stopping tracking');
-                timer.cancel();
-
-                // ✅ Reload reviews for completed orders
-                await _loadOrderReviews(safeUpdatedOrderData);
-                if (_orderReviews != null || _driverReviews != null) {
-                  _reviewCardController.forward();
-                }
-              }
-            }
-          } catch (e) {
-            print('❌ HistoryDetailPage: Error updating order status: $e');
-            // Don't stop tracking on temporary errors
+          // ✅ Handle status change notifications
+          if (orderStatusChanged || deliveryStatusChanged) {
+            _handleStatusChange(_previousOrderStatus, updatedOrder.orderStatus,
+                _previousDeliveryStatus, updatedOrder.deliveryStatus);
+            _previousOrderStatus = updatedOrder.orderStatus;
+            _previousDeliveryStatus = updatedOrder.deliveryStatus;
           }
-        });
+
+          // ✅ Stop tracking if order is completed
+          if (updatedOrder.orderStatus.isCompleted) {
+            print('✅ HistoryDetailPage: Order completed, stopping tracking');
+            timer.cancel();
+
+            // ✅ Reload reviews for completed orders
+            await _loadOrderReviews(safeUpdatedOrderData);
+            if (_orderReviews != null || _driverReviews != null) {
+              _reviewCardController.forward();
+            }
+          }
+        }
+      } catch (e) {
+        print('❌ HistoryDetailPage: Error updating order status: $e');
+        // Don't stop tracking on temporary errors
+      }
+    });
   }
 
   // ✅ PERBAIKAN: Handle status change dengan logika kombinasi yang benar
@@ -519,25 +531,36 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       OrderStatus? previousOrderStatus,
       OrderStatus newOrderStatus,
       DeliveryStatus? previousDeliveryStatus,
-      DeliveryStatus newDeliveryStatus
-      ) {
+      DeliveryStatus newDeliveryStatus) {
     String? notification;
 
-    // ✅ Prioritas notifikasi berdasarkan kombinasi status yang paling penting
-    if (newOrderStatus == OrderStatus.delivered && newDeliveryStatus == DeliveryStatus.delivered) {
-      notification = 'Pengantaran selesai! Pesanan Anda telah berhasil diterima.';
+    // Prioritas notifikasi berdasarkan kombinasi status
+    if (newOrderStatus == OrderStatus.delivered &&
+        newDeliveryStatus == DeliveryStatus.delivered) {
+      notification = 'Pesanan selesai! Pesanan Anda telah berhasil diterima.';
       _playSuccessSound();
-    } else if (newOrderStatus == OrderStatus.onDelivery && newDeliveryStatus == DeliveryStatus.onWay) {
-      notification = 'Pesanan Anda sedang dalam perjalanan menuju lokasi.';
+    } else if (newOrderStatus == OrderStatus.onDelivery &&
+        newDeliveryStatus == DeliveryStatus.onWay) {
+      notification =
+          'Pesanan sedang diantar! Driver sedang menuju lokasi Anda.';
       _playStatusChangeSound();
-    } else if (newOrderStatus == OrderStatus.readyForPickup) {
-      notification = 'Pesanan Anda siap untuk diantar oleh driver.';
+    } else if (newOrderStatus == OrderStatus.readyForPickup &&
+        newDeliveryStatus == DeliveryStatus.pickedUp) {
+      notification =
+          'Pesanan siap diambil! Driver akan segera mengambil pesanan.';
       _playStatusChangeSound();
-    } else if (newOrderStatus == OrderStatus.preparing) {
-      notification = 'Toko sedang mempersiapkan pesanan Anda.';
+    } else if (newOrderStatus == OrderStatus.preparing &&
+        newDeliveryStatus == DeliveryStatus.pickedUp) {
+      notification =
+          'Pesanan sedang disiapkan! Toko dan driver sudah menerima pesanan.';
       _playStatusChangeSound();
-    } else if (newOrderStatus == OrderStatus.confirmed) {
-      notification = 'Pesanan Anda telah dikonfirmasi oleh toko.';
+    } else if (newOrderStatus == OrderStatus.preparing &&
+        newDeliveryStatus == DeliveryStatus.pending) {
+      notification = 'Toko sedang memproses pesanan, menunggu driver menerima.';
+      _playStatusChangeSound();
+    } else if (newOrderStatus == OrderStatus.pending &&
+        newDeliveryStatus == DeliveryStatus.pickedUp) {
+      notification = 'Driver sudah menerima pesanan, menunggu toko memproses.';
       _playStatusChangeSound();
     } else if (newOrderStatus == OrderStatus.cancelled) {
       notification = 'Pesanan Anda telah dibatalkan.';
@@ -547,12 +570,15 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       _playCancelSound();
     }
 
-    // ✅ Handle pulse animation berdasarkan status
-    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(newOrderStatus)) {
+    // Handle pulse animation
+    if ([OrderStatus.cancelled, OrderStatus.rejected]
+        .contains(newOrderStatus)) {
       _pulseController.stop();
-    } else if (newOrderStatus == OrderStatus.pending) {
+    } else if (newOrderStatus == OrderStatus.pending &&
+        newDeliveryStatus == DeliveryStatus.pending) {
       _pulseController.repeat(reverse: true);
-    } else if (newOrderStatus == OrderStatus.delivered) {
+    } else if (newOrderStatus == OrderStatus.delivered &&
+        newDeliveryStatus == DeliveryStatus.delivered) {
       _pulseController.stop();
     } else {
       _pulseController.stop();
@@ -564,7 +590,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           content: Text(notification),
           backgroundColor: _getNotificationColor(newOrderStatus),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -629,7 +656,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     });
 
     try {
-      print('⭐ HistoryDetailPage: Starting rating submission for order: ${_orderDetail!.id}');
+      print(
+          '⭐ HistoryDetailPage: Starting rating submission for order: ${_orderDetail!.id}');
 
       // ✅ Comprehensive authentication validation
       final userData = await AuthService.getUserData();
@@ -654,7 +682,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
         throw Exception('Access denied: Customer authentication required');
       }
 
-      print('✅ HistoryDetailPage: Authentication validated for rating submission');
+      print(
+          '✅ HistoryDetailPage: Authentication validated for rating submission');
 
       // ✅ Validate order status
       if (_orderDetail!.orderStatus != OrderStatus.delivered) {
@@ -717,7 +746,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
         // ✅ Validate that at least one rating is provided
         if ((storeRating == null || storeRating <= 0) &&
             (driverRating == null || driverRating <= 0)) {
-          throw Exception('At least one rating (store or driver) must be provided');
+          throw Exception(
+              'At least one rating (store or driver) must be provided');
         }
 
         // ✅ Prepare clean review data
@@ -766,7 +796,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
             _reviewCardController.forward();
           }
         } catch (reloadError) {
-          print('⚠️ HistoryDetailPage: Error reloading order detail after review: $reloadError');
+          print(
+              '⚠️ HistoryDetailPage: Error reloading order detail after review: $reloadError');
           // Continue anyway since review was submitted successfully
         }
 
@@ -793,9 +824,9 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           );
         }
       } else {
-        print('ℹ️ HistoryDetailPage: Rating page cancelled or no data returned');
+        print(
+            'ℹ️ HistoryDetailPage: Rating page cancelled or no data returned');
       }
-
     } catch (e) {
       print('❌ HistoryDetailPage: Error handling rating submission: $e');
 
@@ -804,16 +835,19 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
       if (e.toString().contains('Authentication required') ||
           e.toString().contains('Access denied')) {
-        errorMessage = 'Autentikasi diperlukan. Silakan login sebagai customer.';
+        errorMessage =
+            'Autentikasi diperlukan. Silakan login sebagai customer.';
       } else if (e.toString().contains('Rating can only be given')) {
-        errorMessage = 'Rating hanya dapat diberikan untuk pesanan yang telah selesai.';
+        errorMessage =
+            'Rating hanya dapat diberikan untuk pesanan yang telah selesai.';
       } else if (e.toString().contains('already been submitted')) {
         errorMessage = 'Rating sudah pernah diberikan untuk pesanan ini.';
       } else if (e.toString().contains('At least one rating')) {
         errorMessage = 'Minimal berikan satu rating (toko atau driver).';
       } else if (e.toString().contains('Invalid review data') ||
           e.toString().contains('Bad request')) {
-        errorMessage = 'Data rating tidak valid. Silakan periksa rating Anda dan coba lagi.';
+        errorMessage =
+            'Data rating tidak valid. Silakan periksa rating Anda dan coba lagi.';
       } else if (e.toString().contains('network') ||
           e.toString().contains('connection')) {
         errorMessage = 'Masalah koneksi. Silakan periksa internet Anda.';
@@ -902,9 +936,11 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           orderId: _orderDetail!.id.toString(),
           cancellationReason: 'Cancelled by customer from mobile app',
         );
-        print('✅ HistoryDetailPage: Order cancelled using cancelOrderByCustomer');
+        print(
+            '✅ HistoryDetailPage: Order cancelled using cancelOrderByCustomer');
       } catch (cancelError) {
-        print('⚠️ HistoryDetailPage: cancelOrderByCustomer failed, trying updateOrderStatus: $cancelError');
+        print(
+            '⚠️ HistoryDetailPage: cancelOrderByCustomer failed, trying updateOrderStatus: $cancelError');
 
         // Fallback to updateOrderStatus
         await OrderService.updateOrderStatus(
@@ -912,7 +948,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           orderStatus: 'cancelled',
           notes: 'Cancelled by customer from mobile app',
         );
-        print('✅ HistoryDetailPage: Order cancelled using updateOrderStatus fallback');
+        print(
+            '✅ HistoryDetailPage: Order cancelled using updateOrderStatus fallback');
       }
 
       // ✅ Refresh order detail
@@ -927,7 +964,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
             shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -940,7 +977,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -952,11 +989,14 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
   }
 
   // ✅ PERBAIKAN: Helper methods dengan logika kombinasi status yang benar
-  Color _getStatusColor(OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
+  Color _getStatusColor(
+      OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
     // ✅ Prioritas berdasarkan kombinasi status
-    if (orderStatus == OrderStatus.delivered && deliveryStatus == DeliveryStatus.delivered) {
+    if (orderStatus == OrderStatus.delivered &&
+        deliveryStatus == DeliveryStatus.delivered) {
       return Colors.green;
-    } else if (orderStatus == OrderStatus.onDelivery && deliveryStatus == DeliveryStatus.onWay) {
+    } else if (orderStatus == OrderStatus.onDelivery &&
+        deliveryStatus == DeliveryStatus.onWay) {
       return Colors.blue;
     } else if (orderStatus == OrderStatus.readyForPickup) {
       return Colors.indigo;
@@ -964,60 +1004,78 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       return Colors.purple;
     } else if (orderStatus == OrderStatus.confirmed) {
       return Colors.blue;
-    } else if (orderStatus == OrderStatus.cancelled || orderStatus == OrderStatus.rejected) {
+    } else if (orderStatus == OrderStatus.cancelled ||
+        orderStatus == OrderStatus.rejected) {
       return Colors.red;
     } else {
       return Colors.orange; // pending
     }
   }
 
-  String _getStatusText(OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
-    // ✅ Logika kombinasi status sesuai alur yang diminta
-    if (orderStatus == OrderStatus.delivered && deliveryStatus == DeliveryStatus.delivered) {
-      return 'Pengantaran Selesai';
-    } else if (orderStatus == OrderStatus.onDelivery && deliveryStatus == DeliveryStatus.onWay) {
-      return 'Sedang Diantarkan';
-    } else if (orderStatus == OrderStatus.readyForPickup) {
-      if (deliveryStatus == DeliveryStatus.pending || deliveryStatus == DeliveryStatus.pickedUp) {
-        return 'Siap Diantar';
-      } else {
-        return 'Siap Diantar';
-      }
-    } else if (orderStatus == OrderStatus.preparing) {
-      return 'Disiapkan';
-    } else if (orderStatus == OrderStatus.confirmed) {
-      return 'Dikonfirmasi';
-    } else if (orderStatus == OrderStatus.pending) {
+  String _getStatusText(
+      OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
+    // Handle cancelled/rejected first
+    if (orderStatus == OrderStatus.cancelled) return 'Dibatalkan';
+    if (orderStatus == OrderStatus.rejected) return 'Ditolak';
+
+    // Logic kombinasi sesuai alur bisnis
+    if (orderStatus == OrderStatus.pending &&
+        deliveryStatus == DeliveryStatus.pending) {
       return 'Menunggu';
-    } else if (orderStatus == OrderStatus.cancelled) {
-      return 'Dibatalkan';
-    } else if (orderStatus == OrderStatus.rejected) {
-      return 'Ditolak';
+    } else if (orderStatus == OrderStatus.preparing &&
+        deliveryStatus == DeliveryStatus.pending) {
+      return 'Diproses oleh Toko, Menunggu Driver';
+    } else if (orderStatus == OrderStatus.pending &&
+        deliveryStatus == DeliveryStatus.pickedUp) {
+      return 'Diproses oleh Driver, Menunggu Toko';
+    } else if (orderStatus == OrderStatus.preparing &&
+        deliveryStatus == DeliveryStatus.pickedUp) {
+      return 'Disiapkan';
+    } else if (orderStatus == OrderStatus.readyForPickup &&
+        deliveryStatus == DeliveryStatus.pickedUp) {
+      return 'Siap Diambil';
+    } else if (orderStatus == OrderStatus.onDelivery &&
+        deliveryStatus == DeliveryStatus.onWay) {
+      return 'Diantar';
+    } else if (orderStatus == OrderStatus.delivered &&
+        deliveryStatus == DeliveryStatus.delivered) {
+      return 'Selesai';
     } else {
-      return 'Unknown';
+      // Fallback untuk status lain
+      return orderStatus.displayName;
     }
   }
 
-  String _getStatusDescription(OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
-    // ✅ Deskripsi yang sesuai dengan kombinasi status
-    if (orderStatus == OrderStatus.delivered && deliveryStatus == DeliveryStatus.delivered) {
-      return 'Pesanan telah berhasil diterima';
-    } else if (orderStatus == OrderStatus.onDelivery && deliveryStatus == DeliveryStatus.onWay) {
-      return 'Driver sedang menuju lokasi Anda';
-    } else if (orderStatus == OrderStatus.readyForPickup) {
+  String _getStatusDescription(
+      OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
+    // Handle cancelled/rejected first
+    if (orderStatus == OrderStatus.cancelled) return 'Pesanan dibatalkan';
+    if (orderStatus == OrderStatus.rejected) return 'Pesanan ditolak toko';
+
+    // Logic kombinasi sesuai alur bisnis
+    if (orderStatus == OrderStatus.pending &&
+        deliveryStatus == DeliveryStatus.pending) {
+      return 'Menunggu konfirmasi dari toko dan driver';
+    } else if (orderStatus == OrderStatus.preparing &&
+        deliveryStatus == DeliveryStatus.pending) {
+      return 'Toko sedang memproses pesanan, menunggu driver menerima';
+    } else if (orderStatus == OrderStatus.pending &&
+        deliveryStatus == DeliveryStatus.pickedUp) {
+      return 'Driver sudah menerima pesanan, menunggu toko memproses';
+    } else if (orderStatus == OrderStatus.preparing &&
+        deliveryStatus == DeliveryStatus.pickedUp) {
+      return 'Toko sedang menyiapkan pesanan Anda';
+    } else if (orderStatus == OrderStatus.readyForPickup &&
+        deliveryStatus == DeliveryStatus.pickedUp) {
       return 'Pesanan siap untuk diambil driver';
-    } else if (orderStatus == OrderStatus.preparing) {
-      return 'Toko sedang mempersiapkan pesanan';
-    } else if (orderStatus == OrderStatus.confirmed) {
-      return 'Pesanan dikonfirmasi toko';
-    } else if (orderStatus == OrderStatus.pending) {
-      return 'Menunggu konfirmasi toko';
-    } else if (orderStatus == OrderStatus.cancelled) {
-      return 'Pesanan dibatalkan';
-    } else if (orderStatus == OrderStatus.rejected) {
-      return 'Pesanan ditolak toko';
+    } else if (orderStatus == OrderStatus.onDelivery &&
+        deliveryStatus == DeliveryStatus.onWay) {
+      return 'Driver sedang mengantarkan pesanan ke lokasi Anda';
+    } else if (orderStatus == OrderStatus.delivered &&
+        deliveryStatus == DeliveryStatus.delivered) {
+      return 'Pesanan telah berhasil diterima';
     } else {
-      return 'Status tidak dikenal';
+      return 'Status pesanan: ${orderStatus.displayName}';
     }
   }
 
@@ -1136,7 +1194,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(8),
@@ -1190,11 +1249,13 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                   const SizedBox(height: 20),
 
                   // ✅ Status Timeline - hanya untuk order yang tidak cancelled/rejected
-                  if (![OrderStatus.cancelled, OrderStatus.rejected].contains(currentOrderStatus))
+                  if (![OrderStatus.cancelled, OrderStatus.rejected]
+                      .contains(currentOrderStatus))
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
-                        children: List.generate(_statusTimeline.length, (index) {
+                        children:
+                            List.generate(_statusTimeline.length, (index) {
                           final isActive = index <= currentIndex;
                           final isCurrent = index == currentIndex;
                           final isLast = index == _statusTimeline.length - 1;
@@ -1206,7 +1267,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                                 Expanded(
                                   child: Center(
                                     child: AnimatedContainer(
-                                      duration: const Duration(milliseconds: 300),
+                                      duration:
+                                          const Duration(milliseconds: 300),
                                       width: isCurrent ? 32 : 24,
                                       height: isCurrent ? 32 : 24,
                                       decoration: BoxDecoration(
@@ -1216,13 +1278,13 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                                         shape: BoxShape.circle,
                                         boxShadow: isCurrent
                                             ? [
-                                          BoxShadow(
-                                            color: statusItem['color']
-                                                .withOpacity(0.4),
-                                            blurRadius: 8,
-                                            spreadRadius: 2,
-                                          ),
-                                        ]
+                                                BoxShadow(
+                                                  color: statusItem['color']
+                                                      .withOpacity(0.4),
+                                                  blurRadius: 8,
+                                                  spreadRadius: 2,
+                                                ),
+                                              ]
                                             : [],
                                       ),
                                       child: Icon(
@@ -1274,7 +1336,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                     child: Column(
                       children: [
                         Text(
-                          _getStatusText(currentOrderStatus, currentDeliveryStatus),
+                          _getStatusText(
+                              currentOrderStatus, currentDeliveryStatus),
                           style: TextStyle(
                             color: currentStatusInfo['color'],
                             fontWeight: FontWeight.bold,
@@ -1285,7 +1348,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _getStatusDescription(currentOrderStatus, currentDeliveryStatus),
+                          _getStatusDescription(
+                              currentOrderStatus, currentDeliveryStatus),
                           style: TextStyle(
                             color: currentStatusInfo['color'].withOpacity(0.8),
                             fontSize: 14,
@@ -1294,13 +1358,15 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                           textAlign: TextAlign.center,
                         ),
                         // ✅ BARU: Tampilkan informasi delivery status jika berbeda dari order status
-                        if (_shouldShowDeliveryStatusInfo(currentOrderStatus, currentDeliveryStatus))
+                        if (_shouldShowDeliveryStatusInfo(
+                            currentOrderStatus, currentDeliveryStatus))
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
                               'Status Pengiriman: ${_getDeliveryStatusText(currentDeliveryStatus)}',
                               style: TextStyle(
-                                color: currentStatusInfo['color'].withOpacity(0.7),
+                                color:
+                                    currentStatusInfo['color'].withOpacity(0.7),
                                 fontSize: 12,
                                 fontStyle: FontStyle.italic,
                                 fontFamily: GlobalStyle.fontFamily,
@@ -1330,7 +1396,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
                               child: ImageService.displayImage(
-                                imageSource: _orderDetail!.store!.imageUrl ?? '',
+                                imageSource:
+                                    _orderDetail!.store!.imageUrl ?? '',
                                 width: 40,
                                 height: 40,
                                 fit: BoxFit.cover,
@@ -1392,14 +1459,12 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
   // ✅ BARU: Helper methods untuk status logic
   bool _shouldRepeatAnimation(OrderStatus orderStatus) {
-    return ![
-      OrderStatus.delivered,
-      OrderStatus.cancelled,
-      OrderStatus.rejected
-    ].contains(orderStatus);
+    return ![OrderStatus.delivered, OrderStatus.cancelled, OrderStatus.rejected]
+        .contains(orderStatus);
   }
 
-  bool _shouldShowDeliveryStatusInfo(OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
+  bool _shouldShowDeliveryStatusInfo(
+      OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
     // Tampilkan info delivery status hanya untuk status yang sedang dalam proses pengiriman
     return orderStatus == OrderStatus.onDelivery &&
         deliveryStatus != null &&
@@ -1431,10 +1496,10 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     final currentOrderStatus = _orderDetail!.orderStatus;
     final currentDeliveryStatus = _orderDetail!.deliveryStatus;
 
-    // ✅ Handle cancelled and rejected status
+    // Handle cancelled and rejected status
     if (currentOrderStatus == OrderStatus.cancelled) {
       return {
-        'status': OrderStatus.cancelled,
+        'status': 'cancelled',
         'label': 'Dibatalkan',
         'description': 'Pesanan dibatalkan',
         'icon': Icons.cancel_outlined,
@@ -1445,7 +1510,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
     if (currentOrderStatus == OrderStatus.rejected) {
       return {
-        'status': OrderStatus.rejected,
+        'status': 'rejected',
         'label': 'Ditolak',
         'description': 'Pesanan ditolak toko',
         'icon': Icons.block,
@@ -1454,59 +1519,249 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       };
     }
 
-    // ✅ Handle completed delivery
-    if (currentOrderStatus == OrderStatus.delivered && currentDeliveryStatus == DeliveryStatus.delivered) {
-      return {
-        'status': OrderStatus.delivered,
-        'label': 'Pengantaran Selesai',
-        'description': 'Pesanan telah berhasil diterima',
-        'icon': Icons.celebration,
-        'color': Colors.green,
-        'animation': 'assets/animations/pesanan_selesai.json'
-      };
+    // Logic kombinasi status sesuai alur bisnis
+    if (currentOrderStatus == OrderStatus.pending &&
+        currentDeliveryStatus == DeliveryStatus.pending) {
+      return _statusTimeline[0]; // waiting
+    } else if ((currentOrderStatus == OrderStatus.preparing &&
+            currentDeliveryStatus == DeliveryStatus.pending) ||
+        (currentOrderStatus == OrderStatus.pending &&
+            currentDeliveryStatus == DeliveryStatus.pickedUp)) {
+      return _statusTimeline[1]; // processing
+    } else if (currentOrderStatus == OrderStatus.preparing &&
+        currentDeliveryStatus == DeliveryStatus.pickedUp) {
+      return _statusTimeline[2]; // preparing
+    } else if (currentOrderStatus == OrderStatus.readyForPickup &&
+        currentDeliveryStatus == DeliveryStatus.pickedUp) {
+      return _statusTimeline[3]; // ready
+    } else if (currentOrderStatus == OrderStatus.onDelivery &&
+        currentDeliveryStatus == DeliveryStatus.onWay) {
+      return _statusTimeline[4]; // delivering
+    } else if (currentOrderStatus == OrderStatus.delivered &&
+        currentDeliveryStatus == DeliveryStatus.delivered) {
+      return _statusTimeline[5]; // completed
+    } else {
+      // Fallback untuk kombinasi lain
+      return _statusTimeline[0];
     }
-
-    // ✅ Handle on delivery
-    if (currentOrderStatus == OrderStatus.onDelivery && currentDeliveryStatus == DeliveryStatus.onWay) {
-      return {
-        'status': OrderStatus.onDelivery,
-        'label': 'Sedang Diantarkan',
-        'description': 'Driver sedang menuju lokasi Anda',
-        'icon': Icons.delivery_dining,
-        'color': Colors.teal,
-        'animation': 'assets/animations/diantar.json'
-      };
-    }
-
-    // ✅ Handle ready for pickup dengan logika yang benar
-    if (currentOrderStatus == OrderStatus.readyForPickup) {
-      return {
-        'status': OrderStatus.readyForPickup,
-        'label': 'Siap Diantar',
-        'description': 'Pesanan siap untuk diambil driver',
-        'icon': Icons.shopping_bag,
-        'color': Colors.indigo,
-        'animation': 'assets/animations/diproses.json'
-      };
-    }
-
-    // ✅ Handle other statuses
-    return _statusTimeline.firstWhere(
-          (item) => item['status'] == currentOrderStatus,
-      orElse: () => _statusTimeline[0],
-    );
   }
 
   int _getCurrentStatusIndex() {
     if (_orderDetail == null) return 0;
-    final currentOrderStatus = _orderDetail!.orderStatus;
 
-    // ✅ Special handling untuk status yang tidak ada di timeline
-    if ([OrderStatus.cancelled, OrderStatus.rejected].contains(currentOrderStatus)) {
+    final currentOrderStatus = _orderDetail!.orderStatus;
+    final currentDeliveryStatus = _orderDetail!.deliveryStatus;
+
+    // Special handling untuk status yang tidak ada di timeline
+    if ([OrderStatus.cancelled, OrderStatus.rejected]
+        .contains(currentOrderStatus)) {
       return -1; // Tidak tampilkan di timeline
     }
 
-    return _statusTimeline.indexWhere((item) => item['status'] == currentOrderStatus);
+    // Return index berdasarkan kombinasi status
+    if (currentOrderStatus == OrderStatus.pending &&
+        currentDeliveryStatus == DeliveryStatus.pending) {
+      return 0; // waiting
+    } else if ((currentOrderStatus == OrderStatus.preparing &&
+            currentDeliveryStatus == DeliveryStatus.pending) ||
+        (currentOrderStatus == OrderStatus.pending &&
+            currentDeliveryStatus == DeliveryStatus.pickedUp)) {
+      return 1; // processing
+    } else if (currentOrderStatus == OrderStatus.preparing &&
+        currentDeliveryStatus == DeliveryStatus.pickedUp) {
+      return 2; // preparing
+    } else if (currentOrderStatus == OrderStatus.readyForPickup &&
+        currentDeliveryStatus == DeliveryStatus.pickedUp) {
+      return 3; // ready
+    } else if (currentOrderStatus == OrderStatus.onDelivery &&
+        currentDeliveryStatus == DeliveryStatus.onWay) {
+      return 4; // delivering
+    } else if (currentOrderStatus == OrderStatus.delivered &&
+        currentDeliveryStatus == DeliveryStatus.delivered) {
+      return 5; // completed
+    } else {
+      return 0; // default
+    }
+  }
+
+  Widget _buildOrderInfoCard() {
+    return _buildCard(
+      index: 1,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.info_outline, color: GlobalStyle.primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'Informasi Pesanan',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: GlobalStyle.fontColor,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Tanggal Pesanan
+          _buildInfoRow('Tanggal Pesanan',
+              DateFormat('dd MMM yyyy, HH:mm').format(_orderDetail!.createdAt)),
+          const SizedBox(height: 8),
+
+          // Status Utama (kombinasi)
+          _buildInfoRow(
+              'Status Utama',
+              _getStatusText(
+                  _orderDetail!.orderStatus, _orderDetail!.deliveryStatus)),
+          const SizedBox(height: 8),
+
+          // Detail Status - hanya tampilkan jika bukan status final
+          if (![OrderStatus.cancelled, OrderStatus.rejected]
+              .contains(_orderDetail!.orderStatus)) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Colors.grey.withOpacity(0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Detail Status:',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[700],
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(Icons.store, size: 16, color: Colors.blue),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Toko: ${_orderDetail!.orderStatus.displayName}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[700],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.delivery_dining,
+                          size: 16, color: Colors.orange),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Driver: ${_orderDetail!.deliveryStatus.displayName}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[700],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          // Total Pembayaran
+          _buildInfoRow('Total Pembayaran', _orderDetail!.formatTotalAmount()),
+
+          // Metode Pembayaran
+          const SizedBox(height: 8),
+          _buildInfoRow('Metode Pembayaran', _getPaymentMethodText()),
+
+          // ✅ Status Progress Indicator untuk status yang sedang berlangsung
+          if (_shouldShowProgressIndicator()) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    _getCurrentStatusInfo()['color'].withOpacity(0.1),
+                    _getCurrentStatusInfo()['color'].withOpacity(0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _getCurrentStatusInfo()['color'].withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _getCurrentStatusInfo()['icon'],
+                        color: _getCurrentStatusInfo()['color'],
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _getStatusDescription(_orderDetail!.orderStatus,
+                              _orderDetail!.deliveryStatus),
+                          style: TextStyle(
+                            color: _getCurrentStatusInfo()['color'],
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            fontFamily: GlobalStyle.fontFamily,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Progress indicator untuk status pending
+                  if (_orderDetail!.orderStatus == OrderStatus.pending &&
+                      _orderDetail!.deliveryStatus ==
+                          DeliveryStatus.pending) ...[
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      backgroundColor: Colors.grey[300],
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        _getCurrentStatusInfo()['color'],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  bool _shouldShowProgressIndicator() {
+    if (_orderDetail == null) return false;
+
+    final orderStatus = _orderDetail!.orderStatus;
+    final deliveryStatus = _orderDetail!.deliveryStatus;
+
+    // Tampilkan progress untuk status yang sedang berlangsung
+    return ![OrderStatus.cancelled, OrderStatus.rejected, OrderStatus.delivered]
+            .contains(orderStatus) ||
+        (orderStatus == OrderStatus.delivered &&
+            deliveryStatus != DeliveryStatus.delivered);
   }
 
   @override
@@ -1691,45 +1946,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           ),
 
           // Order Date and Status Section
-          _buildCard(
-            index: 1,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.calendar_today, color: GlobalStyle.primaryColor),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Informasi Pesanan',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: GlobalStyle.fontColor,
-                        fontFamily: GlobalStyle.fontFamily,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _buildInfoRow(
-                    'Tanggal Pesanan',
-                    DateFormat('dd MMM yyyy, hh.mm a')
-                        .format(_orderDetail!.createdAt)),
-                const SizedBox(height: 8),
-                _buildInfoRow('Status Pesanan',
-                    _getStatusText(_orderDetail!.orderStatus, _orderDetail!.deliveryStatus)),
-                if (_orderDetail!.deliveryStatus != DeliveryStatus.pending) ...[
-                  const SizedBox(height: 8),
-                  _buildInfoRow('Status Pengiriman',
-                      _getDeliveryStatusText(_orderDetail!.deliveryStatus)),
-                ],
-                const SizedBox(height: 8),
-                _buildInfoRow(
-                    'Total Pembayaran', _orderDetail!.formatTotalAmount()),
-              ],
-            ),
-          ),
+          _buildOrderInfoCard(),
 
           // Store and Items Section
           if (_orderDetail != null) _buildStoreAndItemsCard(),
@@ -1901,7 +2118,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                 height: 60,
                 color: Colors.grey[300],
                 child:
-                const Icon(Icons.image_not_supported, color: Colors.grey),
+                    const Icon(Icons.image_not_supported, color: Colors.grey),
               ),
             ),
           ),
@@ -1923,7 +2140,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                 const SizedBox(height: 4),
                 Container(
                   padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: GlobalStyle.lightColor,
                     borderRadius: BorderRadius.circular(12),
@@ -2136,39 +2353,39 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                     ],
                   ),
                   child: _orderDetail!.driver!.avatar != null &&
-                      _orderDetail!.driver!.avatar!.isNotEmpty
+                          _orderDetail!.driver!.avatar!.isNotEmpty
                       ? ClipOval(
-                    child: ImageService.displayImage(
-                      imageSource: _orderDetail!.driver!.avatar!,
-                      width: 80,
-                      height: 80,
-                      fit: BoxFit.cover,
-                      placeholder: const Center(
-                        child: Icon(
-                          Icons.person,
-                          size: 30,
-                          color: Colors.orange,
-                        ),
-                      ),
-                      errorWidget: const Center(
-                        child: Icon(
-                          Icons.person,
-                          size: 30,
-                          color: Colors.orange,
-                        ),
-                      ),
-                    ),
-                  )
+                          child: ImageService.displayImage(
+                            imageSource: _orderDetail!.driver!.avatar!,
+                            width: 80,
+                            height: 80,
+                            fit: BoxFit.cover,
+                            placeholder: const Center(
+                              child: Icon(
+                                Icons.person,
+                                size: 30,
+                                color: Colors.orange,
+                              ),
+                            ),
+                            errorWidget: const Center(
+                              child: Icon(
+                                Icons.person,
+                                size: 30,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ),
+                        )
                       : ClipOval(
-                    child: Container(
-                      color: Colors.orange.withOpacity(0.1),
-                      child: const Icon(
-                        Icons.person,
-                        size: 40,
-                        color: Colors.orange,
-                      ),
-                    ),
-                  ),
+                          child: Container(
+                            color: Colors.orange.withOpacity(0.1),
+                            child: const Icon(
+                              Icons.person,
+                              size: 40,
+                              color: Colors.orange,
+                            ),
+                          ),
+                        ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -2329,7 +2546,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     // 1. Order status readyForPickup (siap diantar)
     // 2. Order status onDelivery dengan delivery status onWay (sedang diantarkan)
     return (orderStatus == OrderStatus.readyForPickup) ||
-        (orderStatus == OrderStatus.onDelivery && deliveryStatus == DeliveryStatus.onWay);
+        (orderStatus == OrderStatus.onDelivery &&
+            deliveryStatus == DeliveryStatus.onWay);
   }
 
   // ✅ Enhanced reviews card with better structure
@@ -2529,22 +2747,22 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     final orderStatus = _orderDetail!.orderStatus;
     final deliveryStatus = _orderDetail!.deliveryStatus;
 
-    // ✅ Logic untuk cancel button
-    final bool canCancel = (orderStatus == OrderStatus.pending || orderStatus == OrderStatus.confirmed) &&
-        !orderStatus.isCompleted;
+    // Cancel button - hanya untuk pending + pending
+    final bool canCancel = _canCancelOrder();
 
-    // ✅ Logic untuk rate button
-    final bool canRate = (orderStatus == OrderStatus.delivered && deliveryStatus == DeliveryStatus.delivered) &&
+    // Rate button - hanya untuk delivered + delivered dan belum ada rating
+    final bool canRate = (orderStatus == OrderStatus.delivered &&
+            deliveryStatus == DeliveryStatus.delivered) &&
         !_hasGivenRating;
 
-    // ✅ Logic untuk buy again button
+    // Buy again button - untuk semua status yang completed
     final bool canBuyAgain = orderStatus.isCompleted;
 
     return _buildCard(
       index: 4,
       child: Column(
         children: [
-          // Cancel Order Button (only for pending/confirmed orders)
+          // Cancel Order Button (only for pending + pending)
           if (canCancel)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -2553,10 +2771,10 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                 child: OutlinedButton.icon(
                   icon: _isCancelling
                       ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Icon(Icons.cancel_outlined),
                   label: Text(
                       _isCancelling ? 'Membatalkan...' : 'Batalkan Pesanan'),
@@ -2574,7 +2792,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
               ),
             ),
 
-          // ✅ FIXED: Rate Order Button with loading state
+          // Rate Order Button (only for delivered + delivered)
           if (canRate)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -2583,16 +2801,20 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                 child: ElevatedButton.icon(
                   icon: _isSubmittingRating
                       ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
                       : const Icon(Icons.star),
-                  label: Text(_isSubmittingRating ? 'Membuka Rating...' : 'Beri Rating'),
-                  onPressed: _isSubmittingRating ? null : _handleRatingSubmission,
+                  label: Text(_isSubmittingRating
+                      ? 'Membuka Rating...'
+                      : 'Beri Rating'),
+                  onPressed:
+                      _isSubmittingRating ? null : _handleRatingSubmission,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
                     foregroundColor: Colors.white,
@@ -2607,7 +2829,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
               ),
             ),
 
-          // ✅ FIXED: Buy Again Button (only for completed orders)
+          // Buy Again Button (for completed orders)
           if (canBuyAgain)
             SizedBox(
               width: double.infinity,
@@ -2618,7 +2840,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                   Navigator.pushNamedAndRemoveUntil(
                     context,
                     HomePage.route,
-                        (route) => false,
+                    (route) => false,
                   );
                 },
                 style: ElevatedButton.styleFrom(

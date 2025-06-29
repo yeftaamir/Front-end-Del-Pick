@@ -11,6 +11,7 @@ import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/order_item.dart';
+import 'package:del_pick/Models/driver.dart'; // ✅ Tambahkan untuk DriverModel
 
 // Import Services
 import 'package:del_pick/Services/order_service.dart';
@@ -19,6 +20,7 @@ import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 
 // Import Components and Screens
+import '../../Models/user.dart';
 import '../Component/cust_bottom_navigation.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'home_cust.dart';
@@ -66,8 +68,9 @@ class _HistoryCacheManager {
   static void clearExpiredCache() {
     final now = DateTime.now();
     final expiredKeys = _cacheTimestamps.entries
-        .where((entry) => now.difference(entry.value) >=
-        (entry.key.startsWith('store_') ? _storeCacheExpiry : _cacheExpiry))
+        .where((entry) =>
+            now.difference(entry.value) >=
+            (entry.key.startsWith('store_') ? _storeCacheExpiry : _cacheExpiry))
         .map((entry) => entry.key)
         .toList();
 
@@ -84,143 +87,118 @@ class _HistoryCacheManager {
 
 // Background Processing for Heavy Operations
 class _HistoryBackgroundProcessor {
-  static Future<List<StoreModel>> batchFetchStoresInBackground(List<int> storeIds) async {
-    return await Isolate.run(() async {
-      final stores = <StoreModel>[];
-
-      for (final storeId in storeIds) {
-        try {
-          final cachedStore = _HistoryCacheManager.getCachedStore(storeId);
-          if (cachedStore != null) {
-            stores.add(cachedStore);
-            continue;
-          }
-
-          final storeResponse = await StoreService.getStoreById(storeId.toString());
-          if (storeResponse['success'] == true && storeResponse['data'] != null) {
-            final store = StoreModel.fromJson(storeResponse['data']);
-            stores.add(store);
-            _HistoryCacheManager.cacheStore(storeId, store);
-          }
-        } catch (e) {
-          // Skip failed stores but continue processing
-          continue;
-        }
-      }
-
-      return stores;
-    });
-  }
-
-  static Map<String, dynamic> processOrderDataInBackground(List<dynamic> rawOrders) {
+  // ✅ Method untuk memproses data order mentah dari API
+  static Map<String, dynamic> processOrderDataInBackground(
+      List<dynamic> rawOrders) {
     final orders = <OrderModel>[];
-    final storeIds = <int>[];
+    final storeIds = <int>{};
 
-    for (var orderJson in rawOrders) {
+    for (final orderData in rawOrders) {
       try {
-        final safeOrderJson = _safeParseOrderJson(orderJson);
-        final order = _buildBasicOrderModel(safeOrderJson);
-        if (order != null) {
+        if (orderData is Map<String, dynamic>) {
+          // ✅ Parse order menggunakan method fromJson yang sudah ada
+          final order = OrderModel.fromJson(orderData);
           orders.add(order);
-          if (!storeIds.contains(order.storeId)) {
-            storeIds.add(order.storeId);
-          }
+
+          // Collect unique store IDs for batch fetching
+          storeIds.add(order.storeId);
         }
       } catch (e) {
-        continue; // Skip invalid orders
+        print('Error parsing order data: $e');
+        // Skip invalid order data
+        continue;
       }
     }
 
     return {
       'orders': orders,
-      'storeIds': storeIds,
+      'storeIds': storeIds.toList(),
     };
   }
 
-  static Map<String, dynamic> _safeParseOrderJson(Map<String, dynamic> json) {
-    return {
-      'id': _parseInt(json['id']),
-      'customer_id': _parseInt(json['customer_id']),
-      'store_id': _parseInt(json['store_id']),
-      'driver_id': json['driver_id'] != null ? _parseInt(json['driver_id']) : null,
-      'total_amount': _parseDouble(json['total_amount']),
-      'delivery_fee': _parseDouble(json['delivery_fee']),
-      'order_status': json['order_status'] ?? 'pending',
-      'delivery_status': json['delivery_status'] ?? 'pending',
-      'created_at': json['created_at'],
-      'updated_at': json['updated_at'],
-      'tracking_updates': json['tracking_updates'],
-      'estimated_pickup_time': json['estimated_pickup_time'],
-      'actual_pickup_time': json['actual_pickup_time'],
-      'estimated_delivery_time': json['estimated_delivery_time'],
-      'actual_delivery_time': json['actual_delivery_time'],
-    };
-  }
+// Di dalam class _HistoryBackgroundProcessor, method batchFetchStoresInBackground
+  static Future<List<StoreModel>> batchFetchStoresInBackground(
+      List<int> storeIds) async {
+    final stores = <StoreModel>[];
 
-  static OrderModel? _buildBasicOrderModel(Map<String, dynamic> orderJson) {
-    try {
-      return OrderModel(
-        id: orderJson['id'],
-        customerId: orderJson['customer_id'],
-        storeId: orderJson['store_id'],
-        driverId: orderJson['driver_id'],
-        orderStatus: OrderStatusExtension.fromString(orderJson['order_status']),
-        deliveryStatus: DeliveryStatusExtension.fromString(orderJson['delivery_status']),
-        totalAmount: orderJson['total_amount'],
-        deliveryFee: orderJson['delivery_fee'],
-        estimatedPickupTime: orderJson['estimated_pickup_time'] != null
-            ? DateTime.tryParse(orderJson['estimated_pickup_time'])
-            : null,
-        actualPickupTime: orderJson['actual_pickup_time'] != null
-            ? DateTime.tryParse(orderJson['actual_pickup_time'])
-            : null,
-        estimatedDeliveryTime: orderJson['estimated_delivery_time'] != null
-            ? DateTime.tryParse(orderJson['estimated_delivery_time'])
-            : null,
-        actualDeliveryTime: orderJson['actual_delivery_time'] != null
-            ? DateTime.tryParse(orderJson['actual_delivery_time'])
-            : null,
-        trackingUpdates: _parseTrackingUpdates(orderJson['tracking_updates']),
-        createdAt: DateTime.parse(orderJson['created_at']),
-        updatedAt: DateTime.parse(orderJson['updated_at']),
-        store: null, // Will be set later
-        items: [],
-      );
-    } catch (e) {
-      return null;
-    }
-  }
+    // ✅ Buat placeholder UserModel untuk owner
+    final placeholderOwner = UserModel(
+      id: 0,
+      name: 'Unknown Owner',
+      email: 'unknown@store.com',
+      phone: '',
+      role: UserRole.store,
+      avatar: null,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
 
-  static List<Map<String, dynamic>>? _parseTrackingUpdates(dynamic trackingData) {
-    try {
-      if (trackingData is String) {
-        final parsed = jsonDecode(trackingData);
-        if (parsed is List) {
-          return List<Map<String, dynamic>>.from(parsed);
+    for (final storeId in storeIds) {
+      try {
+        // Cek cache terlebih dahulu
+        final cachedStore = _HistoryCacheManager.getCachedStore(storeId);
+        if (cachedStore != null) {
+          stores.add(cachedStore);
+          continue;
         }
-      } else if (trackingData is List) {
-        return List<Map<String, dynamic>>.from(trackingData);
+
+        // ✅ Fetch dari API dengan error handling yang lebih baik
+        final storeResponse =
+            await StoreService.getStoreById(storeId.toString());
+
+        if (storeResponse['success'] == true && storeResponse['data'] != null) {
+          final store = StoreModel.fromJson(storeResponse['data']);
+          stores.add(store);
+          _HistoryCacheManager.cacheStore(storeId, store);
+        } else {
+          // ✅ Jika API gagal, buat store placeholder dengan struktur yang benar
+          final placeholderStore = StoreModel(
+            owner: placeholderOwner, // ✅ Gunakan placeholder owner
+            storeId: storeId,
+            name: 'Memuat toko...',
+            description: '',
+            address: '',
+            phone: '',
+            openTime: '08:00',
+            closeTime: '22:00',
+            imageUrl: null,
+            latitude: 0.0,
+            longitude: 0.0,
+            rating: 0.0,
+            totalProducts: 0,
+            reviewCount: 0,
+            status: StoreStatus.active,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
+          stores.add(placeholderStore);
+        }
+      } catch (e) {
+        // ✅ Jika error, buat store fallback dengan struktur yang benar
+        final fallbackStore = StoreModel(
+          owner: placeholderOwner, // ✅ Gunakan placeholder owner
+          storeId: storeId,
+          name: 'Toko #$storeId',
+          description: 'Informasi toko tidak tersedia',
+          address: '',
+          phone: '',
+          openTime: '08:00',
+          closeTime: '22:00',
+          imageUrl: null,
+          latitude: 0.0,
+          longitude: 0.0,
+          rating: 0.0,
+          totalProducts: 0,
+          reviewCount: 0,
+          status: StoreStatus.active,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+        stores.add(fallbackStore);
       }
-      return null;
-    } catch (e) {
-      return null;
     }
-  }
 
-  static double _parseDouble(dynamic value) {
-    if (value == null) return 0.0;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0.0;
-    return 0.0;
-  }
-
-  static int _parseInt(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is double) return value.toInt();
-    if (value is String) return int.tryParse(value) ?? 0;
-    return 0;
+    return stores;
   }
 }
 
@@ -235,7 +213,6 @@ class HistoryCustomer extends StatefulWidget {
 
 class _HistoryCustomerState extends State<HistoryCustomer>
     with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
-
   static const bool _debugMode = false;
   static const int _pageSize = 10;
 
@@ -257,6 +234,7 @@ class _HistoryCustomerState extends State<HistoryCustomer>
   final ValueNotifier<String?> _errorNotifier = ValueNotifier(null);
   final ValueNotifier<List<OrderModel>> _ordersNotifier = ValueNotifier([]);
   final ValueNotifier<bool> _isAuthenticatedNotifier = ValueNotifier(false);
+  final ValueNotifier<Map<int, bool>> _storeLoadingNotifier = ValueNotifier({});
 
   // Animation optimization
   late List<AnimationController> _cardControllers;
@@ -285,7 +263,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
   }
 
   void _initializeControllers() {
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(
+        length: 9, vsync: this); // ✅ 9 tab berdasarkan kombinasi status
     _scrollController = ScrollController();
     _cardControllers = [];
     _cardAnimations = [];
@@ -310,6 +289,54 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     });
   }
 
+  Future<void> _retryFetchStore(int storeId) async {
+    try {
+      final storeResponse = await StoreService.getStoreById(storeId.toString());
+
+      if (storeResponse['success'] == true && storeResponse['data'] != null) {
+        final store = StoreModel.fromJson(storeResponse['data']);
+        _HistoryCacheManager.cacheStore(storeId, store);
+
+        // Update orders yang menggunakan store ini
+        final currentOrders = _ordersNotifier.value;
+        final updatedOrders = currentOrders.map((order) {
+          if (order.storeId == storeId) {
+            return order.copyWith(store: store);
+          }
+          return order;
+        }).toList();
+
+        _ordersNotifier.value = updatedOrders;
+      }
+    } catch (e) {
+      _log('Error retrying store fetch for $storeId: $e');
+    }
+  }
+
+  PreferredSizeWidget _buildTabBar() {
+    return TabBar(
+      controller: _tabController,
+      isScrollable: true, // ✅ Perlu scroll untuk 9 tab
+      labelColor: GlobalStyle.primaryColor,
+      unselectedLabelColor: Colors.grey[600],
+      labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+      unselectedLabelStyle: const TextStyle(fontSize: 12),
+      indicatorColor: GlobalStyle.primaryColor,
+      indicatorWeight: 3,
+      tabs: [
+        _buildTab('Semua', 0),
+        _buildTab('Menunggu', 1),
+        _buildTab('Diproses Toko', 2),
+        _buildTab('Diproses Driver', 3),
+        _buildTab('Disiapkan', 4),
+        _buildTab('Siap Diambil', 5),
+        _buildTab('Diantar', 6),
+        _buildTab('Selesai', 7),
+        _buildTab('Dibatalkan', 8),
+      ],
+    );
+  }
+
   void _startBackgroundCacheCleanup() {
     Timer.periodic(const Duration(minutes: 1), (timer) {
       if (_disposed) {
@@ -327,6 +354,21 @@ class _HistoryCustomerState extends State<HistoryCustomer>
         _fetchOrderHistoryOptimized(isRefresh: true);
       }
     });
+  }
+
+  String _getStoreName(OrderModel order) {
+    if (order.store != null) {
+      // ✅ Jika store sudah ada, gunakan nama asli
+      return order.store!.name;
+    } else {
+      // ✅ Jika store belum dimuat, cek apakah sedang loading
+      final isLoading = _storeLoadingNotifier.value[order.storeId] ?? false;
+      if (isLoading) {
+        return 'Memuat toko...';
+      } else {
+        return 'Toko #${order.storeId}';
+      }
+    }
   }
 
   // Ultra-Fast Authentication and Data Loading
@@ -357,7 +399,6 @@ class _HistoryCustomerState extends State<HistoryCustomer>
 
       // Load order history
       await _fetchOrderHistoryOptimized(isRefresh: true);
-
     } catch (e) {
       _log('Authentication error: $e');
       _errorNotifier.value = 'Authentication failed: $e';
@@ -369,49 +410,50 @@ class _HistoryCustomerState extends State<HistoryCustomer>
 
   // Ultra-Optimized Order History Fetching
   Future<void> _fetchOrderHistoryOptimized({bool isRefresh = false}) async {
-    if (!_isAuthenticatedNotifier.value) {
-      _log('Not authenticated, skipping fetch');
-      return;
-    }
-
-    if (isRefresh) {
-      _currentPage = 1;
-      _hasMoreData = true;
-      _isLoadingNotifier.value = true;
-      _errorNotifier.value = null;
-      _ordersNotifier.value = [];
-    }
-
     try {
-      _log('Fetching order history (page $_currentPage)...');
+      _log('🔄 Fetching order history (page $_currentPage)...');
 
-      // Check cache first
-      final statusFilter = _getStatusFilter(_tabController.index);
-      final cacheKey = '${statusFilter ?? 'all'}_page_$_currentPage';
-      final cachedOrders = _HistoryCacheManager.getCachedOrders(cacheKey);
-
-      if (cachedOrders != null && !isRefresh) {
-        _log('Using cached orders');
-        _updateOrdersFromCache(cachedOrders, isRefresh);
+      if (!_isAuthenticatedNotifier.value || _customerData == null) {
+        _log('❌ Not authenticated, re-authenticating...');
+        await _authenticateAndLoadData();
         return;
       }
 
-      // Fetch from API
+      if (isRefresh) {
+        _currentPage = 1;
+        _hasMoreData = true;
+        _isLoadingNotifier.value = true;
+        _errorNotifier.value = null;
+        _ordersNotifier.value = [];
+      }
+
+      // ✅ FETCH SEMUA DATA tanpa filter (null status)
+      // Frontend yang akan filter berdasarkan kombinasi status
       final orderData = await OrderService.getOrdersByUser(
         page: _currentPage,
         limit: _pageSize,
-        status: statusFilter,
+        status: null, // ✅ Ambil semua order
         sortBy: 'created_at',
         sortOrder: 'desc',
       );
 
+      _log('📥 Raw order data received: ${orderData.keys}');
+      _log('📊 Orders count: ${(orderData['orders'] as List?)?.length ?? 0}');
+
+      if (orderData['orders'] == null) {
+        throw Exception('Invalid response: No orders data found');
+      }
+
       // Background processing of order data
-      final processedData = _HistoryBackgroundProcessor.processOrderDataInBackground(
-          orderData['orders'] ?? []
-      );
+      final processedData =
+          _HistoryBackgroundProcessor.processOrderDataInBackground(
+              orderData['orders'] ?? []);
 
       final orders = processedData['orders'] as List<OrderModel>;
       final storeIds = processedData['storeIds'] as List<int>;
+
+      _log(
+          '✅ Processed ${orders.length} orders, ${storeIds.length} unique stores');
 
       // Background fetch stores in parallel
       if (storeIds.isNotEmpty) {
@@ -422,18 +464,23 @@ class _HistoryCustomerState extends State<HistoryCustomer>
       _updatePaginationInfo(orderData);
       _updateOrdersList(orders, isRefresh);
 
-      // Cache the results
-      _HistoryCacheManager.cacheOrders(cacheKey, orders);
+      // Cache all orders (tanpa status filter)
+      _HistoryCacheManager.cacheOrders('all_page_$_currentPage', orders);
 
-      _log('Orders fetched successfully: ${orders.length}');
-
+      _log('✅ Orders fetched successfully: ${orders.length}');
     } catch (e) {
-      _log('Error fetching order history: $e');
-      _errorNotifier.value = 'Failed to load order history: $e';
+      _log('❌ Error fetching order history: $e');
+      _errorNotifier.value = 'Failed to load order history: ${e.toString()}';
 
       if (e.toString().contains('authentication') ||
-          e.toString().contains('Access denied')) {
+          e.toString().contains('Access denied') ||
+          e.toString().contains('token') ||
+          e.toString().contains('401')) {
         _handleAuthenticationError();
+      } else if (e.toString().contains('network') ||
+          e.toString().contains('connection')) {
+        _errorNotifier.value =
+            'Network error. Please check your internet connection.';
       }
     } finally {
       _isLoadingNotifier.value = false;
@@ -442,14 +489,27 @@ class _HistoryCustomerState extends State<HistoryCustomer>
   }
 
   // Background Store Fetching
-  Future<void> _fetchStoresInBackground(List<OrderModel> orders, List<int> storeIds) async {
+  Future<void> _fetchStoresInBackground(
+      List<OrderModel> orders, List<int> storeIds) async {
     try {
-      final stores = await _HistoryBackgroundProcessor.batchFetchStoresInBackground(storeIds);
+      // ✅ Set loading state untuk setiap store
+      final storeLoadingMap = <int, bool>{};
+      for (int storeId in storeIds) {
+        storeLoadingMap[storeId] = true;
+      }
+      _storeLoadingNotifier.value = storeLoadingMap;
 
-      // Map stores to orders
-      final storeMap = {for (var store in stores) store.storeId: store};
+      final stores =
+          await _HistoryBackgroundProcessor.batchFetchStoresInBackground(
+              storeIds);
 
-      // Update orders with store data
+      // ✅ Map stores to orders dengan validasi
+      final storeMap = <int, StoreModel>{};
+      for (var store in stores) {
+        storeMap[store.storeId] = store;
+      }
+
+      // ✅ Update orders dengan store data
       final updatedOrders = orders.map((order) {
         final store = storeMap[order.storeId];
         if (store != null) {
@@ -458,15 +518,37 @@ class _HistoryCustomerState extends State<HistoryCustomer>
         return order;
       }).toList();
 
-      // Update UI if still mounted
+      // ✅ Update UI jika masih mounted
       if (!_disposed && mounted) {
-        _ordersNotifier.value = [
-          ..._ordersNotifier.value.where((o) => !updatedOrders.any((u) => u.id == o.id)),
-          ...updatedOrders,
-        ];
+        // Gabungkan orders lama dengan yang sudah diupdate
+        final currentOrders = _ordersNotifier.value;
+        final newOrdersList = <OrderModel>[];
+
+        // Tambahkan orders yang sudah ada tapi belum diupdate
+        for (var existingOrder in currentOrders) {
+          final updatedOrder = updatedOrders.firstWhere(
+            (order) => order.id == existingOrder.id,
+            orElse: () => existingOrder,
+          );
+          newOrdersList.add(updatedOrder);
+        }
+
+        // Tambahkan orders baru yang belum ada
+        for (var newOrder in updatedOrders) {
+          if (!newOrdersList.any((order) => order.id == newOrder.id)) {
+            newOrdersList.add(newOrder);
+          }
+        }
+
+        _ordersNotifier.value = newOrdersList;
       }
+
+      // ✅ Clear loading state
+      _storeLoadingNotifier.value = {};
     } catch (e) {
       _log('Error fetching stores in background: $e');
+      // ✅ Clear loading state pada error
+      _storeLoadingNotifier.value = {};
     }
   }
 
@@ -500,7 +582,9 @@ class _HistoryCustomerState extends State<HistoryCustomer>
   }
 
   Future<void> _loadMoreHistory() async {
-    if (_isLoadingMoreNotifier.value || !_hasMoreData || !_isAuthenticatedNotifier.value) {
+    if (_isLoadingMoreNotifier.value ||
+        !_hasMoreData ||
+        !_isAuthenticatedNotifier.value) {
       return;
     }
 
@@ -516,14 +600,96 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     _errorNotifier.value = 'Session expired. Please login again.';
   }
 
-  String? _getStatusFilter(int tabIndex) {
-    const filters = [
-      null, // All orders
-      'pending,confirmed,preparing,ready_for_pickup,on_delivery', // In progress
-      'delivered', // Completed
-      'cancelled,rejected', // Cancelled
+  Color _getTabColor(int tabIndex) {
+    const tabColors = [
+      Colors.grey, // Semua
+      Colors.orange, // Menunggu
+      Colors.amber, // Diproses Toko
+      Colors.blue, // Diproses Driver
+      Colors.purple, // Disiapkan
+      Colors.indigo, // Siap Diambil
+      Colors.cyan, // Diantar
+      Colors.green, // Selesai
+      Colors.red, // Dibatalkan
     ];
-    return tabIndex < filters.length ? filters[tabIndex] : null;
+    return tabIndex < tabColors.length
+        ? tabColors[tabIndex]
+        : GlobalStyle.primaryColor;
+  }
+
+  // ✅ PERBAIKAN: Efficient Filtered Orders berdasarkan alur bisnis yang benar
+  List<OrderModel> _getFilteredOrders(int tabIndex, List<OrderModel> orders) {
+    switch (tabIndex) {
+      case 0: // Semua
+        return orders;
+
+      case 1: // Menunggu - pending + pending (bisa dicancel)
+        return orders
+            .where((order) =>
+                order.orderStatus == OrderStatus.pending &&
+                order.deliveryStatus == DeliveryStatus.pending)
+            .toList();
+
+      case 2: // Diproses Toko - preparing + pending (toko accept, driver belum)
+        return orders
+            .where((order) =>
+                order.orderStatus == OrderStatus.preparing &&
+                order.deliveryStatus == DeliveryStatus.pending)
+            .toList();
+
+      case 3: // Diproses Driver - pending + picked_up (driver accept, toko belum)
+        return orders
+            .where((order) =>
+                order.orderStatus == OrderStatus.pending &&
+                order.deliveryStatus == DeliveryStatus.pickedUp)
+            .toList();
+
+      case 4: // Disiapkan - preparing + picked_up (kedua sudah accept)
+        return orders
+            .where((order) =>
+                order.orderStatus == OrderStatus.preparing &&
+                order.deliveryStatus == DeliveryStatus.pickedUp)
+            .toList();
+
+      case 5: // Siap Diambil - ready_for_pickup + picked_up
+        return orders
+            .where((order) =>
+                order.orderStatus == OrderStatus.readyForPickup &&
+                order.deliveryStatus == DeliveryStatus.pickedUp)
+            .toList();
+
+      case 6: // Diantar - on_delivery + on_way
+        return orders
+            .where((order) =>
+                order.orderStatus == OrderStatus.onDelivery &&
+                order.deliveryStatus == DeliveryStatus.onWay)
+            .toList();
+
+      case 7: // Selesai - delivered + delivered
+        return orders
+            .where((order) =>
+                order.orderStatus == OrderStatus.delivered &&
+                order.deliveryStatus == DeliveryStatus.delivered)
+            .toList();
+
+      case 8: // Dibatalkan - cancelled atau rejected
+        return orders
+            .where((order) =>
+                order.orderStatus == OrderStatus.cancelled ||
+                order.orderStatus == OrderStatus.rejected ||
+                order.deliveryStatus == DeliveryStatus.rejected)
+            .toList();
+
+      default:
+        return orders;
+    }
+  }
+
+  void _onItemTapped(int index) {
+    _selectedIndexNotifier.value = index;
+    if (index == 0) {
+      Navigator.pushReplacementNamed(context, HomePage.route);
+    }
   }
 
   // Optimized Animation Setup
@@ -538,7 +704,7 @@ class _HistoryCustomerState extends State<HistoryCustomer>
 
     _cardControllers = List.generate(
       animatedCards,
-          (index) => AnimationController(
+      (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 300 + (index * 50)),
       ),
@@ -568,27 +734,6 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     }
   }
 
-  // Efficient Filtered Orders
-  List<OrderModel> _getFilteredOrders(int tabIndex, List<OrderModel> orders) {
-    switch (tabIndex) {
-      case 0: return orders;
-      case 1: return orders.where((order) => !order.orderStatus.isCompleted).toList();
-      case 2: return orders.where((order) => order.orderStatus == OrderStatus.delivered).toList();
-      case 3: return orders.where((order) =>
-      order.orderStatus == OrderStatus.cancelled ||
-          order.orderStatus == OrderStatus.rejected
-      ).toList();
-      default: return orders;
-    }
-  }
-
-  void _onItemTapped(int index) {
-    _selectedIndexNotifier.value = index;
-    if (index == 0) {
-      Navigator.pushReplacementNamed(context, HomePage.route);
-    }
-  }
-
   @override
   void dispose() {
     _disposed = true;
@@ -607,6 +752,7 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     _errorNotifier.dispose();
     _ordersNotifier.dispose();
     _isAuthenticatedNotifier.dispose();
+    _storeLoadingNotifier.dispose();
 
     // Cancel timers
     _refreshDebounce?.cancel();
@@ -626,16 +772,14 @@ class _HistoryCustomerState extends State<HistoryCustomer>
             Navigator.pushNamedAndRemoveUntil(
               context,
               HomePage.route,
-                  (route) => false,
+              (route) => false,
             );
             return false;
           },
           child: Scaffold(
             backgroundColor: const Color(0xffF5F7FA),
             appBar: _buildAppBar(),
-            body: isLoading
-                ? _buildLoadingState()
-                : _buildMainContent(),
+            body: isLoading ? _buildLoadingState() : _buildMainContent(),
             bottomNavigationBar: ValueListenableBuilder<int>(
               valueListenable: _selectedIndexNotifier,
               builder: (context, selectedIndex, _) {
@@ -671,13 +815,14 @@ class _HistoryCustomerState extends State<HistoryCustomer>
             shape: BoxShape.circle,
             border: Border.all(color: GlobalStyle.primaryColor, width: 1.0),
           ),
-          child: Icon(Icons.arrow_back_ios_new, color: GlobalStyle.primaryColor, size: 18),
+          child: Icon(Icons.arrow_back_ios_new,
+              color: GlobalStyle.primaryColor, size: 18),
         ),
         onPressed: () {
           Navigator.pushNamedAndRemoveUntil(
             context,
             HomePage.route,
-                (route) => false,
+            (route) => false,
           );
         },
       ),
@@ -685,52 +830,37 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     );
   }
 
-  PreferredSizeWidget _buildTabBar() {
-    return TabBar(
-      controller: _tabController,
-      isScrollable: true,
-      labelColor: GlobalStyle.primaryColor,
-      unselectedLabelColor: Colors.grey[600],
-      labelStyle: const TextStyle(fontWeight: FontWeight.w600),
-      indicatorColor: GlobalStyle.primaryColor,
-      indicatorWeight: 3,
-      tabs: [
-        _buildTab('Semua', 0),
-        _buildTab('Diproses', 1),
-        _buildTab('Selesai', 2),
-        _buildTab('Dibatalkan', 3),
-      ],
-    );
-  }
-
   Widget _buildTab(String title, int index) {
     return ValueListenableBuilder<List<OrderModel>>(
       valueListenable: _ordersNotifier,
       builder: (context, orders, _) {
-        final count = index == 0 ? orders.length : _getFilteredOrders(index, orders).length;
+        final filteredOrders = _getFilteredOrders(index, orders);
+        final count = filteredOrders.length;
 
         return Tab(
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(title),
-              if (count > 0 && index == 0)
+              if (count > 0) ...[
+                const SizedBox(width: 6),
                 Container(
-                  margin: const EdgeInsets.only(left: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: GlobalStyle.primaryColor.withOpacity(0.1),
+                    color: _getTabColor(index).withOpacity(0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     count.toString(),
                     style: TextStyle(
-                      fontSize: 11,
-                      color: GlobalStyle.primaryColor,
+                      fontSize: 10,
+                      color: _getTabColor(index),
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
+              ]
             ],
           ),
         );
@@ -763,7 +893,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
       builder: (context, orders, _) {
         return TabBarView(
           controller: _tabController,
-          children: List.generate(4, (tabIndex) {
+          children: List.generate(9, (tabIndex) {
+            // ✅ 9 tab sekarang
             final filteredOrders = _getFilteredOrders(tabIndex, orders);
 
             if (filteredOrders.isEmpty) {
@@ -800,18 +931,24 @@ class _HistoryCustomerState extends State<HistoryCustomer>
   String _getEmptyMessage(int tabIndex) {
     const messages = [
       'Tidak ada pesanan',
-      'Tidak ada pesanan yang sedang diproses',
+      'Tidak ada pesanan yang menunggu konfirmasi',
+      'Tidak ada pesanan yang diproses toko',
+      'Tidak ada pesanan yang diproses driver',
+      'Tidak ada pesanan yang sedang disiapkan',
+      'Tidak ada pesanan yang siap diambil',
+      'Tidak ada pesanan yang sedang diantar',
       'Tidak ada pesanan yang selesai',
       'Tidak ada pesanan yang dibatalkan',
     ];
     return tabIndex < messages.length ? messages[tabIndex] : messages[0];
   }
 
-  // Optimized Order Card
+  // ✅ PERBAIKAN: Optimized Order Card dengan logika status yang benar
   Widget _buildOrderCardOptimized(OrderModel order, int index) {
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt);
-    final statusText = _getStatusText(order.orderStatus);
-    final statusColor = _getStatusColor(order.orderStatus);
+    final formattedDate =
+        DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt);
+    final detailedStatusText = _getDetailedStatusText(order);
+    final detailedStatusColor = _getDetailedStatusColor(order);
 
     return SlideTransition(
       position: index < _cardAnimations.length
@@ -843,7 +980,9 @@ class _HistoryCustomerState extends State<HistoryCustomer>
                   children: [
                     _buildOrderImage(order),
                     const SizedBox(width: 16),
-                    Expanded(child: _buildOrderInfo(order, formattedDate, statusText, statusColor)),
+                    Expanded(
+                        child: _buildOrderInfo(order, formattedDate,
+                            detailedStatusText, detailedStatusColor)),
                   ],
                 ),
                 const Divider(height: 24),
@@ -861,13 +1000,13 @@ class _HistoryCustomerState extends State<HistoryCustomer>
       borderRadius: BorderRadius.circular(12),
       child: order.store?.imageUrl != null
           ? ImageService.displayImage(
-        imageSource: order.store!.imageUrl!,
-        width: 60,
-        height: 60,
-        fit: BoxFit.cover,
-        placeholder: _buildImagePlaceholder(Icons.store),
-        errorWidget: _buildImagePlaceholder(Icons.store),
-      )
+              imageSource: order.store!.imageUrl!,
+              width: 60,
+              height: 60,
+              fit: BoxFit.cover,
+              placeholder: _buildImagePlaceholder(Icons.store),
+              errorWidget: _buildImagePlaceholder(Icons.store),
+            )
           : _buildImagePlaceholder(Icons.restaurant_menu),
     );
   }
@@ -884,7 +1023,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     );
   }
 
-  Widget _buildOrderInfo(OrderModel order, String formattedDate, String statusText, Color statusColor) {
+  Widget _buildOrderInfo(OrderModel order, String formattedDate,
+      String statusText, Color statusColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -892,16 +1032,21 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
-              child: Text(
-                order.store?.name ?? 'Unknown Store',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: GlobalStyle.fontColor,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: ValueListenableBuilder<Map<int, bool>>(
+                valueListenable: _storeLoadingNotifier,
+                builder: (context, loadingMap, _) {
+                  return Text(
+                    _getStoreName(order),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: GlobalStyle.fontColor,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  );
+                },
               ),
             ),
             const SizedBox(width: 8),
@@ -923,6 +1068,24 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           style: TextStyle(fontSize: 13, color: Colors.grey[700]),
         ),
         const SizedBox(height: 6),
+        // ✅ Tampilkan info delivery status jika relevan
+        if (order.driverId != null) ...[
+          Row(
+            children: [
+              Icon(Icons.local_shipping, size: 14, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Text(
+                _getDeliveryStatusText(order.deliveryStatus),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+        ],
         Text(
           'Detail pesanan tersedia di halaman detail',
           style: TextStyle(
@@ -936,6 +1099,23 @@ class _HistoryCustomerState extends State<HistoryCustomer>
         ),
       ],
     );
+  }
+
+  String _getDeliveryStatusText(DeliveryStatus deliveryStatus) {
+    switch (deliveryStatus) {
+      case DeliveryStatus.pending:
+        return 'Menunggu pickup';
+      case DeliveryStatus.pickedUp:
+        return 'Sudah diambil driver';
+      case DeliveryStatus.onWay:
+        return 'Dalam perjalanan';
+      case DeliveryStatus.delivered:
+        return 'Sudah diterima';
+      case DeliveryStatus.rejected:
+        return 'Delivery ditolak';
+      default:
+        return 'Status tidak diketahui';
+    }
   }
 
   Widget _buildOrderFooter(OrderModel order) {
@@ -955,7 +1135,7 @@ class _HistoryCustomerState extends State<HistoryCustomer>
             ),
             const SizedBox(height: 4),
             Text(
-              order.formatTotalAmount(),
+              order.formatTotalAmount(), // ✅ Gunakan method dari OrderModel
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -971,9 +1151,11 @@ class _HistoryCustomerState extends State<HistoryCustomer>
             backgroundColor: GlobalStyle.primaryColor,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
-          child: const Text('Lihat Detail', style: TextStyle(fontWeight: FontWeight.w500)),
+          child: const Text('Lihat Detail',
+              style: TextStyle(fontWeight: FontWeight.w500)),
         ),
       ],
     );
@@ -1006,30 +1188,71 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     );
   }
 
-  String _getStatusText(OrderStatus status) {
-    const statusTexts = {
-      OrderStatus.pending: 'Menunggu',
-      OrderStatus.confirmed: 'Dikonfirmasi',
-      OrderStatus.preparing: 'Diproses',
-      OrderStatus.readyForPickup: 'Siap Diambil',
-      OrderStatus.onDelivery: 'Diantar',
-      OrderStatus.delivered: 'Selesai',
-      OrderStatus.cancelled: 'Dibatalkan',
-      OrderStatus.rejected: 'Ditolak',
-    };
-    return statusTexts[status] ?? 'Diproses';
+  // ✅ PERBAIKAN: Method untuk status text berdasarkan alur bisnis yang benar
+  String _getDetailedStatusText(OrderModel order) {
+    // Kombinasi order_status dan delivery_status berdasarkan alur bisnis
+    if (order.orderStatus == OrderStatus.pending &&
+        order.deliveryStatus == DeliveryStatus.pending) {
+      return 'Menunggu Konfirmasi';
+    } else if (order.orderStatus == OrderStatus.preparing &&
+        order.deliveryStatus == DeliveryStatus.pending) {
+      return 'Diproses Toko';
+    } else if (order.orderStatus == OrderStatus.pending &&
+        order.deliveryStatus == DeliveryStatus.pickedUp) {
+      return 'Diproses Driver';
+    } else if (order.orderStatus == OrderStatus.preparing &&
+        order.deliveryStatus == DeliveryStatus.pickedUp) {
+      return 'Disiapkan';
+    } else if (order.orderStatus == OrderStatus.readyForPickup &&
+        order.deliveryStatus == DeliveryStatus.pickedUp) {
+      return 'Siap Diambil';
+    } else if (order.orderStatus == OrderStatus.onDelivery &&
+        order.deliveryStatus == DeliveryStatus.onWay) {
+      return 'Sedang Diantar';
+    } else if (order.orderStatus == OrderStatus.delivered &&
+        order.deliveryStatus == DeliveryStatus.delivered) {
+      return 'Selesai';
+    } else if (order.orderStatus == OrderStatus.cancelled) {
+      return 'Dibatalkan';
+    } else if (order.orderStatus == OrderStatus.rejected) {
+      return 'Ditolak';
+    } else if (order.deliveryStatus == DeliveryStatus.rejected) {
+      return 'Delivery Ditolak';
+    } else {
+      return 'Diproses'; // Fallback
+    }
   }
 
-  Color _getStatusColor(OrderStatus status) {
-    const statusColors = {
-      OrderStatus.delivered: Colors.green,
-      OrderStatus.cancelled: Colors.red,
-      OrderStatus.rejected: Colors.red,
-      OrderStatus.onDelivery: Colors.blue,
-      OrderStatus.preparing: Colors.orange,
-      OrderStatus.confirmed: Colors.indigo,
-    };
-    return statusColors[status] ?? GlobalStyle.primaryColor;
+  // ✅ PERBAIKAN: Method untuk status color berdasarkan alur bisnis yang benar
+  Color _getDetailedStatusColor(OrderModel order) {
+    if (order.orderStatus == OrderStatus.pending &&
+        order.deliveryStatus == DeliveryStatus.pending) {
+      return Colors.orange; // Menunggu
+    } else if (order.orderStatus == OrderStatus.preparing &&
+        order.deliveryStatus == DeliveryStatus.pending) {
+      return Colors.amber; // Diproses Toko
+    } else if (order.orderStatus == OrderStatus.pending &&
+        order.deliveryStatus == DeliveryStatus.pickedUp) {
+      return Colors.blue; // Diproses Driver
+    } else if (order.orderStatus == OrderStatus.preparing &&
+        order.deliveryStatus == DeliveryStatus.pickedUp) {
+      return Colors.purple; // Disiapkan
+    } else if (order.orderStatus == OrderStatus.readyForPickup &&
+        order.deliveryStatus == DeliveryStatus.pickedUp) {
+      return Colors.indigo; // Siap Diambil
+    } else if (order.orderStatus == OrderStatus.onDelivery &&
+        order.deliveryStatus == DeliveryStatus.onWay) {
+      return Colors.cyan; // Sedang Diantar
+    } else if (order.orderStatus == OrderStatus.delivered &&
+        order.deliveryStatus == DeliveryStatus.delivered) {
+      return Colors.green; // Selesai
+    } else if (order.orderStatus == OrderStatus.cancelled ||
+        order.orderStatus == OrderStatus.rejected ||
+        order.deliveryStatus == DeliveryStatus.rejected) {
+      return Colors.red; // Dibatalkan/Ditolak
+    } else {
+      return GlobalStyle.primaryColor; // Fallback
+    }
   }
 
   Widget _buildEmptyState(String message) {
@@ -1039,7 +1262,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Lottie.asset('assets/animations/empty.json', width: 200, height: 200),
+            Lottie.asset('assets/animations/empty.json',
+                width: 200, height: 200),
             const SizedBox(height: 16),
             Text(
               message,
@@ -1063,14 +1287,17 @@ class _HistoryCustomerState extends State<HistoryCustomer>
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: () => Navigator.pushReplacementNamed(context, HomePage.route),
+              onPressed: () =>
+                  Navigator.pushReplacementNamed(context, HomePage.route),
               icon: const Icon(Icons.shopping_bag),
               label: const Text('Mulai Belanja'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GlobalStyle.primaryColor,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30)),
               ),
             ),
           ],
@@ -1084,7 +1311,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Lottie.asset('assets/animations/loading_animation.json', width: 150, height: 150),
+          Lottie.asset('assets/animations/loading_animation.json',
+              width: 150, height: 150),
           const SizedBox(height: 16),
           Text(
             'Memuat riwayat pesanan...',
@@ -1108,7 +1336,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Lottie.asset('assets/animations/caution.json', width: 150, height: 150),
+              Lottie.asset('assets/animations/caution.json',
+                  width: 150, height: 150),
               const SizedBox(height: 16),
               Text(
                 !isAuthenticated ? 'Session Expired' : 'Gagal Memuat Data',
@@ -1152,8 +1381,10 @@ class _HistoryCustomerState extends State<HistoryCustomer>
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
               ),
             ],
@@ -1175,7 +1406,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
             height: 20,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(GlobalStyle.primaryColor),
+              valueColor:
+                  AlwaysStoppedAnimation<Color>(GlobalStyle.primaryColor),
             ),
           ),
           const SizedBox(width: 12),

@@ -38,8 +38,8 @@ class DriverRequestModel {
         id: _parseInt(json['id']),
         orderId: _parseInt(json['order_id']),
         driverId: _parseInt(json['driver_id']),
-        status: DriverRequestStatusExtension.fromString(
-            json['status'] ?? 'pending'),
+        // ✅ FIXED: Menggunakan DriverRequestStatus.fromString (bukan DriverRequestStatusExtension)
+        status: DriverRequestStatus.fromString(json['status'] ?? 'pending'),
         estimatedPickupTime: _parseDateTime(json['estimated_pickup_time']),
         estimatedDeliveryTime: _parseDateTime(json['estimated_delivery_time']),
         createdAt: _parseDateTime(json['created_at']) ?? DateTime.now(),
@@ -174,7 +174,7 @@ class DriverRequestModel {
   String get orderStatus => order?.orderStatus.value ?? 'pending';
   OrderStatus get orderStatusEnum => order?.orderStatus ?? OrderStatus.pending;
 
-  // ✅ TAMBAH: Delivery status helper
+  // ✅ Delivery status helper
   String get deliveryStatus => order?.deliveryStatus?.value ?? 'pending';
   DeliveryStatus? get deliveryStatusEnum => order?.deliveryStatus;
 
@@ -185,24 +185,17 @@ class DriverRequestModel {
   bool get isRejected => status == DriverRequestStatus.rejected;
   bool get isCompleted => status == DriverRequestStatus.completed;
   bool get isExpired => status == DriverRequestStatus.expired;
+  bool get isCancelled => status == DriverRequestStatus.cancelled;
 
   bool get canRespond => isPending;
   bool get isActive => isPending || isAccepted;
 
-  // ✅ FIXED: Driver earnings calculation sesuai backend logic
+  // ✅ Driver earnings calculation sesuai backend logic
   double get driverEarnings {
     if (orderStatusEnum == OrderStatus.delivered && order != null) {
-      // ✅ BACKEND LOGIC: Berdasarkan orderController.js - calculateEstimatedEarnings()
-      // Driver mendapat delivery fee berdasarkan distance calculation
-
-      // Jarak dihitung menggunakan euclideanDistance * 111 km kemudian * 2000
-      // Delivery fee = Math.ceil(distance_km * 2000)
-      // Contoh: jika distance 2.5 km, maka delivery_fee = Math.ceil(2.5 * 2000) = 5000
-
+      // ✅ BACKEND LOGIC: Driver mendapat 100% delivery fee
+      // Berdasarkan orderController.js calculateEstimatedTimes()
       final deliveryFee = order!.deliveryFee;
-
-      // ✅ BACKEND: Driver mendapat 100% dari delivery fee (tidak ada potongan commission di backend)
-      // Berbeda dengan asumsi awal, di backend driver mendapat full delivery fee
       return deliveryFee;
     }
     return 0.0;
@@ -219,7 +212,7 @@ class DriverRequestModel {
     return 'Rp 0';
   }
 
-  // ✅ TAMBAH: Delivery fee information sesuai backend
+  // ✅ Delivery fee information sesuai backend
   double get orderDeliveryFee => order?.deliveryFee ?? 0.0;
 
   String get formattedDeliveryFee {
@@ -230,21 +223,13 @@ class DriverRequestModel {
         )}';
   }
 
-  // ✅ TAMBAH: Distance information dari backend calculation
+  // ✅ Distance information dari backend calculation
   String get distanceInfo {
-    if (order != null &&
-        order!.destinationLatitude != null &&
-        order!.destinationLongitude != null) {
-      // Backend menggunakan koordinat tetap: 2.3834831864787818, 99.14857915147614
-      // Untuk estimasi distance, kita bisa menggunakan delivery fee sebagai indikator
-      final deliveryFee = order!.deliveryFee;
-
-      // Reverse calculation: distance_km ≈ delivery_fee / 2000
-      final estimatedDistance = deliveryFee / 2000;
-
-      if (estimatedDistance > 0) {
-        return '≈ ${estimatedDistance.toStringAsFixed(1)} km';
-      }
+    if (order != null && order!.deliveryFee > 0) {
+      // Backend calculation: delivery_fee = Math.ceil(distance_km * 2000)
+      // Reverse: distance_km ≈ delivery_fee / 2000
+      final estimatedDistance = order!.deliveryFee / 2000;
+      return '≈ ${estimatedDistance.toStringAsFixed(1)} km';
     }
     return 'Distance tidak tersedia';
   }
@@ -253,7 +238,7 @@ class DriverRequestModel {
   String get statusDisplayText => status.displayName;
   String get statusValue => status.value;
 
-  // ✅ TAMBAH: Method untuk checking status pengantaran
+  // ✅ Method untuk checking status pengantaran
   bool get isOnDelivery =>
       orderStatusEnum == OrderStatus.onDelivery &&
       deliveryStatusEnum == DeliveryStatus.onWay;
@@ -319,7 +304,7 @@ class DriverRequestModel {
   double? get driverLongitude => driver?.longitude;
   DriverStatus get driverStatus => driver?.status ?? DriverStatus.inactive;
 
-  // ✅ TAMBAH: Backend-specific delivery fee calculation info
+  // ✅ Backend-specific delivery fee calculation info
   String get deliveryFeeCalculationInfo {
     if (order != null) {
       final fee = order!.deliveryFee;
@@ -328,24 +313,46 @@ class DriverRequestModel {
     return 'Biaya pengiriman belum dihitung';
   }
 
-  // ✅ TAMBAH: Destination information sesuai backend
+  // ✅ Destination information sesuai backend
   String get destinationInfo {
-    if (order != null &&
+    if (order != null && order!.isDeliveryToITDel) {
+      return 'IT Del (Institut Teknologi Del)';
+    } else if (order != null &&
         order!.destinationLatitude != null &&
         order!.destinationLongitude != null) {
-      // Backend menggunakan destinasi tetap ke IT Del
-      const itDelLat = 2.3834831864787818;
-      const itDelLng = 99.14857915147614;
-
-      if (order!.destinationLatitude == itDelLat &&
-          order!.destinationLongitude == itDelLng) {
-        return 'IT Del (Institut Teknologi Del)';
-      } else {
-        return 'Lat: ${order!.destinationLatitude!.toStringAsFixed(6)}, Lng: ${order!.destinationLongitude!.toStringAsFixed(6)}';
-      }
+      return 'Lat: ${order!.destinationLatitude!.toStringAsFixed(6)}, Lng: ${order!.destinationLongitude!.toStringAsFixed(6)}';
     }
     return 'Destinasi belum tersedia';
   }
+
+  // ✅ Request timing helpers
+  bool get isRecentRequest {
+    final now = DateTime.now();
+    final diff = now.difference(createdAt);
+    return diff.inMinutes < 15; // Less than 15 minutes
+  }
+
+  String get requestAgeText {
+    final now = DateTime.now();
+    final diff = now.difference(createdAt);
+
+    if (diff.inMinutes < 1) {
+      return 'Baru saja';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes} menit yang lalu';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours} jam yang lalu';
+    } else {
+      return '${diff.inDays} hari yang lalu';
+    }
+  }
+
+  // ✅ Backend-aligned methods
+  bool get canAccept => status == DriverRequestStatus.pending;
+  bool get canReject => status == DriverRequestStatus.pending;
+
+  bool get requiresResponse =>
+      status == DriverRequestStatus.pending && isRecentRequest;
 
   @override
   String toString() {
