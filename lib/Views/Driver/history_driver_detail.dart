@@ -2582,11 +2582,10 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     if (_orderItems.isEmpty) return const SizedBox.shrink();
 
     // ✅ FIX: Safe numeric conversion untuk total amounts
-    final totalAmount = _safeParseDouble(_orderData['total_amount']);
-    final deliveryFee = _safeParseDouble(_orderData['delivery_fee']);
-    final subtotal = totalAmount - deliveryFee;
-    final driverEarning =
-        _calculateEstimatedEarnings(); // ✅ Driver earning = delivery fee
+    final subtotal = _orderItems.fold<double>(0, (sum, item) => sum + (item.totalPrice ?? 0));
+    final deliveryFee = _safeParseDouble(_orderData['delivery_fee']); // hasil perhitungan jarak x 2500
+    final totalAmount = subtotal + deliveryFee;
+    final driverEarning = _calculateEstimatedEarnings(); // Driver earning = delivery fee
 
     return _buildCard(
       index: 3,
@@ -2631,7 +2630,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
               final quantity = _safeParseInt(item['quantity']);
               final price = _safeParseDouble(item['price']);
               final imageUrl = item['image_url']?.toString() ?? '';
-              final totalPrice = price * quantity;
+              final subtotal = _orderItems.fold<double>(0, (sum, item) => sum + (_safeParseDouble(item['total_price'])));
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
@@ -2725,7 +2724,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          GlobalStyle.formatRupiah(totalPrice),
+                          GlobalStyle.formatRupiah(subtotal),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
