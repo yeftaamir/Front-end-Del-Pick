@@ -376,12 +376,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   double calculateDeliveryFee(double distance) {
     // Menggunakan rumus yang sama dengan backend: distance * 2500
     double rawFee = distance * 2500;
-
-    // Round up to nearest 1000 for easier cash payment (same as backend)
-    double roundedFee = (rawFee / 1000).ceil() * 1000;
-
-    // Minimum fee 3000 (same as backend)
-    return roundedFee < 3000 ? 3000 : roundedFee;
+    return rawFee;
   }
 
   String _getFormattedDistance() {
@@ -1690,7 +1685,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                                   children: [
                                     const SizedBox(width: 4),
                                     Text(
-                                      'Jarak: ${_getFormattedDistance()} × Rp2.500 (dibulatkan)',
+                                      'Jarak: ${_getFormattedDistance()} × Rp2.500',
                                       style: TextStyle(
                                         fontSize: 11,
                                         color: Colors.grey[600],
