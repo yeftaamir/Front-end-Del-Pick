@@ -1126,15 +1126,15 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           ],
         ),
         const SizedBox(height: 8),
-        Text(
-          'Order #${order.id}',
-          style: TextStyle(
-            fontSize: 13,
-            color: GlobalStyle.primaryColor,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 4),
+        // Text(
+        //   'Order #${order.id}',
+        //   style: TextStyle(
+        //     fontSize: 13,
+        //     color: GlobalStyle.primaryColor,
+        //     fontWeight: FontWeight.w500,
+        //   ),
+        // ),
+        // const SizedBox(height: 4),
         Text(
           formattedDate,
           style: TextStyle(fontSize: 13, color: Colors.grey[700]),
