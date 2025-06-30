@@ -1,3 +1,4 @@
+// lib/Views/Store/home_store.dart - Updated dengan Notification Badge
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -17,6 +18,11 @@ import 'package:del_pick/Services/order_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../../Services/enhanced_notification_service.dart';
+import '../Component/notification_badge_card.dart';
+
+// ✅ TAMBAHAN: Import notification components
 
 class HomeStore extends StatefulWidget {
   static const String route = '/Store/HomePage';
@@ -70,7 +76,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   late AnimationController _rotationController;
 
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  FlutterLocalNotificationsPlugin();
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   Map<String, dynamic>? _storeData;
@@ -87,7 +93,17 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   bool _needsRefresh = false;
   DateTime? _lastRefreshTime;
 
-// ✅ PERBAIKAN: Logic filter yang lebih tepat untuk pending orders
+  // ✅ TAMBAHAN: Notification Badge State
+  List<Map<String, dynamic>> _notificationQueue = [];
+  bool _showNotificationBadge = false;
+  Map<String, dynamic>? _currentNotificationOrder;
+  Timer? _notificationTimer;
+
+  // ✅ TAMBAHAN: Badge Animation Controller
+  late AnimationController _badgeController;
+  late Animation<double> _badgeAnimation;
+
+// ✅ EXISTING: Logic filter yang sudah ada (tidak diubah)
   static bool _shouldShowInPendingTab(Map<String, dynamic> order) {
     final orderStatus = order['order_status']?.toString() ?? '';
     final deliveryStatus = order['delivery_status']?.toString() ?? '';
@@ -95,20 +111,15 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     print(
         '🔍 Checking order ${order['id']}: order_status=$orderStatus, delivery_status=$deliveryStatus');
 
-    // ✅ ATURAN BISNIS YANG BENAR:
-    // Tampilkan di pending tab HANYA jika order_status = 'pending'
-    // Tidak peduli delivery_status apa (bisa pending atau picked_up)
     return orderStatus == 'pending';
   }
 
-// Logic filter yang lebih tepat untuk active orders
   static bool _shouldShowInActiveTab(Map<String, dynamic> order) {
     final orderStatus = order['order_status']?.toString() ?? '';
 
     print(
         '🔍 Checking order ${order['id']} for active tab: order_status=$orderStatus');
 
-    // Tampilkan di active tab jika order_status adalah: preparing, ready_for_pickup, on_delivery, rejected
     return ['preparing', 'ready_for_pickup', 'on_delivery']
         .contains(orderStatus);
   }
@@ -119,30 +130,34 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
     _tabController.dispose();
 
-    // ✅ PERBAIKAN: Cancel timer untuk pending orders
+    // ✅ EXISTING: Cancel existing timers
     _pendingOrdersTimer?.cancel();
 
-    // ✅ PERBAIKAN: Dispose pending animation controllers
+    // ✅ TAMBAHAN: Cancel notification timer
+    _notificationTimer?.cancel();
+
+    // ✅ EXISTING: Dispose animation controllers
     for (var controller in _pendingCardControllers) {
       controller.dispose();
     }
 
-    // ✅ PERBAIKAN: Dispose active animation controllers
     for (var controller in _activeCardControllers) {
       controller.dispose();
     }
 
-    // ✅ TETAP: Dispose celebration controllers
     _celebrationController.dispose();
     _pulseController.dispose();
     _rotationController.dispose();
 
-    // ✅ TETAP: Dispose audio player
-    _audioPlayer.dispose();
+    // ✅ TAMBAHAN: Dispose badge controller
+    _badgeController.dispose();
 
-    // ✅ PERBAIKAN: Dispose scroll controllers untuk kedua tab
+    _audioPlayer.dispose();
     _pendingScrollController.dispose();
     _activeScrollController.dispose();
+
+    // ✅ TAMBAHAN: Dispose enhanced notification service
+    EnhancedNotificationService.dispose();
 
     print('✅ HomeStore: Widget disposed successfully');
     super.dispose();
@@ -151,55 +166,68 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check if we need to refresh when returning from other pages
     if (_needsRefresh) {
       _needsRefresh = false;
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted) {
-          // ✅ PERBAIKAN: Gunakan filtered refresh alih-alih force refresh
+          // Refresh logic stays the same
         }
       });
     }
   }
 
   @override
-  @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _initializeAnimations();
-    _initializeNotifications();
+
+    // ✅ TAMBAHAN: Initialize enhanced notifications
+    _initializeEnhancedNotifications();
+
     _requestPermissions();
     _validateAndInitializeData();
     _setupScrollListeners();
-
-    //Start clear processed orders timer
     _clearOldProcessedOrders();
   }
 
-  /// Method untuk clear processed orders secara berkala
+  // ✅ TAMBAHAN: Initialize enhanced notification system
+  Future<void> _initializeEnhancedNotifications() async {
+    try {
+      // Initialize enhanced notification service
+      await EnhancedNotificationService.initialize(
+        onTap: (orderId) {
+          print('🔔 Notification tapped for order: $orderId');
+
+          // Reset badge saat notification di-tap
+          EnhancedNotificationService.resetBadgeCount();
+
+          // Navigate ke order detail jika orderId valid
+          if (orderId.isNotEmpty && orderId != 'group_orders') {
+            _viewOrderDetail(orderId);
+          }
+
+          // Clear notification badge
+          setState(() {
+            _showNotificationBadge = false;
+            _currentNotificationOrder = null;
+          });
+        },
+      );
+
+      // Create notification channels
+      await EnhancedNotificationService.createNotificationChannels();
+
+      print('✅ Enhanced notification system initialized');
+    } catch (e) {
+      print('❌ Error initializing enhanced notifications: $e');
+    }
+  }
+
   void _clearOldProcessedOrders() {
-    // ✅ PERBAIKAN: DISABLE processed orders clearing untuk auto refresh
-    // Timer.periodic sudah tidak diperlukan karena auto refresh tidak filter processed orders
     print(
         '🧹 HomeStore: Processed orders clearing disabled for better auto refresh');
   }
-  // void _clearOldProcessedOrders() {
-  //   // Clear processed orders setiap 5 menit untuk mencegah memory leak
-  //   Timer.periodic(const Duration(minutes: 5), (timer) {
-  //     if (!mounted) {
-  //       timer.cancel();
-  //       return;
-  //     }
-  //
-  //     setState(() {
-  //       _processedOrderIds.clear();
-  //       // Jangan clear global processed orders karena bisa menyebabkan duplikasi notifikasi
-  //     });
-  //
-  //     print('🧹 HomeStore: Cleared local processed orders');
-  //   });
-  // }
 
   Future<void> _validateAndInitializeData() async {
     try {
@@ -214,7 +242,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
       print('🏪 HomeStore: Starting validation and initialization...');
 
-      // Validate store access
       final hasStoreAccess = await AuthService.hasRole('store');
       if (!mounted) return;
 
@@ -231,11 +258,9 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
       print('✅ HomeStore: Store access validated');
 
-      // Load store data
       await _loadStoreData();
       if (!mounted) return;
 
-      // Load both pending and active orders
       await Future.wait([
         _loadPendingOrders(isRefresh: true),
         _loadActiveOrders(isRefresh: true),
@@ -243,7 +268,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
       if (!mounted) return;
 
-      // Start auto refresh timer for pending orders (15 seconds)
       _startPendingOrdersMonitoring();
 
       if (mounted) {
@@ -273,27 +297,24 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   void _startPendingOrdersMonitoring() {
     print('🔄 HomeStore: Starting pending orders monitoring (20s interval)...');
 
-    // ✅ PERBAIKAN: Timer yang lebih konsisten
     _pendingOrdersTimer =
         Timer.periodic(const Duration(seconds: 20), (timer) async {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
+          if (!mounted) {
+            timer.cancel();
+            return;
+          }
 
-      try {
-        print('📡 HomeStore: Auto-refreshing pending orders...');
-        print('📊 Current pending orders count: ${_pendingOrders.length}');
+          try {
+            print('📡 HomeStore: Auto-refreshing pending orders...');
+            print('📊 Current pending orders count: ${_pendingOrders.length}');
 
-        // ✅ PERBAIKAN: SELALU force refresh dari page 1
-        await _loadPendingOrders(isRefresh: true, isAutoRefresh: true);
+            await _loadPendingOrders(isRefresh: true, isAutoRefresh: true);
 
-        print('✅ HomeStore: Auto refresh completed');
-      } catch (e) {
-        print('❌ HomeStore: Error auto-refreshing pending orders: $e');
-        // ✅ JANGAN stop timer pada error, coba lagi di cycle berikutnya
-      }
-    });
+            print('✅ HomeStore: Auto refresh completed');
+          } catch (e) {
+            print('❌ HomeStore: Error auto-refreshing pending orders: $e');
+          }
+        });
   }
 
   void _initializeAnimations() {
@@ -312,6 +333,20 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       vsync: this,
     );
 
+    // ✅ TAMBAHAN: Badge animation controller
+    _badgeController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+
+    _badgeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _badgeController,
+      curve: Curves.elasticOut,
+    ));
+
     _pulseController.repeat(reverse: true);
     _rotationController.repeat();
   }
@@ -319,7 +354,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   void _initializePendingAnimations() {
     _pendingCardControllers = List.generate(
       _pendingOrders.length,
-      (index) => AnimationController(
+          (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 100)),
       ),
@@ -339,7 +374,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   void _initializeActiveAnimations() {
     _activeCardControllers = List.generate(
       _activeOrders.length,
-      (index) => AnimationController(
+          (index) => AnimationController(
         vsync: this,
         duration: Duration(milliseconds: 600 + (index * 100)),
       ),
@@ -434,28 +469,23 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  // store data loading dengan AuthService yang benar
   Future<void> _loadStoreData() async {
     try {
       print('🔍 HomeStore: Loading store data...');
 
-      // ✅ Check mounted sebelum operasi async
       if (!mounted) {
         print('⚠️ HomeStore: Widget not mounted, skipping store data load');
         return;
       }
 
-      // ✅ FIXED: Get role-specific data menggunakan AuthService
       final roleData = await AuthService.getRoleSpecificData();
 
-      // ✅ Check mounted setelah operasi async
       if (!mounted) {
         print('⚠️ HomeStore: Widget not mounted after getRoleSpecificData');
         return;
       }
 
       if (roleData != null && roleData['store'] != null) {
-        // ✅ Only call setState if mounted
         if (mounted) {
           setState(() {
             _storeData = roleData['store'];
@@ -468,14 +498,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         print('   - Store ID: ${_storeData!['id']}');
         print('   - Store Name: ${_storeData!['name']}');
       } else {
-        // ✅ FIXED: Fallback to fresh profile data
         print('⚠️ HomeStore: No cached store data, fetching fresh data...');
 
-        if (!mounted) return; // Check before another async call
+        if (!mounted) return;
 
         final profileData = await AuthService.refreshUserData();
 
-        if (!mounted) return; // Check after async call
+        if (!mounted) return;
 
         if (profileData != null && profileData['store'] != null) {
           if (mounted) {
@@ -492,7 +521,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       }
     } catch (e) {
       print('❌ HomeStore: Error loading store data: $e');
-      // ✅ Only throw if still mounted
       if (mounted) {
         throw Exception('Failed to load store data: $e');
       }
@@ -507,7 +535,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       print(
           '📋 HomeStore: Loading pending orders (refresh: $isRefresh, auto: $isAutoRefresh)...');
 
-      // ✅ PERBAIKAN: Untuk auto refresh, SELALU reset pagination
       if (isRefresh || isAutoRefresh) {
         setState(() {
           _pendingCurrentPage = 1;
@@ -516,51 +543,53 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         });
       }
 
-      // ✅ PERBAIKAN: Auto refresh dengan parameter yang benar
       final response = await OrderService.getOrdersByStore(
-        page: 1, // ✅ SELALU page 1 untuk auto refresh
-        limit: isAutoRefresh ? 50 : 20, // ✅ Auto refresh ambil lebih banyak
+        page: 1,
+        limit: isAutoRefresh ? 50 : 20,
         sortBy: 'created_at',
-        sortOrder: 'desc', // ✅ PASTIKAN desc untuk data terbaru
-        timestamp:
-            DateTime.now().millisecondsSinceEpoch, // ✅ SELALU fresh timestamp
+        sortOrder: 'desc',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
       );
 
       if (!mounted) return;
 
       final allOrders =
-          List<Map<String, dynamic>>.from(response['orders'] ?? []);
+      List<Map<String, dynamic>>.from(response['orders'] ?? []);
 
-      // ✅ PERBAIKAN: Filter HANYA berdasarkan order_status = 'pending'
       final validPendingOrders = allOrders.where((order) {
         final orderStatus = order['order_status']?.toString() ?? '';
-
-        // ✅ UTAMA: Hanya tampilkan order dengan status pending
         return orderStatus == 'pending';
       }).toList();
 
       print(
           '📋 HomeStore: Found ${validPendingOrders.length} pending orders (auto: $isAutoRefresh)');
 
-      // ✅ PERBAIKAN: Detect new orders hanya untuk manual load
+      // ✅ TAMBAHAN: Detect new orders dan trigger notification
       if (!isRefresh && !isAutoRefresh) {
         final existingIds = _pendingOrders
             .map((order) => order['id']?.toString() ?? '')
             .toSet();
+
+        List<Map<String, dynamic>> newOrders = [];
+
         for (var order in validPendingOrders) {
           final orderId = order['id']?.toString();
           if (orderId != null && !existingIds.contains(orderId)) {
             print('🎉 HomeStore: New pending order detected: $orderId');
+            newOrders.add(order);
             _triggerNewOrderCelebration(orderId);
-            _showNotification(order);
           }
+        }
+
+        // ✅ TAMBAHAN: Show enhanced notifications untuk new orders
+        if (newOrders.isNotEmpty) {
+          await _handleNewOrderNotifications(newOrders);
         }
       }
 
       if (mounted) {
         setState(() {
           if (isRefresh || isAutoRefresh) {
-            // ✅ PERBAIKAN: Dispose old controllers untuk auto refresh
             for (var controller in _pendingCardControllers) {
               controller.dispose();
             }
@@ -574,14 +603,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           final totalPages = response['totalPages'] ?? 1;
           _hasMorePendingData = _pendingCurrentPage < totalPages;
 
-          // ✅ PERBAIKAN: Hanya increment page untuk manual load
           if (!isAutoRefresh && !isRefresh) _pendingCurrentPage++;
 
           _isLoadingPending = false;
           _hasErrorPending = false;
         });
 
-        // Start animations
         if (isRefresh || isAutoRefresh) {
           _startPendingAnimations();
         } else {
@@ -600,6 +627,91 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         });
       }
     }
+  }
+
+  // ✅ TAMBAHAN: Handle new order notifications
+  Future<void> _handleNewOrderNotifications(List<Map<String, dynamic>> newOrders) async {
+    try {
+      if (newOrders.isEmpty) return;
+
+      print('🔔 HomeStore: Handling ${newOrders.length} new order notifications');
+
+      // Show enhanced notifications
+      if (newOrders.length == 1) {
+        // Single order notification
+        await EnhancedNotificationService.showNewOrderNotification(
+          orderData: newOrders.first,
+          playSound: true,
+          updateBadge: true,
+        );
+      } else {
+        // Multiple orders notification
+        await EnhancedNotificationService.showGroupedOrderNotification(
+          orders: newOrders,
+          playSound: true,
+        );
+      }
+
+      // Add to notification queue
+      setState(() {
+        _notificationQueue.addAll(newOrders);
+      });
+
+      // Show in-app notification badge untuk first order
+      if (newOrders.isNotEmpty && !_showNotificationBadge) {
+        _showInAppNotificationBadge(newOrders.first);
+      }
+
+      print('✅ HomeStore: New order notifications handled');
+    } catch (e) {
+      print('❌ HomeStore: Error handling new order notifications: $e');
+    }
+  }
+
+  // ✅ TAMBAHAN: Show in-app notification badge
+  void _showInAppNotificationBadge(Map<String, dynamic> orderData) {
+    setState(() {
+      _currentNotificationOrder = orderData;
+      _showNotificationBadge = true;
+    });
+
+    // Start badge animation
+    _badgeController.forward();
+
+    // Auto hide after 8 seconds if not manually dismissed
+    _notificationTimer?.cancel();
+    _notificationTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && _showNotificationBadge) {
+        _hideInAppNotificationBadge();
+      }
+    });
+
+    print('🔔 HomeStore: In-app notification badge shown for order ${orderData['id']}');
+  }
+
+  // ✅ TAMBAHAN: Hide in-app notification badge
+  void _hideInAppNotificationBadge() {
+    setState(() {
+      _showNotificationBadge = false;
+      _currentNotificationOrder = null;
+    });
+
+    _badgeController.reverse();
+    _notificationTimer?.cancel();
+
+    // Show next notification in queue if any
+    if (_notificationQueue.isNotEmpty) {
+      _notificationQueue.removeAt(0);
+      if (_notificationQueue.isNotEmpty) {
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            _showInAppNotificationBadge(_notificationQueue.first);
+          }
+        });
+      }
+    }
+
+    print('🔔 HomeStore: In-app notification badge hidden');
   }
 
   Future<void> _loadActiveOrders({bool isRefresh = false}) async {
@@ -627,9 +739,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       if (!mounted) return;
 
       final allOrders =
-          List<Map<String, dynamic>>.from(response['orders'] ?? []);
+      List<Map<String, dynamic>>.from(response['orders'] ?? []);
 
-      // Filter for active tab
       final validActiveOrders = allOrders.where((order) {
         return _shouldShowInActiveTab(order);
       }).toList();
@@ -641,7 +752,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       if (mounted) {
         setState(() {
           if (isRefresh) {
-            // Dispose old controllers
             for (var controller in _activeCardControllers) {
               controller.dispose();
             }
@@ -658,7 +768,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           _hasErrorActive = false;
         });
 
-        // Start animations
         if (isRefresh) {
           _startActiveAnimations();
         } else {
@@ -680,7 +789,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   }
 
   void _processStoreData(Map<String, dynamic> storeData) {
-    // Ensure all required store fields with defaults
     storeData['rating'] = storeData['rating'] ?? 0.0;
     storeData['review_count'] = storeData['review_count'] ?? 0;
     storeData['total_products'] = storeData['total_products'] ?? 0;
@@ -692,14 +800,11 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     print('   - Status: ${storeData['status']}');
   }
 
-  /// Contact customer method
   void _contactCustomer(
       String phoneNumber, String customerName, String orderId) {
     try {
-      // Clean phone number (remove any non-digits except +)
       String cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
 
-      // Add country code if not present
       if (!cleanedPhone.startsWith('+') && !cleanedPhone.startsWith('62')) {
         if (cleanedPhone.startsWith('0')) {
           cleanedPhone = '62${cleanedPhone.substring(1)}';
@@ -708,7 +813,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         }
       }
 
-      // Prepare WhatsApp message
       final message = Uri.encodeComponent('Halo $customerName! 👋\n\n'
           'Pesanan Anda dengan Order ID #$orderId telah kami terima dan sedang diproses. '
           'Kami akan segera menyiapkan pesanan Anda.\n\n'
@@ -718,7 +822,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
       print('🚀 HomeStore: Opening WhatsApp URL: $whatsappUrl');
 
-      // Try to open WhatsApp
       _launchWhatsApp(whatsappUrl, phoneNumber);
     } catch (e) {
       print('❌ HomeStore: Error contacting customer: $e');
@@ -728,13 +831,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
   }
 
-  /// Launch WhatsApp method
   void _launchWhatsApp(String whatsappUrl, String fallbackPhone) async {
     try {
       final Uri url = Uri.parse(whatsappUrl);
@@ -745,7 +847,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           mode: LaunchMode.externalApplication,
         );
       } else {
-        // Fallback: show phone number
         _showPhoneNumberDialog(fallbackPhone);
       }
     } catch (e) {
@@ -754,7 +855,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  /// Show phone number dialog sebagai fallback
   void _showPhoneNumberDialog(String phoneNumber) {
     showDialog(
       context: context,
@@ -797,7 +897,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                   ),
                   IconButton(
                     onPressed: () {
-                      // Copy to clipboard
                       Clipboard.setData(ClipboardData(text: phoneNumber));
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -829,11 +928,9 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-  /// method _showContactCustomerPopup
   Future<void> _showContactCustomerPopup(
       String orderId, Map<String, dynamic> orderData) async {
     try {
-      // Get fresh order details for contact info
       final orderDetail = await OrderService.getOrderById(orderId);
 
       final customerName = orderDetail['customer']?['name'] ?? 'Customer';
@@ -848,7 +945,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         barrierDismissible: true,
         builder: (context) => Dialog(
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
@@ -862,7 +959,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Success icon with animation
                 TweenAnimationBuilder(
                   duration: const Duration(milliseconds: 600),
                   tween: Tween<double>(begin: 0, end: 1),
@@ -889,7 +985,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 16),
 
-                // Title
                 Text(
                   'Pesanan Diterima!',
                   style: TextStyle(
@@ -912,7 +1007,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 20),
 
-                // Order summary card
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -960,10 +1054,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 20),
 
-                // Action buttons
                 Row(
                   children: [
-                    // Contact customer button
                     if (customerPhone.isNotEmpty) ...[
                       Expanded(
                         child: _buildActionButton(
@@ -980,12 +1072,10 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                       const SizedBox(width: 12),
                     ],
 
-                    // View detail button - PERBAIKAN UNTUK NAVIGASI YANG BENAR
                     Expanded(
                       child: _buildActionButton(
                         onTap: () {
                           Navigator.of(context).pop();
-                          // Navigasi ke halaman detail order store
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -1007,7 +1097,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 12),
 
-                // Close button
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   child: Text(
@@ -1027,7 +1116,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     } catch (e) {
       print('❌ HomeStore: Error showing contact popup: $e');
 
-      // Fallback success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1041,14 +1129,13 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
     }
   }
 
-  /// Enhanced order processing menggunakan OrderService.processOrderByStore
   Future<void> _processOrder(String orderId, String action) async {
     try {
       print('⚙️ HomeStore: Processing order $orderId with action: $action');
@@ -1058,13 +1145,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         throw Exception('Access denied: Store authentication required');
       }
 
-      // Show loading dialog
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => Dialog(
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -1085,34 +1171,35 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         ),
       );
 
-      // Process order using OrderService
       final result = await OrderService.processOrderByStore(
         orderId: orderId,
         action: action,
       );
 
-      // Close loading dialog
       if (mounted) Navigator.of(context).pop();
 
-      // ✅ PERBAIKAN: Hapus dari pending orders dengan immediate update
       setState(() {
         _pendingOrders
             .removeWhere((order) => order['id']?.toString() == orderId);
       });
 
-      // ✅ PERBAIKAN: Refresh data dengan delay untuk memastikan backend sudah update
       await Future.delayed(const Duration(milliseconds: 500));
 
-      // Force refresh both tabs tanpa mengganggu pagination
       await Future.wait([
         _loadPendingOrders(isRefresh: true),
         _loadActiveOrders(isRefresh: true),
       ]);
 
+      // ✅ TAMBAHAN: Show notification untuk processed order
+      await EnhancedNotificationService.showOrderProcessedNotification(
+        orderId: orderId,
+        action: action == 'approve' ? 'approved' : 'rejected',
+        playSound: false,
+      );
+
       print(
           '✅ HomeStore: Order $orderId processed successfully and UI refreshed');
 
-      // Show appropriate response
       if (action == 'approve') {
         await _showContactCustomerPopup(orderId, result);
       } else {
@@ -1136,11 +1223,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         }
       }
 
-      // ✅ TAMBAHAN: Trigger global refresh untuk history store jika sedang aktif
-      // Ini bisa dilakukan dengan event bus atau shared preferences
       await _notifyHistoryStoreRefresh();
     } catch (e) {
-      // Close loading dialog if still open
       if (mounted) Navigator.of(context).pop();
 
       print('❌ HomeStore: Error processing order: $e');
@@ -1158,13 +1242,12 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             duration: const Duration(seconds: 3),
           ),
         );
       }
 
-      // Refresh on error
       await Future.wait([
         _loadPendingOrders(isRefresh: true),
         _loadActiveOrders(isRefresh: true),
@@ -1174,7 +1257,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
   Future<void> _notifyHistoryStoreRefresh() async {
     try {
-      // Simpan timestamp terakhir update untuk history store
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
           'last_order_update', DateTime.now().toIso8601String());
@@ -1184,7 +1266,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-  /// Enhanced order detail viewing menggunakan OrderService.getOrderById
   Future<void> _viewOrderDetail(String orderId) async {
     try {
       print('👁️ HomeStore: Viewing order detail: $orderId');
@@ -1199,7 +1280,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         barrierDismissible: false,
         builder: (context) => Dialog(
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -1221,10 +1302,9 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       );
 
       final orderDetail = await OrderService.getOrderById(orderId);
-      Navigator.of(context).pop(); // Close loading dialog
+      Navigator.of(context).pop();
 
       if (orderDetail.isNotEmpty) {
-        // ✅ PERBAIKAN: Navigate tanpa return handling yang tidak perlu
         await Navigator.push(
           context,
           MaterialPageRoute(
@@ -1234,7 +1314,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           ),
         );
 
-        // ✅ PERBAIKAN: Refresh both tabs setelah kembali dari detail
         await Future.wait([
           _loadPendingOrders(isRefresh: true),
           _loadActiveOrders(isRefresh: true),
@@ -1245,7 +1324,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
         throw Exception('Order detail is empty');
       }
     } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog
+      Navigator.of(context).pop();
 
       print('❌ HomeStore: Error viewing order detail: $e');
 
@@ -1255,7 +1334,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
@@ -1323,10 +1402,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       _showCelebration = true;
     });
 
-    // Play celebration sound
     _audioPlayer.play(AssetSource('audio/celebration.wav'));
 
-    // Start celebration animation
     _celebrationController.forward().then((_) {
       Future.delayed(const Duration(seconds: 3), () {
         if (mounted) {
@@ -1340,67 +1417,10 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     });
   }
 
-  Future<void> _initializeNotifications() async {
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const DarwinInitializationSettings initializationSettingsIOS =
-        DarwinInitializationSettings(
-      requestSoundPermission: true,
-      requestBadgePermission: true,
-      requestAlertPermission: true,
-    );
-
-    const InitializationSettings initializationSettings =
-        InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsIOS,
-    );
-
-    await _flutterLocalNotificationsPlugin.initialize(
-      initializationSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse details) {
-        // ✅ PERBAIKAN: Refresh both tabs saat notification diklik
-        Future.wait([
-          _loadPendingOrders(isRefresh: true),
-          _loadActiveOrders(isRefresh: true),
-        ]);
-      },
-    );
-  }
-
   Future<void> _requestPermissions() async {
     await Permission.notification.request();
   }
 
-  Future<void> _showNotification(Map<String, dynamic> orderDetails) async {
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
-        AndroidNotificationDetails(
-      'store_channel_id',
-      'Store Notifications',
-      channelDescription: 'Notifications for new store orders',
-      importance: Importance.max,
-      priority: Priority.high,
-      showWhen: true,
-      icon: '@mipmap/delpick',
-    );
-
-    const NotificationDetails platformChannelSpecifics =
-        NotificationDetails(android: androidPlatformChannelSpecifics);
-
-    // ✅ FIXED: Safe numeric conversion for notification
-    final totalAmount = _parseDouble(orderDetails['total_amount']) ?? 0.0;
-    final customerName = orderDetails['customer']?['name'] ?? 'Customer';
-
-    await _flutterLocalNotificationsPlugin.show(
-      0,
-      'Pesanan Baru!',
-      'Pelanggan: $customerName - ${GlobalStyle.formatRupiah(totalAmount)}',
-      platformChannelSpecifics,
-    );
-  }
-
-  // ✅ BARU: Helper method untuk safely parse double dari string
   double? _parseDouble(dynamic value) {
     if (value == null) return null;
     if (value is double) return value;
@@ -1578,7 +1598,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Dashboard title
                 Text(
                   'Dashboard Toko',
                   style: TextStyle(
@@ -1590,17 +1609,14 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 4),
 
-                // Store name dengan fallback dan loading state
                 _buildStoreNameWidget(),
 
                 const SizedBox(height: 4),
 
-                // Store status dan info tambahan
                 _buildStoreInfoWidget(),
 
                 const SizedBox(height: 2),
 
-                // Date dengan format Indonesia
                 Text(
                   _getFormattedDate(),
                   style: TextStyle(
@@ -1613,17 +1629,14 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
             ),
           ),
 
-          // Profile button dengan store avatar jika ada
           _buildProfileButton(),
         ],
       ),
     );
   }
 
-// Widget untuk menampilkan nama toko
   Widget _buildStoreNameWidget() {
     if (_storeData == null) {
-      // Loading state
       return Container(
         height: 20,
         width: 120,
@@ -1650,7 +1663,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-// Widget untuk menampilkan info tambahan store
   Widget _buildStoreInfoWidget() {
     if (_storeData == null) return const SizedBox.shrink();
 
@@ -1660,7 +1672,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
     return Row(
       children: [
-        // Status indicator
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
@@ -1679,7 +1690,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
 
         const SizedBox(width: 8),
 
-        // Rating jika ada
         if (rating > 0) ...[
           Icon(Icons.star, size: 12, color: Colors.amber),
           const SizedBox(width: 2),
@@ -1694,7 +1704,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           const SizedBox(width: 8),
         ],
 
-        // Total produk
         Text(
           '$totalProducts produk',
           style: TextStyle(
@@ -1706,7 +1715,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-// Profile button dengan avatar store jika ada
   Widget _buildProfileButton() {
     final storeImageUrl = _storeData?['image_url']?.toString();
     final userAvatar = _userData?['avatar']?.toString();
@@ -1738,9 +1746,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-// Widget untuk profile icon
   Widget _buildProfileIcon(String? storeImageUrl, String? userAvatar) {
-    // Prioritas: store image -> user avatar -> default icon
     if (storeImageUrl != null && storeImageUrl.isNotEmpty) {
       return ClipOval(
         child: Image.network(
@@ -1788,7 +1794,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     );
   }
 
-// Helper methods
   String _getFormattedDate() {
     final now = DateTime.now();
     final dayNames = [
@@ -1847,25 +1852,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
     }
   }
 
-// Enhanced store data processing
-//   void _processStoreData(Map<String, dynamic> storeData) {
-//     // Ensure all required store fields with defaults
-//     storeData['rating'] = storeData['rating'] ?? 0.0;
-//     storeData['review_count'] = storeData['review_count'] ?? 0;
-//     storeData['total_products'] = storeData['total_products'] ?? 0;
-//     storeData['status'] = storeData['status'] ?? 'active';
-//     storeData['name'] = storeData['name'] ?? 'Toko Saya';
-//     storeData['image_url'] = storeData['image_url']; // Keep null if not exists
-//
-//     print('📊 HomeStore: Store data processed');
-//     print('   - Name: ${storeData['name']}');
-//     print('   - Rating: ${storeData['rating']}');
-//     print('   - Review Count: ${storeData['review_count']}');
-//     print('   - Total Products: ${storeData['total_products']}');
-//     print('   - Status: ${storeData['status']}');
-//     print('   - Image URL: ${storeData['image_url']}');
-//   }
-
   Widget _buildPendingOrdersTab() {
     if (_isLoadingPending && _pendingOrders.isEmpty) {
       return _buildLoadingState();
@@ -1900,7 +1886,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               padding: const EdgeInsets.all(16),
               child: Center(
                 child:
-                    CircularProgressIndicator(color: GlobalStyle.primaryColor),
+                CircularProgressIndicator(color: GlobalStyle.primaryColor),
               ),
             );
           }
@@ -1940,7 +1926,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              // Header with NEW badge if applicable
               Row(
                 children: [
                   Container(
@@ -1999,7 +1984,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                             Text(
                               order['created_at'] != null
                                   ? DateFormat('dd MMM yyyy HH:mm').format(
-                                      DateTime.parse(order['created_at']))
+                                  DateTime.parse(order['created_at']))
                                   : 'Unknown Time',
                               style: TextStyle(
                                 color: Colors.grey.shade600,
@@ -2013,7 +1998,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                   ),
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: Colors.orange,
                       borderRadius: BorderRadius.circular(20),
@@ -2031,7 +2016,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 16),
 
-              // Order summary
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -2093,10 +2077,8 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 16),
 
-              // Action buttons for pending orders
               Row(
                 children: [
-                  // View Detail Button
                   Expanded(
                     child: _buildActionButton(
                       onTap: () => _viewOrderDetail(orderId),
@@ -2109,7 +2091,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  // Accept Button
                   Expanded(
                     flex: 2,
                     child: _buildActionButton(
@@ -2120,7 +2101,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  // Reject Button
                   Container(
                     width: 48,
                     height: 48,
@@ -2143,7 +2123,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                         onTap: () => _processOrder(orderId, 'reject'),
                         child: const Center(
                           child:
-                              Icon(Icons.close, color: Colors.white, size: 20),
+                          Icon(Icons.close, color: Colors.white, size: 20),
                         ),
                       ),
                     ),
@@ -2156,7 +2136,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       ),
     );
 
-    // Add celebration animation for new orders
     if (isNewOrder && _showCelebration) {
       return AnimatedBuilder(
         animation: _celebrationController,
@@ -2184,7 +2163,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
       );
     }
 
-    // Regular slide animation
     return SlideTransition(
       position: index < _pendingCardAnimations.length
           ? _pendingCardAnimations[index]
@@ -2227,7 +2205,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               padding: const EdgeInsets.all(16),
               child: Center(
                 child:
-                    CircularProgressIndicator(color: GlobalStyle.primaryColor),
+                CircularProgressIndicator(color: GlobalStyle.primaryColor),
               ),
             );
           }
@@ -2267,7 +2245,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              // Header
               Row(
                 children: [
                   Container(
@@ -2306,7 +2283,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                             Text(
                               order['created_at'] != null
                                   ? DateFormat('dd MMM yyyy HH:mm').format(
-                                      DateTime.parse(order['created_at']))
+                                  DateTime.parse(order['created_at']))
                                   : 'Unknown Time',
                               style: TextStyle(
                                 color: Colors.grey.shade600,
@@ -2320,7 +2297,7 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
                   ),
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: _getStatusColor(status),
                       borderRadius: BorderRadius.circular(20),
@@ -2345,7 +2322,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 16),
 
-              // Order summary
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -2407,7 +2383,6 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 16),
 
-              // View Detail Button only for active orders
               SizedBox(
                 width: double.infinity,
                 child: _buildActionButton(
@@ -2503,113 +2478,143 @@ class _HomeStoreState extends State<HomeStore> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xffF8FAFE),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Enhanced Header - GUNAKAN METHOD BARU
-            _buildEnhancedHeader(),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              children: [
+                _buildEnhancedHeader(),
 
-            // Tab Bar (sisanya tetap sama)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: TabBar(
-                controller: _tabController,
-                indicator: BoxDecoration(
-                  color: GlobalStyle.primaryColor,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.grey.shade600,
-                labelStyle: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-                unselectedLabelStyle: TextStyle(
-                  fontWeight: FontWeight.normal,
-                  fontFamily: GlobalStyle.fontFamily,
-                ),
-                tabs: [
-                  Tab(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.pending_actions, size: 18),
-                        const SizedBox(width: 8),
-                        Text('Pesanan Masuk'),
-                        if (_pendingOrders.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${_pendingOrders.length}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TabBar(
+                    controller: _tabController,
+                    indicator: BoxDecoration(
+                      color: GlobalStyle.primaryColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    labelColor: Colors.white,
+                    unselectedLabelColor: Colors.grey.shade600,
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                    unselectedLabelStyle: TextStyle(
+                      fontWeight: FontWeight.normal,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                    tabs: [
+                      Tab(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.pending_actions, size: 18),
+                            const SizedBox(width: 8),
+                            Text('Pesanan Masuk'),
+                            if (_pendingOrders.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.red,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${_pendingOrders.length}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        ],
+                            ],
+                          ],
+                        ),
+                      ),
+                      Tab(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.local_shipping, size: 18),
+                            const SizedBox(width: 8),
+                            Text('Pesanan Aktif'),
+                            if (_activeOrders.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.green,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${_activeOrders.length}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                Expanded(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 16),
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildPendingOrdersTab(),
+                        _buildActiveOrdersTab(),
                       ],
                     ),
                   ),
-                  Tab(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.local_shipping, size: 18),
-                        const SizedBox(width: 8),
-                        Text('Pesanan Aktif'),
-                        if (_activeOrders.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${_activeOrders.length}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Tab Views (sisanya tetap sama)
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.only(top: 16),
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildPendingOrdersTab(),
-                    _buildActiveOrdersTab(),
-                  ],
                 ),
+              ],
+            ),
+          ),
+
+          // ✅ TAMBAHAN: Notification Badge Overlay
+          if (_showNotificationBadge && _currentNotificationOrder != null)
+            Positioned(
+              top: 100,
+              left: 0,
+              right: 0,
+              child: AnimatedBuilder(
+                animation: _badgeAnimation,
+                builder: (context, child) {
+                  return Opacity(
+                    opacity: _badgeAnimation.value,
+                    child: NotificationBadgeCard(
+                      orderData: _currentNotificationOrder!,
+                      isVisible: _showNotificationBadge,
+                      onTap: () {
+                        final orderId = _currentNotificationOrder!['id']?.toString() ?? '';
+                        _hideInAppNotificationBadge();
+                        if (orderId.isNotEmpty) {
+                          _viewOrderDetail(orderId);
+                        }
+                      },
+                      onDismiss: _hideInAppNotificationBadge,
+                      autoHideDuration: const Duration(seconds: 8),
+                    ),
+                  );
+                },
               ),
             ),
-          ],
-        ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationComponent(
         currentIndex: _currentIndex,
