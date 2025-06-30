@@ -300,6 +300,204 @@ class OrderService {
     }
   }
 
+  static Future<Map<String, dynamic>> getOrderByIdForceRefresh(
+    String orderId, {
+    bool forceRefresh = true,
+  }) async {
+    try {
+      _log('🔄 OrderService: Getting order $orderId (force: $forceRefresh)');
+
+      final isValid = await _fastValidateAuth();
+      if (!isValid) throw Exception('Authentication required');
+
+      final queryParams = <String, String>{};
+
+      // ✅ Force refresh dengan timestamp dan cache busting
+      if (forceRefresh) {
+        queryParams['_t'] = DateTime.now().millisecondsSinceEpoch.toString();
+        queryParams['refresh'] = 'true';
+        queryParams['force'] = 'true';
+        _log('🧹 Force refresh dengan cache busting');
+      }
+
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: '$_baseEndpoint/$orderId',
+        queryParams: queryParams.isNotEmpty ? queryParams : null,
+        requiresAuth: true,
+      );
+
+      if (response['data'] != null) {
+        _fastProcessOrderData(response['data']);
+
+        final orderData = response['data'];
+        _log('✅ Fresh order data received');
+        _log('   - Order Status: ${orderData['order_status']}');
+        _log('   - Delivery Status: ${orderData['delivery_status']}');
+        _log('   - Updated At: ${orderData['updated_at']}');
+
+        return orderData;
+      }
+
+      throw Exception('Order not found or invalid response');
+    } catch (e) {
+      _log('❌ Get order by ID force refresh error: $e');
+      throw Exception('Failed to get order: $e');
+    }
+  }
+
+  static void clearOrderCache(String orderId) {
+    try {
+      _log('🧹 Clearing cache for order $orderId');
+      // Karena tidak ada cache di current implementation,
+      // ini untuk konsistensi dengan history cache manager
+    } catch (e) {
+      _log('⚠️ Error clearing order cache: $e');
+    }
+  }
+
+  static bool isOrderDataFresh(Map<String, dynamic> orderData) {
+    try {
+      final updatedAt = orderData['updated_at'];
+      if (updatedAt == null) return true;
+
+      DateTime? updatedTime;
+      if (updatedAt is String) {
+        updatedTime = DateTime.tryParse(updatedAt);
+      }
+
+      if (updatedTime == null) return true;
+
+      // Data dianggap fresh jika updated dalam 5 menit terakhir
+      final timeDiff = DateTime.now().difference(updatedTime).inMinutes;
+      final isFresh = timeDiff <= 5;
+
+      _log('📊 Data freshness check:');
+      _log('   - Updated at: $updatedAt');
+      _log('   - Time diff: ${timeDiff} minutes');
+      _log('   - Is fresh: $isFresh');
+
+      return isFresh;
+    } catch (e) {
+      _log('⚠️ Error checking data freshness: $e');
+      return true;
+    }
+  }
+
+  static bool validateOrderDataConsistency(
+      Map<String, dynamic> orderData, String expectedOrderId) {
+    try {
+      final orderId = orderData['id']?.toString();
+      if (orderId != expectedOrderId) {
+        _log('❌ Order ID mismatch: expected $expectedOrderId, got $orderId');
+        return false;
+      }
+
+      final orderStatus = orderData['order_status'];
+      final deliveryStatus = orderData['delivery_status'];
+
+      if (orderStatus == null || deliveryStatus == null) {
+        _log('❌ Missing status fields');
+        return false;
+      }
+
+      // Status consistency check
+      if (orderStatus == 'delivered' && deliveryStatus == 'pending') {
+        _log(
+            '❌ Invalid status combination: delivered order with pending delivery');
+        return false;
+      }
+
+      if (orderStatus == 'pending' && deliveryStatus == 'delivered') {
+        _log(
+            '❌ Invalid status combination: pending order with delivered delivery');
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      _log('❌ Error validating order data consistency: $e');
+      return false;
+    }
+  }
+
+  /// ✅ TAMBAH method ini jika belum ada
+  static Future<Map<String, dynamic>> getOrderForHistoryDetail(
+      String orderId) async {
+    try {
+      _log('📋 Getting order $orderId for history detail page');
+
+      // Selalu gunakan force refresh untuk history detail
+      return await getOrderById(
+        orderId,
+      );
+    } catch (e) {
+      _log('❌ Get order for history detail error: $e');
+      throw createHistoryDetailError(e);
+    }
+  }
+
+  /// ✅ TAMBAH method ini jika belum ada
+  static Exception createHistoryDetailError(dynamic e) {
+    final errorStr = e.toString().toLowerCase();
+
+    if (errorStr.contains('session expired') ||
+        errorStr.contains('authentication required') ||
+        errorStr.contains('unauthorized')) {
+      return Exception('Session expired: Please login again');
+    } else if (errorStr.contains('order not found') ||
+        errorStr.contains('404')) {
+      return Exception('Order not found');
+    } else if (errorStr.contains('network') ||
+        errorStr.contains('connection')) {
+      return Exception('Network error: Please check your internet connection');
+    } else {
+      return Exception('Failed to load order details: ${e.toString()}');
+    }
+  }
+
+  static Future<Map<String, dynamic>> retryGetOrderById(String orderId) async {
+    try {
+      _log('🔄 Retrying get order $orderId after delay...');
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      return await getOrderByIdSmart(orderId, forceRefresh: true);
+    } catch (e) {
+      _log('❌ Retry get order failed: $e');
+      throw createHistoryDetailError(e);
+    }
+  }
+
+  // Validasi apakah response data fresh
+  static bool _isResponseDataFresh(Map<String, dynamic> orderData) {
+    try {
+      final updatedAt = orderData['updated_at'];
+      if (updatedAt == null) return true; // Assume fresh if no timestamp
+
+      DateTime? updatedTime;
+      if (updatedAt is String) {
+        updatedTime = DateTime.tryParse(updatedAt);
+      }
+
+      if (updatedTime == null) return true;
+
+      // Data dianggap fresh jika updated dalam 2 menit terakhir
+      final timeDiff = DateTime.now().difference(updatedTime).inMinutes;
+      final isFresh = timeDiff <= 2;
+
+      _log('📊 Data freshness check:');
+      _log('   - Updated at: $updatedAt');
+      _log('   - Time diff: ${timeDiff} minutes');
+      _log('   - Is fresh: $isFresh');
+
+      return isFresh;
+    } catch (e) {
+      _log('⚠️ Error checking data freshness: $e');
+      return true; // Assume fresh on error
+    }
+  }
+
   /// Process order by store - Optimized
   static Future<Map<String, dynamic>> processOrderByStore({
     required String orderId,

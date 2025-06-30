@@ -152,6 +152,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     super.initState();
     _initializeAnimations();
     _validateAndLoadData();
+    _validateAndLoadDataWithRefresh();
   }
 
   void _initializeAnimations() {
@@ -219,6 +220,28 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     });
   }
 
+  bool _shouldStartStatusTracking() {
+    if (_orderDetail == null) return false;
+
+    final orderStatus = _orderDetail!.orderStatus;
+    final deliveryStatus = _orderDetail!.deliveryStatus;
+
+    // ✅ PERBAIKAN: Track semua order yang belum benar-benar selesai
+    // Jangan hanya andalkan isCompleted, cek kombinasi status
+    final isFinallyCompleted = (orderStatus == OrderStatus.delivered &&
+            deliveryStatus == DeliveryStatus.delivered) ||
+        orderStatus == OrderStatus.cancelled ||
+        orderStatus == OrderStatus.rejected;
+
+    print('🔍 Should start tracking check:');
+    print('   - Order Status: ${orderStatus.name}');
+    print('   - Delivery Status: ${deliveryStatus.name}');
+    print('   - Is Finally Completed: $isFinallyCompleted');
+    print('   - Should Track: ${!isFinallyCompleted}');
+
+    return !isFinallyCompleted;
+  }
+
   @override
   void dispose() {
     for (var controller in _cardControllers) {
@@ -266,13 +289,67 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
   // ✅ UPDATED: Enhanced authentication and data validation
   Future<void> _validateAndLoadData() async {
+    // Fallback ke method yang sudah ada jika force refresh gagal
+    try {
+      await _validateAndLoadDataWithRefresh();
+    } catch (e) {
+      print('❌ Force refresh failed, trying regular load: $e');
+
+      // Fallback ke regular validation
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
+      try {
+        final hasAccess = await AuthService.validateCustomerAccess();
+        if (!hasAccess) {
+          throw Exception('Access denied: Customer authentication required');
+        }
+
+        final userData = await AuthService.getUserData();
+        if (userData == null) {
+          throw Exception('Unable to retrieve user data');
+        }
+
+        _roleSpecificData = await AuthService.getRoleSpecificData();
+        if (_roleSpecificData == null) {
+          throw Exception('Unable to retrieve role-specific data');
+        }
+
+        _customerData = await AuthService.getCustomerData();
+        if (_customerData == null) {
+          throw Exception('Unable to retrieve customer data');
+        }
+
+        print('✅ Fallback: Authentication validated successfully');
+
+        // Try regular load without force refresh
+        await _loadOrderDetail();
+
+        setState(() {
+          _isLoading = false;
+        });
+      } catch (fallbackError) {
+        print('❌ Fallback also failed: $fallbackError');
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Failed to load order details: $fallbackError';
+        });
+      }
+    }
+  }
+
+  // ✅ PERBAIKAN 9: Method baru untuk initial load dengan force refresh
+  Future<void> _validateAndLoadDataWithRefresh() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      print('🔍 HistoryDetailPage: Starting authentication validation...');
+      print(
+          '🔍 HistoryDetailPage: Starting authentication validation with force refresh...');
 
       // ✅ Step 1: Validate customer access
       final hasAccess = await AuthService.validateCustomerAccess();
@@ -302,8 +379,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       print('   - Customer ID: ${_customerData!['id']}');
       print('   - Customer Name: ${_customerData!['name']}');
 
-      // ✅ Step 5: Load order detail
-      await _loadOrderDetail();
+      // ✅ Step 5: Force refresh order detail
+      await _loadOrderDetailWithForceRefresh();
 
       setState(() {
         _isLoading = false;
@@ -330,7 +407,126 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     }
   }
 
-  // ✅ UPDATED: Load order detail with proper type conversion
+  Future<void> _manualRefreshOrder() async {
+    try {
+      print('🔄 Manual refresh triggered by user');
+
+      // Show loading indicator
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  strokeWidth: 2,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text('Memperbarui data pesanan...'),
+            ],
+          ),
+          backgroundColor: GlobalStyle.primaryColor,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      await _loadOrderDetailWithForceRefresh();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 12),
+                const Text('Data pesanan berhasil diperbarui'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Manual refresh error: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                const Text('Gagal memperbarui data pesanan'),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+// Method khusus untuk force refresh initial load
+  Future<void> _loadOrderDetailWithForceRefresh() async {
+    setState(() {
+      _isLoadingOrderDetail = true;
+    });
+
+    try {
+      print(
+          '🔄 HistoryDetailPage: Force refreshing order detail: ${widget.order.id}');
+
+      // ✅ Clear cache dulu
+      OrderService.clearOrderCache(widget.order.id.toString());
+
+      // ✅ Force refresh dengan timestamp untuk bypass cache
+      final rawOrderData = await OrderService.getOrderByIdForceRefresh(
+        widget.order.id.toString(),
+        forceRefresh: true,
+      );
+
+      final safeOrderData = _safeMapConversion(rawOrderData);
+
+      print('✅ HistoryDetailPage: Fresh order data loaded');
+      print('   - Order Status: ${safeOrderData['order_status']}');
+      print('   - Delivery Status: ${safeOrderData['delivery_status']}');
+      print('   - Updated At: ${safeOrderData['updated_at']}');
+
+      _orderDetail = OrderModel.fromJson(safeOrderData);
+
+      print('✅ HistoryDetailPage: Order detail refreshed successfully');
+      print('   - Order Status: ${_orderDetail!.orderStatus.name}');
+      print('   - Delivery Status: ${_orderDetail!.deliveryStatus.name}');
+
+      // ✅ Load reviews
+      await _loadOrderReviews(safeOrderData);
+
+      // ✅ Start tracking if needed
+      if (_shouldStartStatusTracking()) {
+        _startStatusTracking();
+      }
+
+      // ✅ Store status for change detection
+      _previousOrderStatus = _orderDetail!.orderStatus;
+      _previousDeliveryStatus = _orderDetail!.deliveryStatus;
+    } catch (e) {
+      print('❌ HistoryDetailPage: Error force refreshing order detail: $e');
+      throw Exception('Failed to refresh order details: $e');
+    } finally {
+      setState(() {
+        _isLoadingOrderDetail = false;
+      });
+    }
+  }
+
+  // Load order detail with proper type conversion
   Future<void> _loadOrderDetail() async {
     setState(() {
       _isLoadingOrderDetail = true;
@@ -339,16 +535,22 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     try {
       print('🔍 HistoryDetailPage: Loading order detail: ${widget.order.id}');
 
-      // ✅ Use updated OrderService.getOrderById()
-      final rawOrderData =
-          await OrderService.getOrderById(widget.order.id.toString());
+      // ✅ PERBAIKAN 1: Selalu gunakan force refresh untuk memastikan data terbaru
+      final rawOrderData = await OrderService.getOrderByIdForceRefresh(
+        widget.order.id.toString(),
+        forceRefresh: true, // ✅ Force refresh setiap kali load
+      );
 
-      // ✅ IMPORTANT: Convert all nested maps safely before creating OrderModel
+      // ✅ PERBAIKAN 2: Clear cache sebelum load ulang
+      OrderService.clearOrderCache(widget.order.id.toString());
+
+      // ✅ Convert all nested maps safely before creating OrderModel
       final safeOrderData = _safeMapConversion(rawOrderData);
 
       print('✅ HistoryDetailPage: Order data converted safely');
       print('   - Order Status: ${safeOrderData['order_status']}');
       print('   - Delivery Status: ${safeOrderData['delivery_status']}');
+      print('   - Updated At: ${safeOrderData['updated_at']}');
 
       // ✅ Process the order data with enhanced structure and safe conversion
       _orderDetail = OrderModel.fromJson(safeOrderData);
@@ -362,8 +564,8 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       // ✅ Load reviews data from the order response with safe conversion
       await _loadOrderReviews(safeOrderData);
 
-      // ✅ Start status tracking if order is not completed
-      if (!_orderDetail!.orderStatus.isCompleted) {
+      // ✅ PERBAIKAN 3: Start status tracking untuk SEMUA order yang bukan final status
+      if (_shouldStartStatusTracking()) {
         _startStatusTracking();
       }
 
@@ -452,17 +654,22 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
   // ✅ PERBAIKAN: Enhanced status tracking dengan logika yang benar
   void _startStatusTracking() {
-    if (_orderDetail == null || _orderDetail!.orderStatus.isCompleted) {
-      print(
-          '⚠️ HistoryDetailPage: Order is completed, skipping status tracking');
+    if (_orderDetail == null) {
+      print('⚠️ HistoryDetailPage: No order detail for status tracking');
+      return;
+    }
+
+    if (!_shouldStartStatusTracking()) {
+      print('⚠️ HistoryDetailPage: Order completed, skipping status tracking');
       return;
     }
 
     print(
         '🔄 HistoryDetailPage: Starting status tracking for order ${_orderDetail!.id}');
 
+    // ✅ PERBAIKAN: Interval lebih sering untuk update yang lebih responsif
     _statusUpdateTimer =
-        Timer.periodic(const Duration(seconds: 15), (timer) async {
+        Timer.periodic(const Duration(seconds: 10), (timer) async {
       if (!mounted) {
         print('⚠️ HistoryDetailPage: Widget unmounted, stopping timer');
         timer.cancel();
@@ -472,7 +679,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       try {
         print('📡 HistoryDetailPage: Checking order status update...');
 
-        // ✅ PERBAIKAN: Enhanced session validation before API call
+        // ✅ PERBAIKAN: Enhanced session validation
         final sessionChecks = await Future.wait([
           AuthService.isAuthenticated(),
           AuthService.isSessionValid(),
@@ -487,7 +694,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           print('❌ HistoryDetailPage: Invalid session, stopping tracking');
           timer.cancel();
 
-          // ✅ PERBAIKAN: Jangan paksa logout, biarkan user tetap di halaman
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -506,9 +712,12 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           return;
         }
 
-        // ✅ Get updated order data with safe conversion
-        final rawUpdatedOrderData =
-            await OrderService.getOrderById(widget.order.id.toString());
+        // ✅ PERBAIKAN 6: Selalu gunakan force refresh untuk real-time data
+        final rawUpdatedOrderData = await OrderService.getOrderByIdForceRefresh(
+          widget.order.id.toString(),
+          forceRefresh: true,
+        );
+
         final safeUpdatedOrderData = _safeMapConversion(rawUpdatedOrderData);
         final updatedOrder = OrderModel.fromJson(safeUpdatedOrderData);
 
@@ -534,15 +743,26 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
 
           // ✅ Handle status change notifications
           if (orderStatusChanged || deliveryStatusChanged) {
-            _handleStatusChange(_previousOrderStatus, updatedOrder.orderStatus,
-                _previousDeliveryStatus, updatedOrder.deliveryStatus);
+            _handleStatusChange(
+              _previousOrderStatus,
+              updatedOrder.orderStatus,
+              _previousDeliveryStatus,
+              updatedOrder.deliveryStatus,
+            );
             _previousOrderStatus = updatedOrder.orderStatus;
             _previousDeliveryStatus = updatedOrder.deliveryStatus;
           }
 
-          // ✅ Stop tracking if order is completed
-          if (updatedOrder.orderStatus.isCompleted) {
-            print('✅ HistoryDetailPage: Order completed, stopping tracking');
+          // ✅ PERBAIKAN 7: Stop tracking hanya jika benar-benar final
+          final isFinallyCompleted = (updatedOrder.orderStatus ==
+                      OrderStatus.delivered &&
+                  updatedOrder.deliveryStatus == DeliveryStatus.delivered) ||
+              updatedOrder.orderStatus == OrderStatus.cancelled ||
+              updatedOrder.orderStatus == OrderStatus.rejected;
+
+          if (isFinallyCompleted) {
+            print(
+                '✅ HistoryDetailPage: Order finally completed, stopping tracking');
             timer.cancel();
 
             // ✅ Reload reviews for completed orders
@@ -555,7 +775,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       } catch (e) {
         print('❌ HistoryDetailPage: Error updating order status: $e');
 
-        // ✅ PERBAIKAN: Hanya stop tracking jika error terkait authentication
+        // ✅ Stop tracking hanya untuk authentication errors
         final errorStr = e.toString().toLowerCase();
         if (errorStr.contains('unauthorized') ||
             errorStr.contains('session expired') ||
@@ -2134,6 +2354,18 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          // ✅ TAMBAH: Refresh button
+          IconButton(
+            icon: Icon(
+              Icons.refresh,
+              color: GlobalStyle.primaryColor,
+              size: 24,
+            ),
+            onPressed: _isLoading || _isLoadingOrderDetail
+                ? null
+                : _manualRefreshOrder,
+            tooltip: 'Perbarui Status',
+          ),
           if (_orderDetail?.id != null)
             Padding(
               padding: const EdgeInsets.only(right: 16.0),

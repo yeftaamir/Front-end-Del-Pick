@@ -5,6 +5,8 @@ import 'package:del_pick/Models/order_item.dart';
 import 'package:del_pick/Models/store.dart';
 import 'package:del_pick/Models/user.dart';
 
+import '../Services/order_service.dart';
+
 class OrderModel {
   final int id;
   final int customerId;
@@ -578,4 +580,31 @@ class OrderModel {
 
   @override
   int get hashCode => id.hashCode;
+}
+
+extension OrderDataExtensions on Map<String, dynamic> {
+  bool get isStatusConsistent {
+    final orderStatus = this['order_status'];
+    final deliveryStatus = this['delivery_status'];
+
+    if (orderStatus == null || deliveryStatus == null) return false;
+
+    // Basic consistency rules
+    if (orderStatus == 'delivered' && deliveryStatus == 'pending') return false;
+    if (orderStatus == 'pending' && deliveryStatus == 'delivered') return false;
+    if (orderStatus == 'cancelled' && deliveryStatus == 'delivered')
+      return false;
+
+    return true;
+  }
+
+  bool get isDataFresh {
+    return OrderService.isOrderDataFresh(this);
+  }
+
+  String get statusCombination {
+    final orderStatus = this['order_status'] ?? 'unknown';
+    final deliveryStatus = this['delivery_status'] ?? 'unknown';
+    return '$orderStatus + $deliveryStatus';
+  }
 }
