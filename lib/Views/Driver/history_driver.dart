@@ -495,6 +495,8 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
 
 // ===== UI BUILDERS =====
 
+// ✅ Update bagian _buildRequestCard method di HistoryDriverPage
+
   Widget _buildRequestCard(DriverRequestModel request, int index) {
     final order = request.order;
     if (order == null) return const SizedBox.shrink();
@@ -507,16 +509,17 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
     final statusText = orderStatus.displayName;
     final customerName = order.customer?.name ?? 'Unknown Customer';
     final customerAvatar = order.customer?.avatar ?? '';
-    final totalItems = order.totalItems;
+    final totalItems = order.totalItems; // ✅ FIXED: quantity total dari items
 
-    // ✅ BACKEND ALIGNED: Delivery fee calculation sesuai backend
-    final deliveryFee = order.deliveryFee; // Backend: euclidean distance * 2000
-    final totalAmount =
-        order.totalAmount; // Backend: items total + delivery fee
-    final itemsTotal = order.itemsTotal; // Backend: total amount - delivery fee
+    // ✅ BACKEND ALIGNED: Sesuai dengan backend logic
+    final itemsTotal =
+        order.itemsTotal; // Backend: total_amount (sum items price * quantity)
+    final deliveryFee =
+        order.deliveryFee; // Backend: delivery_fee (distance * 2000)
+    final grandTotal = order.grandTotal; // Frontend: items_total + delivery_fee
     final driverEarnings = request.driverEarnings; // Backend: 100% delivery fee
     final estimatedDistance =
-        order.estimatedDistanceKm; // Backend: delivery fee / 2000
+        order.estimatedDistanceKm; // Backend: delivery_fee / 2000
 
     // ✅ Earnings eligibility sesuai backend logic
     final isDelivered =
@@ -524,10 +527,11 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
     final showEarnings = isDelivered && driverEarnings > 0;
 
     print('🎨 Building card for Order ${request.orderId}:');
-    print('   💰 Total: ${GlobalStyle.formatRupiah(totalAmount)}');
-    print('   🛍️ Items: ${GlobalStyle.formatRupiah(itemsTotal)}');
-    print('   🚚 Delivery: ${GlobalStyle.formatRupiah(deliveryFee)}');
-    print('   💵 Earnings: ${GlobalStyle.formatRupiah(driverEarnings)}');
+    print('   🛍️ Items Total: ${GlobalStyle.formatRupiah(itemsTotal)}');
+    print('   🚚 Delivery Fee: ${GlobalStyle.formatRupiah(deliveryFee)}');
+    print('   💰 Grand Total: ${GlobalStyle.formatRupiah(grandTotal)}');
+    print('   💵 Driver Earnings: ${GlobalStyle.formatRupiah(driverEarnings)}');
+    print('   📦 Total Items: $totalItems');
     print('   📊 Show Earnings: $showEarnings');
 
     final animationIndex = index < _cardAnimations.length ? index : 0;
@@ -627,13 +631,14 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                             },
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            '$totalItems item${totalItems > 1 ? 's' : ''}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                          ),
+                          // // ✅ FIXED: Tampilkan total quantity dari semua items
+                          // Text(
+                          //   '$totalItems item${totalItems > 1 ? 's' : ''}',
+                          //   style: TextStyle(
+                          //     fontSize: 12,
+                          //     color: Colors.grey[600],
+                          //   ),
+                          // ),
                           // ✅ BACKEND ALIGNED: Distance info dari delivery fee calculation
                           if (estimatedDistance > 0) ...[
                             const SizedBox(height: 2),
@@ -702,7 +707,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Total amount (items + delivery)
+                          // ✅ FIXED: Grand total (items + delivery)
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -715,7 +720,8 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                                 ),
                               ),
                               Text(
-                                GlobalStyle.formatRupiah(totalAmount),
+                                GlobalStyle.formatRupiah(grandTotal),
+                                // ✅ FIXED: Grand total
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -740,6 +746,7 @@ class _HistoryDriverPageState extends State<HistoryDriverPage>
                                 ),
                                 Text(
                                   GlobalStyle.formatRupiah(itemsTotal),
+                                  // ✅ FIXED: Items total
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: Colors.grey[600],

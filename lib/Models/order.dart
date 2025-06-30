@@ -12,8 +12,8 @@ class OrderModel {
   final int? driverId;
   final OrderStatus orderStatus;
   final DeliveryStatus deliveryStatus;
-  final double totalAmount;
-  final double deliveryFee;
+  final double totalAmount; // ✅ BACKEND: items total (price * quantity)
+  final double deliveryFee; // ✅ BACKEND: delivery fee terpisah
   final double? destinationLatitude;
   final double? destinationLongitude;
   final DateTime? estimatedPickupTime;
@@ -229,8 +229,6 @@ class OrderModel {
           '   - Raw orderStatus: "$orderStatusRaw" → Parsed: ${orderStatus.value}');
       print(
           '   - Raw deliveryStatus: "$deliveryStatusRaw" → Parsed: ${deliveryStatus.value}');
-      print(
-          '   - Is on delivery: ${orderStatus == OrderStatus.onDelivery && deliveryStatus == DeliveryStatus.onWay}');
 
       return OrderModel(
         id: _parseInt(json['id']),
@@ -240,8 +238,10 @@ class OrderModel {
             json['driver_id'] != null ? _parseInt(json['driver_id']) : null,
         orderStatus: orderStatus,
         deliveryStatus: deliveryStatus,
-        totalAmount: _parseDouble(json['total_amount']),
-        deliveryFee: _parseDouble(json['delivery_fee']),
+        totalAmount:
+            _parseDouble(json['total_amount']), // ✅ BACKEND: items total
+        deliveryFee:
+            _parseDouble(json['delivery_fee']), // ✅ BACKEND: delivery fee
         destinationLatitude: _parseNullableDouble(json['destination_latitude']),
         destinationLongitude:
             _parseNullableDouble(json['destination_longitude']),
@@ -350,17 +350,23 @@ class OrderModel {
   }
 
   // ========================================
-  // UTILITY METHODS
+  // ✅ FIXED: UTILITY METHODS SESUAI BACKEND LOGIC
   // ========================================
+
+  // ✅ BACKEND ALIGNED: Subtotal dari items (sum dari semua item.price * item.quantity)
   double get subtotal => items.fold(0, (sum, item) => sum + item.totalPrice);
-  double get grandTotal => totalAmount;
-  double get itemsTotal => totalAmount - deliveryFee;
+
+  // ✅ BACKEND ALIGNED: Items total = total_amount dari backend (sudah termasuk semua items)
+  double get itemsTotal => totalAmount;
+
+  // ✅ BACKEND ALIGNED: Grand total = total_amount + delivery_fee
+  double get grandTotal => totalAmount + deliveryFee;
 
   String get deliveryFeeCalculationInfo {
     if (destinationLatitude != null &&
         destinationLongitude != null &&
         store != null) {
-      return 'Dihitung berdasarkan jarak dari toko ke destinasi';
+      return 'Dihitung berdasarkan jarak dari toko ke destinasi (euclidean distance × 2000)';
     }
     return 'Biaya pengiriman flat rate';
   }
@@ -384,15 +390,16 @@ class OrderModel {
     return 'Destinasi tidak tersedia';
   }
 
+  // ✅ BACKEND ALIGNED: Distance calculation dari delivery fee
   double get estimatedDistanceKm {
     if (deliveryFee > 0) {
-      return deliveryFee / 2000;
+      return deliveryFee / 2000; // Backend logic: delivery_fee / 2000
     }
     return 0.0;
   }
 
   // ========================================
-  // FORMATTING METHODS
+  // ✅ FIXED: FORMATTING METHODS
   // ========================================
   String formatTotalAmount() {
     return 'Rp ${totalAmount.toStringAsFixed(0).replaceAllMapped(
@@ -422,6 +429,7 @@ class OrderModel {
         )}';
   }
 
+  // ✅ FIXED: Grand total = items + delivery
   String formatGrandTotal() {
     return 'Rp ${grandTotal.toStringAsFixed(0).replaceAllMapped(
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
@@ -460,6 +468,8 @@ class OrderModel {
   bool get canBeCancelled => orderStatus.canBeCancelled;
   bool get isCompleted => orderStatus.isCompleted;
   bool get hasDriver => driverId != null && driver != null;
+
+  // ✅ FIXED: Total items dari order items (quantity total)
   int get totalItems => items.fold(0, (sum, item) => sum + item.quantity);
 
   // ✅ HELPER METHODS untuk checking specific status combinations
@@ -518,8 +528,10 @@ class OrderModel {
   }
 
   // ========================================
-  // PAYMENT METHODS
+  // ✅ FIXED: PAYMENT METHODS SESUAI BACKEND
   // ========================================
+
+  // ✅ BACKEND: Driver mendapat 100% delivery fee
   double get driverEarning => deliveryFee;
 
   String get formattedDriverEarning {
@@ -529,11 +541,12 @@ class OrderModel {
         )}';
   }
 
+  // ✅ FIXED: Payment breakdown sesuai backend logic
   Map<String, double> get paymentBreakdown {
     return {
-      'items_total': itemsTotal,
-      'delivery_fee': deliveryFee,
-      'grand_total': grandTotal,
+      'items_total': itemsTotal, // total_amount dari backend
+      'delivery_fee': deliveryFee, // delivery_fee dari backend
+      'grand_total': grandTotal, // total_amount + delivery_fee
     };
   }
 

@@ -79,9 +79,16 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     final orderStatus = _orderDetail!.orderStatus;
     final deliveryStatus = _orderDetail!.deliveryStatus;
 
-    // Hanya bisa cancel jika kedua status masih pending
-    return orderStatus == OrderStatus.pending &&
+    print('🔍 Checking if order can be cancelled:');
+    print('   - Order Status: ${orderStatus.name}');
+    print('   - Delivery Status: ${deliveryStatus.name}');
+
+    // ✅ Hanya bisa cancel jika kedua status masih pending
+    final canCancel = orderStatus == OrderStatus.pending &&
         deliveryStatus == DeliveryStatus.pending;
+
+    print('   - Can Cancel: $canCancel');
+    return canCancel;
   }
 
   // Customer-specific color theme for status card
@@ -465,11 +472,37 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
       try {
         print('📡 HistoryDetailPage: Checking order status update...');
 
-        // ✅ Ensure valid session before API call
-        final hasValidSession = await AuthService.ensureValidUserData();
-        if (!hasValidSession) {
+        // ✅ PERBAIKAN: Enhanced session validation before API call
+        final sessionChecks = await Future.wait([
+          AuthService.isAuthenticated(),
+          AuthService.isSessionValid(),
+          AuthService.ensureValidUserData(),
+        ]);
+
+        final isAuthenticated = sessionChecks[0] as bool;
+        final sessionValid = sessionChecks[1] as bool;
+        final hasValidSession = sessionChecks[2] as bool;
+
+        if (!isAuthenticated || !sessionValid || !hasValidSession) {
           print('❌ HistoryDetailPage: Invalid session, stopping tracking');
           timer.cancel();
+
+          // ✅ PERBAIKAN: Jangan paksa logout, biarkan user tetap di halaman
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.warning, color: Colors.white),
+                    const SizedBox(width: 12),
+                    const Text('Sesi berakhir. Update status dihentikan.'),
+                  ],
+                ),
+                backgroundColor: Colors.orange,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
           return;
         }
 
@@ -521,7 +554,33 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
         }
       } catch (e) {
         print('❌ HistoryDetailPage: Error updating order status: $e');
-        // Don't stop tracking on temporary errors
+
+        // ✅ PERBAIKAN: Hanya stop tracking jika error terkait authentication
+        final errorStr = e.toString().toLowerCase();
+        if (errorStr.contains('unauthorized') ||
+            errorStr.contains('session expired') ||
+            errorStr.contains('authentication required')) {
+          print(
+              '🛑 HistoryDetailPage: Authentication error, stopping tracking');
+          timer.cancel();
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.warning, color: Colors.white),
+                    const SizedBox(width: 12),
+                    const Text('Sesi berakhir. Update status dihentikan.'),
+                  ],
+                ),
+                backgroundColor: Colors.orange,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+        // Untuk error lain, lanjutkan tracking
       }
     });
   }
@@ -881,7 +940,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     }
   }
 
-  // ✅ FIXED: Cancel order
   Future<void> _cancelOrder() async {
     // Show confirmation dialog
     final shouldCancel = await showDialog<bool>(
@@ -914,82 +972,239 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     try {
       print('🚫 HistoryDetailPage: Cancelling order: ${_orderDetail!.id}');
 
-      // ✅ Validate customer access before cancelling
-      final hasAccess = await AuthService.validateCustomerAccess();
-      if (!hasAccess) {
-        throw Exception('Access denied: Customer authentication required');
+      // ✅ PERBAIKAN 1: Comprehensive authentication validation dengan detail logging
+      final authResults = await Future.wait([
+        AuthService.isAuthenticated(),
+        AuthService.ensureValidUserData(),
+        AuthService.getUserRole(),
+        AuthService.getUserData(),
+        AuthService.isSessionValid(),
+        AuthService
+            .getCustomerData(), // ✅ TAMBAHAN: Get customer data specifically
+      ]);
+
+      final isAuthenticated = authResults[0] as bool;
+      final hasValidSession = authResults[1] as bool;
+      final userRole = authResults[2] as String?;
+      final userData = authResults[3] as Map<String, dynamic>?;
+      final sessionValid = authResults[4] as bool;
+      final customerData = authResults[5] as Map<String, dynamic>?;
+
+      print('🔍 Authentication check results:');
+      print('   - isAuthenticated: $isAuthenticated');
+      print('   - hasValidSession: $hasValidSession');
+      print('   - userRole: $userRole');
+      print('   - userData keys: ${userData?.keys.toList()}');
+      print('   - sessionValid: $sessionValid');
+      print('   - customerData keys: ${customerData?.keys.toList()}');
+
+      // ✅ PERBAIKAN 2: Better validation logic
+      if (!isAuthenticated || !sessionValid) {
+        throw Exception('Session expired: Please login again');
       }
 
-      // ✅ Validate using getRoleSpecificData and getUserData
-      final userData = await AuthService.getUserData();
-      final roleData = await AuthService.getRoleSpecificData();
+      if (!hasValidSession || userData == null || customerData == null) {
+        throw Exception('Invalid user session: Please login again');
+      }
 
-      if (userData == null || roleData == null) {
-        throw Exception('Authentication required: Please login');
+      if (userRole?.toLowerCase() != 'customer') {
+        throw Exception('Access denied: Only customers can cancel orders');
+      }
+
+      // ✅ PERBAIKAN 3: Validate customer access specifically
+      final hasCustomerAccess = await AuthService.validateCustomerAccess();
+      if (!hasCustomerAccess) {
+        throw Exception('Customer access validation failed');
       }
 
       print('✅ HistoryDetailPage: Authentication validated for cancellation');
+      print('   - Customer ID: ${customerData['id']}');
+      print('   - Customer Name: ${customerData['name']}');
+      print('   - User Role: $userRole');
+      print('   - Session Valid: $sessionValid');
 
-      // ✅ Use new cancelOrderByCustomer method first, fallback to updateOrderStatus
+      // ✅ PERBAIKAN 4: Validate order can be cancelled
+      if (!_canCancelOrder()) {
+        throw Exception('Order cannot be cancelled in its current state');
+      }
+
+      print(
+          '✅ Order can be cancelled: ${_orderDetail!.orderStatus.name} + ${_orderDetail!.deliveryStatus.name}');
+
+      // ✅ PERBAIKAN 5: Use proper cancel method dengan error handling yang lebih baik
+      Map<String, dynamic> result;
+
       try {
-        await OrderService.cancelOrderByCustomer(
+        // Try using the dedicated cancel method first
+        result = await OrderService.cancelOrderByCustomer(
           orderId: _orderDetail!.id.toString(),
           cancellationReason: 'Cancelled by customer from mobile app',
         );
-        print(
-            '✅ HistoryDetailPage: Order cancelled using cancelOrderByCustomer');
+        print('✅ Cancel method succeeded');
       } catch (cancelError) {
-        print(
-            '⚠️ HistoryDetailPage: cancelOrderByCustomer failed, trying updateOrderStatus: $cancelError');
+        print('⚠️ Cancel method failed, trying status update: $cancelError');
 
-        // Fallback to updateOrderStatus
-        await OrderService.updateOrderStatus(
+        // ✅ FALLBACK: Direct status update if cancel method fails
+        result = await OrderService.updateOrderStatus(
           orderId: _orderDetail!.id.toString(),
           orderStatus: 'cancelled',
           notes: 'Cancelled by customer from mobile app',
         );
-        print(
-            '✅ HistoryDetailPage: Order cancelled using updateOrderStatus fallback');
+        print('✅ Status update method succeeded');
       }
 
-      // ✅ Refresh order detail
+      print('✅ HistoryDetailPage: Order cancelled successfully');
+      print('   - Result: ${result.keys.toList()}');
+
+      // ✅ PERBAIKAN 6: Refresh order detail to reflect changes
       await _loadOrderDetail();
 
-      print('✅ HistoryDetailPage: Order cancelled successfully');
-
       if (mounted) {
+        // ✅ Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Pesanan berhasil dibatalkan'),
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 12),
+                const Text('Pesanan berhasil dibatalkan'),
+              ],
+            ),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 3),
           ),
         );
+
+        // ✅ PERBAIKAN 7: Better navigation handling dengan delay
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            try {
+              // Try to go back to previous screen first
+              Navigator.pop(context);
+            } catch (e) {
+              print('Error popping: $e');
+              // If that fails, try to go to home
+              try {
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  HomePage.route,
+                  (route) => false,
+                );
+              } catch (homeError) {
+                print('Error navigating to home: $homeError');
+                // Ultimate fallback - just stay on current page
+              }
+            }
+          }
+        });
       }
     } catch (e) {
       print('❌ HistoryDetailPage: Error cancelling order: $e');
+
+      // ✅ PERBAIKAN 8: Enhanced error message handling
+      String errorMessage = 'Gagal membatalkan pesanan';
+      bool shouldForceLogout = false;
+
+      final errorStr = e.toString().toLowerCase();
+
+      if (errorStr.contains('session expired') ||
+          errorStr.contains('authentication required') ||
+          errorStr.contains('please login again') ||
+          errorStr.contains('unauthorized') ||
+          errorStr.contains('invalid user session') ||
+          errorStr.contains('customer access validation failed')) {
+        errorMessage = 'Sesi telah berakhir. Silakan login kembali.';
+        shouldForceLogout = true;
+      } else if (errorStr.contains('access denied')) {
+        errorMessage =
+            'Akses ditolak. Hanya customer yang dapat membatalkan pesanan.';
+      } else if (errorStr.contains('order not found')) {
+        errorMessage = 'Pesanan tidak ditemukan.';
+      } else if (errorStr.contains('cannot be cancelled') ||
+          errorStr.contains('current state')) {
+        errorMessage = 'Pesanan tidak dapat dibatalkan pada status saat ini.';
+      } else if (errorStr.contains('network') ||
+          errorStr.contains('connection')) {
+        errorMessage = 'Masalah koneksi. Silakan periksa internet Anda.';
+      } else {
+        errorMessage = 'Terjadi kesalahan: ${e.toString()}';
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal membatalkan pesanan: $e'),
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text(errorMessage)),
+              ],
+            ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 4),
           ),
         );
+
+        // ✅ PERBAIKAN 9: Handle forced logout dengan route yang benar
+        if (shouldForceLogout) {
+          try {
+            await AuthService.logout();
+
+            // ✅ PERBAIKAN 10: Better route handling
+            if (mounted) {
+              // Try multiple navigation approaches
+              try {
+                // First try: Use known route
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  '/login', // ✅ Ganti dengan route yang benar sesuai routing Anda
+                  (route) => false,
+                );
+              } catch (routeError1) {
+                print('Login route failed: $routeError1');
+                try {
+                  // Second try: Go to root and let splash handle it
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    '/',
+                    (route) => false,
+                  );
+                } catch (routeError2) {
+                  print('Root route failed: $routeError2');
+                  try {
+                    // Third try: Use replacement to splash/login screen
+                    Navigator.pushReplacementNamed(context, '/splash');
+                  } catch (routeError3) {
+                    print('Splash route failed: $routeError3');
+                    // Ultimate fallback: just stay on current page
+                    print(
+                        'All navigation attempts failed, staying on current page');
+                  }
+                }
+              }
+            }
+          } catch (logoutError) {
+            print('Error during forced logout: $logoutError');
+          }
+        }
       }
     } finally {
-      setState(() {
-        _isCancelling = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isCancelling = false;
+        });
+      }
     }
   }
 
   // ✅ PERBAIKAN: Helper methods dengan logika kombinasi status yang benar
-  Color _getStatusColor(
+  Color getStatusColor(
       OrderStatus orderStatus, DeliveryStatus? deliveryStatus) {
     // ✅ Prioritas berdasarkan kombinasi status
     if (orderStatus == OrderStatus.delivered &&
@@ -2218,7 +2433,9 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
                 const SizedBox(height: 12),
                 _buildPaymentRow('Biaya Pengiriman', _orderDetail!.deliveryFee),
                 const Divider(thickness: 1, height: 24),
-                _buildPaymentRow('Total', _orderDetail!.subtotal + _orderDetail!.deliveryFee, isTotal: true),
+                _buildPaymentRow(
+                    'Total', _orderDetail!.subtotal + _orderDetail!.deliveryFee,
+                    isTotal: true),
               ],
             ),
           ),
@@ -2741,7 +2958,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     );
   }
 
-  // ✅ PERBAIKAN: Action buttons dengan logic yang sesuai alur status
   Widget _buildActionButtonsCard() {
     final orderStatus = _orderDetail!.orderStatus;
     final deliveryStatus = _orderDetail!.deliveryStatus;
@@ -2835,13 +3051,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.shopping_bag),
                 label: const Text('Beli Lagi'),
-                onPressed: () {
-                  Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    HomePage.route,
-                    (route) => false,
-                  );
-                },
+                onPressed: () => _handleBuyAgain(),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GlobalStyle.primaryColor,
                   foregroundColor: Colors.white,
@@ -2856,6 +3066,70 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
         ],
       ),
     );
+  }
+
+  Future<void> _handleBuyAgain() async {
+    try {
+      // Show loading feedback
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  strokeWidth: 2,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text('Mengarahkan ke halaman belanja...'),
+            ],
+          ),
+          backgroundColor: GlobalStyle.primaryColor,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 1),
+        ),
+      );
+
+      // Small delay for user feedback
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (mounted) {
+        // ✅ PERBAIKAN: Navigation ke home customer yang lebih robust
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          HomePage.route,
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      print('❌ HistoryDetailPage: Error navigating to home: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                const Text('Gagal mengarahkan ke halaman belanja'),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+        // Fallback: try to pop to previous screen
+        try {
+          Navigator.pop(context);
+        } catch (popError) {
+          print('Error popping: $popError');
+        }
+      }
+    }
   }
 
   // Helper methods for phone actions

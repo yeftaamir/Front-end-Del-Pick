@@ -283,19 +283,36 @@ class AuthService {
   /// Refresh user data from server - Enhanced untuk 7 hari session
   static Future<Map<String, dynamic>?> refreshUserData() async {
     try {
-      _log('Refreshing user data from server (validating 7-day session)...');
-      final profile = await getProfile();
-      _log('User data refreshed successfully with valid 7-day session');
-      return profile;
-    } catch (e) {
-      _log('Error refreshing user data: $e');
+      _log('Refreshing user data from server...');
 
-      // If refresh fails due to expired session, clear all data
-      if (e.toString().contains('expired') || e.toString().contains('7 days')) {
-        await TokenService.clearAll();
+      final response = await BaseService.apiCall(
+        method: 'GET',
+        endpoint: '$_baseEndpoint/profile',
+        requiresAuth: true,
+      );
+
+      if (response['data'] != null) {
+        final userData = response['data'];
+
+        // ✅ VALIDASI ROLE dari refreshed data
+        final userRole = userData['role']?.toString().toLowerCase();
+        if (!_supportedRoles.contains(userRole)) {
+          throw Exception(
+              'Refreshed profile contains unsupported role: $userRole');
+        }
+
+        // Process images and save refreshed data
+        await _processProfileImages(userData);
+        await TokenService.saveUserData({'user': userData});
+
+        _log('User data refreshed successfully');
+        return userData;
       }
 
       return null;
+    } catch (e) {
+      _log('Error refreshing user data: $e');
+      throw Exception('Failed to refresh user data: $e');
     }
   }
 
@@ -835,46 +852,113 @@ class AuthService {
   }
 
   /// Ensure user data is valid - Enhanced dengan 7 hari validation
+  ///  @override
   static Future<bool> ensureValidUserData() async {
     try {
       _log('Ensuring valid user data with 7-day session...');
 
-      // Batch check authentication and cached data
-      final checks = await Future.wait([
-        isAuthenticated(),
-        getUserData(),
-        getUserRole(),
-      ]);
-
-      final isAuth = checks[0] as bool;
-      final cachedData = checks[1] as Map<String, dynamic>?;
-      final role = checks[2] as String?;
-
-      if (!isAuth) {
-        _log('User not authenticated or 7-day session expired');
+      // ✅ Step 1: Check token validity first
+      final token = await TokenService.getToken();
+      if (token == null || token.isEmpty) {
+        _log('❌ No token found');
         return false;
       }
 
-      // ✅ VALIDASI ROLE
-      if (role == null || !_supportedRoles.contains(role.toLowerCase())) {
-        _log('Invalid or unsupported role: $role');
+      // ✅ Step 2: Check if token is still valid (within 7 days)
+      final isTokenValid = await TokenService.isTokenValid();
+      if (!isTokenValid) {
+        _log('❌ Token expired after 7 days');
         await TokenService.clearAll();
         return false;
       }
 
-      if (cachedData == null) {
-        _log('No cached data, refreshing with 7-day session validation...');
-        final freshData = await refreshUserData();
-        return freshData != null;
+      // ✅ Step 3: Check authentication status
+      final isAuth = await isAuthenticated();
+      if (!isAuth) {
+        _log('❌ User not authenticated');
+        return false;
       }
 
-      _log('User data is valid with valid 7-day session');
+      // ✅ Step 4: Get and validate user data
+      final userData = await getUserData();
+      if (userData == null) {
+        _log('❌ No cached user data found, attempting refresh...');
+
+        try {
+          final refreshedData = await refreshUserData();
+          if (refreshedData != null) {
+            _log('✅ User data refreshed successfully');
+            return true;
+          } else {
+            _log('❌ Failed to refresh user data');
+            return false;
+          }
+        } catch (e) {
+          _log('❌ Error refreshing user data: $e');
+          if (e.toString().contains('401') ||
+              e.toString().contains('Unauthorized')) {
+            await TokenService.clearAll();
+          }
+          return false;
+        }
+      }
+
+      // ✅ Step 5: Validate role
+      final userRole = await getUserRole();
+      if (userRole == null ||
+          !_supportedRoles.contains(userRole.toLowerCase())) {
+        _log('❌ Invalid or unsupported role: $userRole');
+        await TokenService.clearAll();
+        return false;
+      }
+
+      _log('✅ User data is valid with valid 7-day session');
       return true;
     } catch (e) {
-      _log('Error ensuring valid user data: $e');
+      _log('❌ Error ensuring valid user data: $e');
       return false;
     }
   }
+  // static Future<bool> ensureValidUserData() async {
+  //   try {
+  //     _log('Ensuring valid user data with 7-day session...');
+  //
+  //     // Batch check authentication and cached data
+  //     final checks = await Future.wait([
+  //       isAuthenticated(),
+  //       getUserData(),
+  //       getUserRole(),
+  //     ]);
+  //
+  //     final isAuth = checks[0] as bool;
+  //     final cachedData = checks[1] as Map<String, dynamic>?;
+  //     final role = checks[2] as String?;
+  //
+  //     if (!isAuth) {
+  //       _log('User not authenticated or 7-day session expired');
+  //       return false;
+  //     }
+  //
+  //     // ✅ VALIDASI ROLE
+  //     if (role == null || !_supportedRoles.contains(role.toLowerCase())) {
+  //       _log('Invalid or unsupported role: $role');
+  //       await TokenService.clearAll();
+  //       return false;
+  //     }
+  //
+  //     if (cachedData == null) {
+  //       _log('No cached data, refreshing with 7-day session validation...');
+  //       final freshData = await refreshUserData();
+  //       return freshData != null;
+  //     }
+  //
+  //     _log('User data is valid with valid 7-day session');
+  //     return true;
+  //   } catch (e) {
+  //     _log('Error ensuring valid user data: $e');
+  //     return false;
+  //   }
+  // }
 
   /// Check if user session is still valid (token not expired after 7 days)
   static Future<bool> isSessionValid() async {

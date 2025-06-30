@@ -299,15 +299,48 @@ class OrderService {
     try {
       _log('🔄 OrderService: Updating order $orderId to $orderStatus');
 
-      // Validasi permission
-      final hasPermission = await _fastCheckStatusPermission(orderStatus);
-      if (!hasPermission) {
-        throw Exception('Access denied: Insufficient permissions');
+      // ✅ PERBAIKAN: Comprehensive authentication validation
+      final authResults = await Future.wait([
+        AuthService.isAuthenticated(),
+        AuthService.ensureValidUserData(),
+        AuthService.getUserRole(),
+        AuthService.getUserData(),
+        AuthService.isSessionValid(),
+      ]);
+
+      final isAuthenticated = authResults[0] as bool;
+      final hasValidSession = authResults[1] as bool;
+      final userRole = authResults[2] as String?;
+      final userData = authResults[3] as Map<String, dynamic>?;
+      final sessionValid = authResults[4] as bool;
+
+      if (!isAuthenticated ||
+          !hasValidSession ||
+          !sessionValid ||
+          userData == null) {
+        throw Exception('Session expired: Please login again');
       }
 
-      // ✅ PERBAIKI: Body sesuai backend expectation
+      if (userRole == null) {
+        throw Exception('Invalid user role: Please login again');
+      }
+
+      _log('✅ OrderService: Authentication validated');
+      _log('   - User ID: ${userData['id']}');
+      _log('   - User Role: $userRole');
+      _log('   - Session Valid: $sessionValid');
+
+      // ✅ PERBAIKAN: Permission validation
+      final hasPermission = await _fastCheckStatusPermission(orderStatus);
+      if (!hasPermission) {
+        throw Exception('Access denied: You cannot perform this action');
+      }
+
+      _log('✅ Permission validated for $userRole to set status: $orderStatus');
+
+      // ✅ Request body sesuai backend expectation
       final body = <String, dynamic>{
-        'order_status': orderStatus, // ✅ Backend expect 'order_status'
+        'order_status': orderStatus,
       };
 
       if (deliveryStatus != null) body['delivery_status'] = deliveryStatus;
@@ -317,14 +350,13 @@ class OrderService {
       _log('📍 Endpoint: $_baseEndpoint/$orderId/status');
 
       final response = await BaseService.apiCall(
-        method: 'PATCH', // ✅ Sesuai backend
+        method: 'PATCH',
         endpoint: '$_baseEndpoint/$orderId/status',
         body: body,
         requiresAuth: true,
       );
 
-      _log('📥 Response status: ${response['statusCode'] ?? 'unknown'}');
-      _log('📥 Response data: ${response['data']}');
+      _log('📥 Response received: ${response.keys.toList()}');
 
       if (response['data'] != null) {
         _fastProcessOrderData(response['data']);
@@ -332,7 +364,6 @@ class OrderService {
         return response['data'];
       }
 
-      // ✅ PERBAIKI: Handle response yang tidak memiliki 'data'
       if (response['message'] != null) {
         _log('✅ Update successful with message: ${response['message']}');
         return {'success': true, 'message': response['message']};
@@ -341,14 +372,27 @@ class OrderService {
       return response;
     } catch (e) {
       _log('❌ Update order status error: $e');
-      // ✅ PERBAIKI: Re-throw dengan informasi lebih detail
-      if (e.toString().contains('403') || e.toString().contains('Forbidden')) {
-        throw Exception('Access denied: Only store can update order status');
-      } else if (e.toString().contains('404')) {
+
+      // ✅ Enhanced error handling
+      final errorStr = e.toString().toLowerCase();
+
+      if (errorStr.contains('401') || errorStr.contains('unauthorized')) {
+        // Force logout on authentication error
+        await AuthService.logout();
+        throw Exception('Session expired: Please login again');
+      } else if (errorStr.contains('403') ||
+          errorStr.contains('forbidden') ||
+          errorStr.contains('access denied')) {
+        throw Exception('Access denied: You cannot perform this action');
+      } else if (errorStr.contains('404') || errorStr.contains('not found')) {
         throw Exception('Order not found');
-      } else if (e.toString().contains('400')) {
-        throw Exception('Invalid order status or request');
+      } else if (errorStr.contains('400') || errorStr.contains('bad request')) {
+        throw Exception('Invalid order status or request data');
+      } else if (errorStr.contains('network') ||
+          errorStr.contains('connection')) {
+        throw Exception('Network error: Please check your internet connection');
       }
+
       rethrow;
     }
   }
@@ -359,36 +403,42 @@ class OrderService {
     String? cancellationReason,
   }) async {
     try {
-      final isValid = await _fastValidateCustomer();
-      if (!isValid)
-        throw Exception('Access denied: Customer authentication required');
+      _log('🚫 OrderService: Cancelling order $orderId by customer');
 
-      final body = {
-        'cancellation_reason': cancellationReason ?? 'Cancelled by customer',
-      };
+      // ✅ Enhanced authentication validation
+      final authResults = await Future.wait([
+        AuthService.isAuthenticated(),
+        AuthService.ensureValidUserData(),
+        AuthService.getUserRole(),
+        AuthService.getUserData(),
+      ]);
 
-      final response = await BaseService.apiCall(
-        method: 'POST',
-        endpoint: '$_baseEndpoint/$orderId/cancel',
-        body: body,
-        requiresAuth: true,
+      final isAuthenticated = authResults[0] as bool;
+      final hasValidSession = authResults[1] as bool;
+      final userRole = authResults[2] as String?;
+      final userData = authResults[3] as Map<String, dynamic>?;
+
+      if (!isAuthenticated || !hasValidSession || userData == null) {
+        throw Exception('Authentication required: Please login again');
+      }
+
+      if (userRole?.toLowerCase() != 'customer') {
+        throw Exception('Access denied: Only customers can cancel orders');
+      }
+
+      _log('✅ Authentication validated for customer cancellation');
+      _log('   - User ID: ${userData['id']}');
+      _log('   - User Role: $userRole');
+
+      // ✅ Directly use updateOrderStatus since /cancel endpoint might not exist
+      return await updateOrderStatus(
+        orderId: orderId,
+        orderStatus: 'cancelled',
+        notes: cancellationReason ?? 'Cancelled by customer',
       );
-
-      if (response['data'] != null) {
-        _fastProcessOrderData(response['data']);
-      }
-      return response['data'] ?? {};
     } catch (e) {
-      // Fallback to updateOrderStatus
-      try {
-        return await updateOrderStatus(
-          orderId: orderId,
-          orderStatus: 'cancelled',
-          notes: cancellationReason,
-        );
-      } catch (fallbackError) {
-        throw Exception('Failed to cancel order: $e');
-      }
+      _log('❌ Cancel order by customer error: $e');
+      rethrow;
     }
   }
 
@@ -796,28 +846,29 @@ class OrderService {
       final userRole = await AuthService.getUserRole();
       _log('🔍 Checking permission: role=$userRole, status=$orderStatus');
 
+      // ✅ PERBAIKAN: Customer permissions
+      if (userRole?.toLowerCase() == 'customer') {
+        // Customer hanya bisa cancel order (set status to 'cancelled')
+        return orderStatus.toLowerCase() == 'cancelled';
+      }
+
       // Store bisa update order_status sesuai alur:
-      // pending -> preparing -> ready_for_pickup (setelah itu backend yang handle)
       if (userRole?.toLowerCase() == 'store') {
         final allowedStatuses = [
-          'preparing', // Dari pending -> preparing (approve & mulai siapkan)
-          'ready_for_pickup', // Dari preparing -> ready_for_pickup (siap diambil)
-          'rejected', // Store bisa reject order
-          'cancelled' // Store bisa cancel order (jika diperlukan)
+          'preparing', // approve order
+          'ready_for_pickup', // ready to pickup
+          'rejected', // reject order
+          'cancelled' // cancel order if needed
         ];
         return allowedStatuses.contains(orderStatus.toLowerCase());
       }
 
-      // Driver bisa update delivery_status yang mempengaruhi order_status
+      // Driver bisa update delivery-related status
       if (userRole?.toLowerCase() == 'driver') {
-        return true; // Biarkan backend yang validasi detail permission driver
+        return true; // Let backend validate specific driver permissions
       }
 
-      // Customer hanya bisa cancel
-      if (userRole?.toLowerCase() == 'customer') {
-        return orderStatus.toLowerCase() == 'cancelled';
-      }
-
+      _log('❌ Permission denied for role: $userRole');
       return false;
     } catch (e) {
       _log('❌ Permission check error: $e');

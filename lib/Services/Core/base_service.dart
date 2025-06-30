@@ -20,17 +20,17 @@ class BaseService {
 
   /// GET request with automatic token management
   static Future<http.Response> get(
-      String endpoint, {
-        Map<String, String>? queryParams,
-        bool requiresAuth = true,
-      }) async {
+    String endpoint, {
+    Map<String, String>? queryParams,
+    bool requiresAuth = true,
+  }) async {
     try {
       final uri = _buildUri(endpoint, queryParams);
-      final headers = requiresAuth
-          ? await getAuthHeaders()
-          : ApiConstants.headers;
+      final headers =
+          requiresAuth ? await getAuthHeaders() : ApiConstants.headers;
 
-      final response = await http.get(uri, headers: headers)
+      final response = await http
+          .get(uri, headers: headers)
           .timeout(ApiConstants.requestTimeout);
 
       await _handleUnauthorized(response);
@@ -46,22 +46,23 @@ class BaseService {
 
   /// POST request with automatic token management
   static Future<http.Response> post(
-      String endpoint, {
-        Map<String, dynamic>? body,
-        Map<String, String>? queryParams,
-        bool requiresAuth = true,
-      }) async {
+    String endpoint, {
+    Map<String, dynamic>? body,
+    Map<String, String>? queryParams,
+    bool requiresAuth = true,
+  }) async {
     try {
       final uri = _buildUri(endpoint, queryParams);
-      final headers = requiresAuth
-          ? await getAuthHeaders()
-          : ApiConstants.headers;
+      final headers =
+          requiresAuth ? await getAuthHeaders() : ApiConstants.headers;
 
-      final response = await http.post(
-        uri,
-        headers: headers,
-        body: body != null ? jsonEncode(body) : null,
-      ).timeout(ApiConstants.requestTimeout);
+      final response = await http
+          .post(
+            uri,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          )
+          .timeout(ApiConstants.requestTimeout);
 
       await _handleUnauthorized(response);
       return response;
@@ -76,22 +77,23 @@ class BaseService {
 
   /// PUT request with automatic token management
   static Future<http.Response> put(
-      String endpoint, {
-        Map<String, dynamic>? body,
-        Map<String, String>? queryParams,
-        bool requiresAuth = true,
-      }) async {
+    String endpoint, {
+    Map<String, dynamic>? body,
+    Map<String, String>? queryParams,
+    bool requiresAuth = true,
+  }) async {
     try {
       final uri = _buildUri(endpoint, queryParams);
-      final headers = requiresAuth
-          ? await getAuthHeaders()
-          : ApiConstants.headers;
+      final headers =
+          requiresAuth ? await getAuthHeaders() : ApiConstants.headers;
 
-      final response = await http.put(
-        uri,
-        headers: headers,
-        body: body != null ? jsonEncode(body) : null,
-      ).timeout(ApiConstants.requestTimeout);
+      final response = await http
+          .put(
+            uri,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          )
+          .timeout(ApiConstants.requestTimeout);
 
       await _handleUnauthorized(response);
       return response;
@@ -106,22 +108,23 @@ class BaseService {
 
   /// PATCH request with automatic token management
   static Future<http.Response> patch(
-      String endpoint, {
-        Map<String, dynamic>? body,
-        Map<String, String>? queryParams,
-        bool requiresAuth = true,
-      }) async {
+    String endpoint, {
+    Map<String, dynamic>? body,
+    Map<String, String>? queryParams,
+    bool requiresAuth = true,
+  }) async {
     try {
       final uri = _buildUri(endpoint, queryParams);
-      final headers = requiresAuth
-          ? await getAuthHeaders()
-          : ApiConstants.headers;
+      final headers =
+          requiresAuth ? await getAuthHeaders() : ApiConstants.headers;
 
-      final response = await http.patch(
-        uri,
-        headers: headers,
-        body: body != null ? jsonEncode(body) : null,
-      ).timeout(ApiConstants.requestTimeout);
+      final response = await http
+          .patch(
+            uri,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          )
+          .timeout(ApiConstants.requestTimeout);
 
       await _handleUnauthorized(response);
       return response;
@@ -136,17 +139,17 @@ class BaseService {
 
   /// DELETE request with automatic token management
   static Future<http.Response> delete(
-      String endpoint, {
-        Map<String, String>? queryParams,
-        bool requiresAuth = true,
-      }) async {
+    String endpoint, {
+    Map<String, String>? queryParams,
+    bool requiresAuth = true,
+  }) async {
     try {
       final uri = _buildUri(endpoint, queryParams);
-      final headers = requiresAuth
-          ? await getAuthHeaders()
-          : ApiConstants.headers;
+      final headers =
+          requiresAuth ? await getAuthHeaders() : ApiConstants.headers;
 
-      final response = await http.delete(uri, headers: headers)
+      final response = await http
+          .delete(uri, headers: headers)
           .timeout(ApiConstants.requestTimeout);
 
       await _handleUnauthorized(response);
@@ -167,11 +170,7 @@ class BaseService {
 
       // Handle empty response
       if (body.isEmpty) {
-        return {
-          'message': 'Empty response',
-          'data': null,
-          'errors': null
-        };
+        return {'message': 'Empty response', 'data': null, 'errors': null};
       }
 
       // Try to decode JSON
@@ -183,30 +182,20 @@ class BaseService {
         return _normalizeResponse(decodedJson);
       } else if (decodedJson is List) {
         // Response is an array - wrap it in a standard format
-        return {
-          'message': 'Success',
-          'data': decodedJson,
-          'errors': null
-        };
+        return {'message': 'Success', 'data': decodedJson, 'errors': null};
       } else if (decodedJson is String) {
         // Response is a string - wrap it in a standard format
-        return {
-          'message': decodedJson,
-          'data': null,
-          'errors': null
-        };
+        return {'message': decodedJson, 'data': null, 'errors': null};
       } else {
         // Response is some other type - wrap it in a standard format
-        return {
-          'message': 'Success',
-          'data': decodedJson,
-          'errors': null
-        };
+        return {'message': 'Success', 'data': decodedJson, 'errors': null};
       }
     } on FormatException catch (e) {
       // JSON parsing failed - treat as plain text
       return {
-        'message': response.body.isNotEmpty ? response.body : 'Invalid response format',
+        'message': response.body.isNotEmpty
+            ? response.body
+            : 'Invalid response format',
         'data': null,
         'errors': 'JSON parsing failed: $e'
       };
@@ -221,7 +210,8 @@ class BaseService {
   }
 
   /// Normalize response to ensure consistent format
-  static Map<String, dynamic> _normalizeResponse(Map<String, dynamic> response) {
+  static Map<String, dynamic> _normalizeResponse(
+      Map<String, dynamic> response) {
     return {
       'message': response['message'] ?? 'Success',
       'data': response['data'],
@@ -254,9 +244,8 @@ class BaseService {
 
     try {
       final errorData = parseResponse(response);
-      final message = errorData['message'] ??
-          errorData['errors'] ??
-          'Request failed';
+      final message =
+          errorData['message'] ?? errorData['errors'] ?? 'Request failed';
       throw Exception(message);
     } catch (e) {
       // Fallback error messages
@@ -298,8 +287,11 @@ class BaseService {
   }
 
   /// Handle unauthorized responses by clearing tokens
+  /// Handle unauthorized responses by clearing tokens and forcing re-login
   static Future<void> _handleUnauthorized(http.Response response) async {
     if (response.statusCode == 401) {
+      print(
+          '🚨 BaseService: 401 Unauthorized - Clearing tokens and forcing logout');
       await TokenService.clearAll();
     }
   }
@@ -315,21 +307,34 @@ class BaseService {
     late http.Response response;
 
     try {
+      // ✅ PERBAIKAN: Check token validity before making request
+      if (requiresAuth) {
+        final token = await TokenService.getToken();
+        if (token == null || token.isEmpty) {
+          throw Exception('Authentication required: No valid token found');
+        }
+      }
+
       switch (method.toUpperCase()) {
         case 'GET':
-          response = await get(endpoint, queryParams: queryParams, requiresAuth: requiresAuth);
+          response = await get(endpoint,
+              queryParams: queryParams, requiresAuth: requiresAuth);
           break;
         case 'POST':
-          response = await post(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
+          response = await post(endpoint,
+              body: body, queryParams: queryParams, requiresAuth: requiresAuth);
           break;
         case 'PUT':
-          response = await put(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
+          response = await put(endpoint,
+              body: body, queryParams: queryParams, requiresAuth: requiresAuth);
           break;
         case 'PATCH':
-          response = await patch(endpoint, body: body, queryParams: queryParams, requiresAuth: requiresAuth);
+          response = await patch(endpoint,
+              body: body, queryParams: queryParams, requiresAuth: requiresAuth);
           break;
         case 'DELETE':
-          response = await delete(endpoint, queryParams: queryParams, requiresAuth: requiresAuth);
+          response = await delete(endpoint,
+              queryParams: queryParams, requiresAuth: requiresAuth);
           break;
         default:
           throw Exception('Unsupported HTTP method: $method');
@@ -338,11 +343,19 @@ class BaseService {
       handleApiError(response);
       return parseResponse(response);
     } catch (e) {
-      // Log the error for debugging
+      // ✅ Enhanced error logging
       print('API Call Error: $e');
       print('Endpoint: $endpoint');
       print('Method: $method');
       if (body != null) print('Body: $body');
+      print('RequiresAuth: $requiresAuth');
+
+      // ✅ Handle specific authentication errors
+      if (e.toString().contains('401') ||
+          e.toString().contains('Unauthorized')) {
+        await TokenService.clearAll();
+        throw Exception('Session expired: Please login again');
+      }
 
       rethrow;
     }
