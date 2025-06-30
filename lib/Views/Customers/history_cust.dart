@@ -31,7 +31,7 @@ class _HistoryCacheManager {
   static final Map<String, List<OrderModel>> _ordersCache = {};
   static final Map<int, StoreModel> _storeCache = {};
   static final Map<String, DateTime> _cacheTimestamps = {};
-  static const Duration _cacheExpiry = Duration(minutes: 3);
+  static const Duration _cacheExpiry = Duration(minutes: 1);
   static const Duration _storeCacheExpiry = Duration(minutes: 10);
 
   static bool _isCacheValid(String key, {Duration? customExpiry}) {
@@ -46,7 +46,15 @@ class _HistoryCacheManager {
     _cacheTimestamps['orders_$key'] = DateTime.now();
   }
 
-  static List<OrderModel>? getCachedOrders(String key) {
+  static List<OrderModel>? getCachedOrders(String key,
+      {bool forceExpire = false}) {
+    if (forceExpire) {
+      // ✅ Force expire cache jika diminta
+      _ordersCache.remove(key);
+      _cacheTimestamps.remove('orders_$key');
+      return null;
+    }
+
     if (_isCacheValid('orders_$key')) {
       return _ordersCache[key];
     }
@@ -63,6 +71,12 @@ class _HistoryCacheManager {
       return _storeCache[storeId];
     }
     return null;
+  }
+
+  static void clearAllCache() {
+    _ordersCache.clear();
+    _storeCache.clear();
+    _cacheTimestamps.clear();
   }
 
   static void clearExpiredCache() {
@@ -212,7 +226,10 @@ class HistoryCustomer extends StatefulWidget {
 }
 
 class _HistoryCustomerState extends State<HistoryCustomer>
-    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+    with
+        TickerProviderStateMixin,
+        AutomaticKeepAliveClientMixin,
+        WidgetsBindingObserver {
   static const bool _debugMode = false;
   static const int _pageSize = 10;
 
@@ -260,6 +277,23 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     _initializeControllers();
     _startBackgroundCacheCleanup();
     _authenticateAndLoadData();
+    WidgetsBinding.instance.addObserver(this);
+
+    // ✅ TAMBAH: Delayed refresh untuk memastikan data terbaru
+    Timer(const Duration(milliseconds: 500), () {
+      if (mounted && _isAuthenticatedNotifier.value) {
+        _fetchOrderHistoryOptimized(isRefresh: true, forceRefresh: true);
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _isAuthenticatedNotifier.value) {
+      // ✅ Force refresh ketika app resumed
+      _HistoryCacheManager.clearAllCache();
+      _fetchOrderHistoryOptimized(isRefresh: true, forceRefresh: true);
+    }
   }
 
   void _initializeControllers() {
@@ -289,105 +323,61 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     });
   }
 
-  // 1. TAMBAH method helper untuk menghitung grand total
-  double _calculateGrandTotal(OrderModel order) {
-    final totalAmount = order.totalAmount;
-    final deliveryFee = order.deliveryFee ?? 0.0;
-    return totalAmount + deliveryFee;
-  }
-
-// 2. TAMBAH method helper untuk format grand total
-  String _formatGrandTotal(OrderModel order) {
-    final grandTotal = _calculateGrandTotal(order);
-    return NumberFormat.currency(
-      locale: 'id_ID',
-      symbol: 'Rp ',
-      decimalDigits: 0,
-    ).format(grandTotal);
-  }
-
-  Future<void> _retryFetchStore(int storeId) async {
+  static List<Map<String, dynamic>>? _parseTrackingUpdates(dynamic value) {
     try {
-      final storeResponse = await StoreService.getStoreById(storeId.toString());
+      if (value == null) return [];
 
-      if (storeResponse['success'] == true && storeResponse['data'] != null) {
-        final store = StoreModel.fromJson(storeResponse['data']);
-        _HistoryCacheManager.cacheStore(storeId, store);
-
-        // Update orders yang menggunakan store ini
-        final currentOrders = _ordersNotifier.value;
-        final updatedOrders = currentOrders.map((order) {
-          if (order.storeId == storeId) {
-            return order.copyWith(store: store);
+      // Jika sudah berupa List
+      if (value is List) {
+        return value.map((item) {
+          if (item is Map<String, dynamic>) {
+            return item;
+          } else if (item is String) {
+            try {
+              final decoded = jsonDecode(item);
+              if (decoded is Map<String, dynamic>) {
+                return decoded;
+              }
+            } catch (e) {
+              print('⚠️ Failed to parse tracking update item: $e');
+            }
           }
-          return order;
+          return <String, dynamic>{};
         }).toList();
-
-        _ordersNotifier.value = updatedOrders;
       }
-    } catch (e) {
-      _log('Error retrying store fetch for $storeId: $e');
-    }
-  }
 
-  Widget _buildOrderFooterSimple(OrderModel order) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Total Pembayaran',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey[700],
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-            const SizedBox(height: 4),
-            // ✅ PERBAIKAN: Tampilkan grand total (total amount + delivery fee)
-            Text(
-              _formatGrandTotal(order),
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: GlobalStyle.primaryColor,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-            // ✅ TAMBAH: Info breakdown kecil
-            Text(
-              'Subtotal + Ongkir',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey[500],
-                fontStyle: FontStyle.italic,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-          ],
-        ),
-        ElevatedButton(
-          onPressed: () => _navigateToDetail(order),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: GlobalStyle.primaryColor,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-          child: const Text('Lihat Detail',
-              style: TextStyle(fontWeight: FontWeight.w500)),
-        ),
-      ],
-    );
+      // Jika berupa String, coba parse sebagai JSON
+      if (value is String && value.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(value);
+          if (decoded is List) {
+            return decoded.map((item) {
+              if (item is Map<String, dynamic>) {
+                return item;
+              }
+              return <String, dynamic>{};
+            }).toList();
+          } else if (decoded is Map<String, dynamic>) {
+            return [decoded];
+          }
+        } catch (e) {
+          print('⚠️ Failed to parse tracking_updates JSON: $e');
+          // Jika JSON parsing gagal, return empty list
+          return [];
+        }
+      }
+
+      return [];
+    } catch (e) {
+      print('❌ Error parsing tracking updates: $e');
+      return [];
+    }
   }
 
   PreferredSizeWidget _buildTabBar() {
     return TabBar(
       controller: _tabController,
-      isScrollable: true, // ✅ Perlu scroll untuk 9 tab
+      isScrollable: true,
       labelColor: GlobalStyle.primaryColor,
       unselectedLabelColor: Colors.grey[600],
       labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
@@ -397,13 +387,13 @@ class _HistoryCustomerState extends State<HistoryCustomer>
       tabs: [
         _buildTab('Semua', 0),
         _buildTab('Menunggu', 1),
-        _buildTab('Diproses Toko', 2),
-        _buildTab('Diproses Driver', 3),
-        _buildTab('Disiapkan', 4),
+        _buildTab('Proses Driver', 2),
+        _buildTab('Proses Toko', 3),
+        _buildTab('Dikonfirmasi', 4),
         _buildTab('Siap Diambil', 5),
         _buildTab('Diantar', 6),
         _buildTab('Selesai', 7),
-        _buildTab('Dibatalkan', 8),
+        _buildTab('Batal/Tolak', 8),
       ],
     );
   }
@@ -422,7 +412,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     _refreshDebounce?.cancel();
     _refreshDebounce = Timer(const Duration(milliseconds: 300), () {
       if (_isAuthenticatedNotifier.value && mounted) {
-        _fetchOrderHistoryOptimized(isRefresh: true);
+        // ✅ Force refresh pada tab change
+        _fetchOrderHistoryOptimized(isRefresh: true, forceRefresh: true);
       }
     });
   }
@@ -480,9 +471,11 @@ class _HistoryCustomerState extends State<HistoryCustomer>
   }
 
   // Ultra-Optimized Order History Fetching
-  Future<void> _fetchOrderHistoryOptimized({bool isRefresh = false}) async {
+  Future<void> _fetchOrderHistoryOptimized(
+      {bool isRefresh = false, bool forceRefresh = false}) async {
     try {
-      _log('🔄 Fetching order history (page $_currentPage)...');
+      _log(
+          '🔄 Fetching order history (page $_currentPage, force: $forceRefresh)...');
 
       if (!_isAuthenticatedNotifier.value || _customerData == null) {
         _log('❌ Not authenticated, re-authenticating...');
@@ -490,23 +483,52 @@ class _HistoryCustomerState extends State<HistoryCustomer>
         return;
       }
 
-      if (isRefresh) {
+      if (isRefresh || forceRefresh) {
         _currentPage = 1;
         _hasMoreData = true;
         _isLoadingNotifier.value = true;
         _errorNotifier.value = null;
         _ordersNotifier.value = [];
+
+        if (forceRefresh) {
+          _HistoryCacheManager.clearAllCache();
+        }
       }
 
-      // ✅ FETCH SEMUA DATA tanpa filter (null status)
-      // Frontend yang akan filter berdasarkan kombinasi status
-      final orderData = await OrderService.getOrdersByUser(
-        page: _currentPage,
-        limit: _pageSize,
-        status: null, // ✅ Ambil semua order
-        sortBy: 'created_at',
-        sortOrder: 'desc',
-      );
+      // Check cache dengan force expire option
+      final cacheKey = 'all_page_$_currentPage';
+      final cachedOrders = _HistoryCacheManager.getCachedOrders(cacheKey,
+          forceExpire: forceRefresh);
+
+      if (cachedOrders != null && !forceRefresh) {
+        _log('📦 Using cached orders: ${cachedOrders.length}');
+        _updateOrdersFromCache(cachedOrders, isRefresh);
+        return;
+      }
+
+      // ✅ PERBAIKAN: Gunakan method yang sudah ada dengan timestamp support
+      Map<String, dynamic> orderData;
+
+      if (forceRefresh) {
+        // Gunakan forceRefreshOrdersByUser untuk force refresh
+        orderData = await OrderService.forceRefreshOrdersByUser(
+          page: _currentPage,
+          limit: _pageSize,
+          status: null,
+          sortBy: 'created_at',
+          sortOrder: 'desc',
+        );
+      } else {
+        // Gunakan getOrdersByUserSmart untuk smart refresh
+        orderData = await OrderService.getOrdersByUserSmart(
+          page: _currentPage,
+          limit: _pageSize,
+          status: null,
+          sortBy: 'created_at',
+          sortOrder: 'desc',
+          forceRefresh: false,
+        );
+      }
 
       _log('📥 Raw order data received: ${orderData.keys}');
       _log('📊 Orders count: ${(orderData['orders'] as List?)?.length ?? 0}');
@@ -515,7 +537,7 @@ class _HistoryCustomerState extends State<HistoryCustomer>
         throw Exception('Invalid response: No orders data found');
       }
 
-      // Background processing of order data
+      // Background processing
       final processedData =
           _HistoryBackgroundProcessor.processOrderDataInBackground(
               orderData['orders'] ?? []);
@@ -526,17 +548,17 @@ class _HistoryCustomerState extends State<HistoryCustomer>
       _log(
           '✅ Processed ${orders.length} orders, ${storeIds.length} unique stores');
 
-      // Background fetch stores in parallel
+      // Background fetch stores
       if (storeIds.isNotEmpty) {
         _fetchStoresInBackground(orders, storeIds);
       }
 
-      // Update UI immediately with basic order data
+      // Update UI immediately
       _updatePaginationInfo(orderData);
       _updateOrdersList(orders, isRefresh);
 
-      // Cache all orders (tanpa status filter)
-      _HistoryCacheManager.cacheOrders('all_page_$_currentPage', orders);
+      // Cache dengan key yang spesifik
+      _HistoryCacheManager.cacheOrders(cacheKey, orders);
 
       _log('✅ Orders fetched successfully: ${orders.length}');
     } catch (e) {
@@ -548,10 +570,6 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           e.toString().contains('token') ||
           e.toString().contains('401')) {
         _handleAuthenticationError();
-      } else if (e.toString().contains('network') ||
-          e.toString().contains('connection')) {
-        _errorNotifier.value =
-            'Network error. Please check your internet connection.';
       }
     } finally {
       _isLoadingNotifier.value = false;
@@ -640,6 +658,9 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     _totalItems = orderData['totalItems'] ?? 0;
     _totalPages = orderData['totalPages'] ?? 1;
     _hasMoreData = _currentPage < _totalPages;
+
+    _log(
+        '📊 Pagination updated: $_currentPage/$_totalPages ($_totalItems total)');
   }
 
   void _updateOrdersList(List<OrderModel> orders, bool isRefresh) {
@@ -675,8 +696,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
     const tabColors = [
       Colors.grey, // Semua
       Colors.orange, // Menunggu
-      Colors.amber, // Diproses Toko
-      Colors.blue, // Diproses Driver
+      Colors.blue, // Diproses Driver (tukar)
+      Colors.amber, // Diproses Toko (tukar)
       Colors.purple, // Disiapkan
       Colors.indigo, // Siap Diambil
       Colors.cyan, // Diantar
@@ -688,63 +709,72 @@ class _HistoryCustomerState extends State<HistoryCustomer>
         : GlobalStyle.primaryColor;
   }
 
-  // ✅ PERBAIKAN: Efficient Filtered Orders berdasarkan alur bisnis yang benar
+//Filter berdasarkan alur bisnis yang benar
   List<OrderModel> _getFilteredOrders(int tabIndex, List<OrderModel> orders) {
+    // ✅ TAMBAH: Sort berdasarkan created_at dan id untuk memastikan order terbaru di atas
+    List<OrderModel> sortedOrders = List.from(orders);
+    sortedOrders.sort((a, b) {
+      // Prioritas 1: Sort by created_at (terbaru dulu)
+      int dateComparison = b.createdAt.compareTo(a.createdAt);
+      if (dateComparison != 0) return dateComparison;
+
+      // Prioritas 2: Jika tanggal sama, sort by id (terbesar dulu)
+      return b.id.compareTo(a.id);
+    });
+
     switch (tabIndex) {
       case 0: // Semua
-        return orders;
+        return sortedOrders;
 
-      case 1: // Menunggu - pending + pending (bisa dicancel)
-        return orders
+      case 1: // Menunggu - pending + pending
+        return sortedOrders
             .where((order) =>
                 order.orderStatus == OrderStatus.pending &&
                 order.deliveryStatus == DeliveryStatus.pending)
             .toList();
 
-      case 2: // Diproses Toko - preparing + pending (toko accept, driver belum)
-        return orders
+      case 2: // Diproses Driver
+        return sortedOrders
             .where((order) =>
-                order.orderStatus == OrderStatus.preparing &&
-                order.deliveryStatus == DeliveryStatus.pending)
+                order.driverId != null &&
+                (order.deliveryStatus == DeliveryStatus.pending ||
+                    order.deliveryStatus == DeliveryStatus.pickedUp) &&
+                order.orderStatus != OrderStatus.delivered &&
+                order.orderStatus != OrderStatus.cancelled &&
+                order.orderStatus != OrderStatus.rejected)
             .toList();
 
-      case 3: // Diproses Driver - pending + picked_up (driver accept, toko belum)
-        return orders
-            .where((order) =>
-                order.orderStatus == OrderStatus.pending &&
-                order.deliveryStatus == DeliveryStatus.pickedUp)
+      case 3: // Diproses Toko
+        return sortedOrders
+            .where((order) => order.orderStatus == OrderStatus.preparing)
             .toList();
 
-      case 4: // Disiapkan - preparing + picked_up (kedua sudah accept)
-        return orders
-            .where((order) =>
-                order.orderStatus == OrderStatus.preparing &&
-                order.deliveryStatus == DeliveryStatus.pickedUp)
+      case 4: // Dikonfirmasi
+        return sortedOrders
+            .where((order) => order.orderStatus == OrderStatus.confirmed)
             .toList();
 
-      case 5: // Siap Diambil - ready_for_pickup + picked_up
-        return orders
-            .where((order) =>
-                order.orderStatus == OrderStatus.readyForPickup &&
-                order.deliveryStatus == DeliveryStatus.pickedUp)
+      case 5: // Siap Diambil
+        return sortedOrders
+            .where((order) => order.orderStatus == OrderStatus.readyForPickup)
             .toList();
 
-      case 6: // Diantar - on_delivery + on_way
-        return orders
+      case 6: // Diantar
+        return sortedOrders
             .where((order) =>
                 order.orderStatus == OrderStatus.onDelivery &&
                 order.deliveryStatus == DeliveryStatus.onWay)
             .toList();
 
-      case 7: // Selesai - delivered + delivered
-        return orders
+      case 7: // Selesai
+        return sortedOrders
             .where((order) =>
                 order.orderStatus == OrderStatus.delivered &&
                 order.deliveryStatus == DeliveryStatus.delivered)
             .toList();
 
-      case 8: // Dibatalkan - cancelled atau rejected
-        return orders
+      case 8: // Dibatalkan/Ditolak
+        return sortedOrders
             .where((order) =>
                 order.orderStatus == OrderStatus.cancelled ||
                 order.orderStatus == OrderStatus.rejected ||
@@ -752,7 +782,7 @@ class _HistoryCustomerState extends State<HistoryCustomer>
             .toList();
 
       default:
-        return orders;
+        return sortedOrders;
     }
   }
 
@@ -808,7 +838,7 @@ class _HistoryCustomerState extends State<HistoryCustomer>
   @override
   void dispose() {
     _disposed = true;
-
+    WidgetsBinding.instance.removeObserver(this);
     // Dispose controllers
     _tabController.dispose();
     _scrollController.dispose();
@@ -897,6 +927,16 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           );
         },
       ),
+      actions: [
+        // ✅ TAMBAH: Manual refresh button
+        IconButton(
+          icon: Icon(Icons.refresh, color: GlobalStyle.primaryColor),
+          onPressed: () {
+            _fetchOrderHistoryOptimized(isRefresh: true, forceRefresh: true);
+          },
+          tooltip: 'Refresh Data',
+        ),
+      ],
       bottom: _buildTabBar(),
     );
   }
@@ -949,7 +989,8 @@ class _HistoryCustomerState extends State<HistoryCustomer>
 
         return RefreshIndicator(
           onRefresh: () => _isAuthenticatedNotifier.value
-              ? _fetchOrderHistoryOptimized(isRefresh: true)
+              ? _fetchOrderHistoryOptimized(
+                  isRefresh: true, forceRefresh: true) // ✅ Force refresh
               : _authenticateAndLoadData(),
           color: GlobalStyle.primaryColor,
           child: _buildTabBarView(),
@@ -1001,15 +1042,15 @@ class _HistoryCustomerState extends State<HistoryCustomer>
 
   String _getEmptyMessage(int tabIndex) {
     const messages = [
-      'Tidak ada pesanan',
+      'Tidak ada riwayat pesanan',
       'Tidak ada pesanan yang menunggu konfirmasi',
-      'Tidak ada pesanan yang diproses toko',
       'Tidak ada pesanan yang diproses driver',
-      'Tidak ada pesanan yang sedang disiapkan',
+      'Tidak ada pesanan yang diproses toko',
+      'Tidak ada pesanan yang dikonfirmasi',
       'Tidak ada pesanan yang siap diambil',
       'Tidak ada pesanan yang sedang diantar',
       'Tidak ada pesanan yang selesai',
-      'Tidak ada pesanan yang dibatalkan',
+      'Tidak ada pesanan yang dibatalkan/ditolak',
     ];
     return tabIndex < messages.length ? messages[tabIndex] : messages[0];
   }
@@ -1126,21 +1167,22 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           ],
         ),
         const SizedBox(height: 8),
-        // Text(
-        //   'Order #${order.id}',
-        //   style: TextStyle(
-        //     fontSize: 13,
-        //     color: GlobalStyle.primaryColor,
-        //     fontWeight: FontWeight.w500,
-        //   ),
-        // ),
-        // const SizedBox(height: 4),
+        Text(
+          'Order #${order.id}',
+          style: TextStyle(
+            fontSize: 13,
+            color: GlobalStyle.primaryColor,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 4),
         Text(
           formattedDate,
           style: TextStyle(fontSize: 13, color: Colors.grey[700]),
         ),
         const SizedBox(height: 6),
-        // ✅ Tampilkan info delivery status jika relevan
+
+        // Info delivery status jika ada driver
         if (order.driverId != null) ...[
           Row(
             children: [
@@ -1158,8 +1200,10 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           ),
           const SizedBox(height: 4),
         ],
+
+        // Info items count
         Text(
-          'Detail pesanan tersedia di halaman detail',
+          '${order.totalItems} item • ${order.items.isNotEmpty ? order.items.map((e) => e.name).join(", ") : "Detail di halaman detail"}',
           style: TextStyle(
             fontSize: 14,
             color: Colors.grey[800],
@@ -1172,6 +1216,84 @@ class _HistoryCustomerState extends State<HistoryCustomer>
       ],
     );
   }
+
+  // Widget _buildOrderInfo(OrderModel order, String formattedDate,
+  //     String statusText, Color statusColor) {
+  //   return Column(
+  //     crossAxisAlignment: CrossAxisAlignment.start,
+  //     children: [
+  //       Row(
+  //         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  //         children: [
+  //           Expanded(
+  //             child: ValueListenableBuilder<Map<int, bool>>(
+  //               valueListenable: _storeLoadingNotifier,
+  //               builder: (context, loadingMap, _) {
+  //                 return Text(
+  //                   _getStoreName(order),
+  //                   style: TextStyle(
+  //                     fontSize: 16,
+  //                     fontWeight: FontWeight.bold,
+  //                     color: GlobalStyle.fontColor,
+  //                     fontFamily: GlobalStyle.fontFamily,
+  //                   ),
+  //                   maxLines: 1,
+  //                   overflow: TextOverflow.ellipsis,
+  //                 );
+  //               },
+  //             ),
+  //           ),
+  //           const SizedBox(width: 8),
+  //           _buildStatusChip(statusText, statusColor),
+  //         ],
+  //       ),
+  //       const SizedBox(height: 8),
+  //       // Text(
+  //       //   'Order #${order.id}',
+  //       //   style: TextStyle(
+  //       //     fontSize: 13,
+  //       //     color: GlobalStyle.primaryColor,
+  //       //     fontWeight: FontWeight.w500,
+  //       //   ),
+  //       // ),
+  //       // const SizedBox(height: 4),
+  //       Text(
+  //         formattedDate,
+  //         style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+  //       ),
+  //       const SizedBox(height: 6),
+  //       // ✅ Tampilkan info delivery status jika relevan
+  //       if (order.driverId != null) ...[
+  //         Row(
+  //           children: [
+  //             Icon(Icons.local_shipping, size: 14, color: Colors.grey[600]),
+  //             const SizedBox(width: 4),
+  //             Text(
+  //               _getDeliveryStatusText(order.deliveryStatus),
+  //               style: TextStyle(
+  //                 fontSize: 12,
+  //                 color: Colors.grey[600],
+  //                 fontStyle: FontStyle.italic,
+  //               ),
+  //             ),
+  //           ],
+  //         ),
+  //         const SizedBox(height: 4),
+  //       ],
+  //       Text(
+  //         'Detail pesanan tersedia di halaman detail',
+  //         style: TextStyle(
+  //           fontSize: 14,
+  //           color: Colors.grey[800],
+  //           fontWeight: FontWeight.w500,
+  //           fontFamily: GlobalStyle.fontFamily,
+  //         ),
+  //         maxLines: 2,
+  //         overflow: TextOverflow.ellipsis,
+  //       ),
+  //     ],
+  //   );
+  // }
 
   String _getDeliveryStatusText(DeliveryStatus deliveryStatus) {
     switch (deliveryStatus) {
@@ -1206,8 +1328,9 @@ class _HistoryCustomerState extends State<HistoryCustomer>
               ),
             ),
             const SizedBox(height: 4),
+            // ✅ GUNAKAN: Method dari OrderModel untuk grand total
             Text(
-              order.formatTotalAmount(), // ✅ Gunakan method dari OrderModel
+              order.formatGrandTotal(), // ✅ Bukan order.formatTotalAmount()
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -1239,7 +1362,10 @@ class _HistoryCustomerState extends State<HistoryCustomer>
       MaterialPageRoute(
         builder: (context) => HistoryDetailPage(order: order),
       ),
-    ).then((_) => _fetchOrderHistoryOptimized(isRefresh: true));
+    ).then((_) {
+      // ✅ Force refresh setelah kembali dari detail
+      _fetchOrderHistoryOptimized(isRefresh: true, forceRefresh: true);
+    });
   }
 
   Widget _buildStatusChip(String text, Color color) {
@@ -1262,38 +1388,83 @@ class _HistoryCustomerState extends State<HistoryCustomer>
 
   // ✅ PERBAIKAN: Method untuk status text berdasarkan alur bisnis yang benar
   String _getDetailedStatusText(OrderModel order) {
-    // Kombinasi order_status dan delivery_status berdasarkan alur bisnis
-    if (order.orderStatus == OrderStatus.pending &&
-        order.deliveryStatus == DeliveryStatus.pending) {
-      return 'Menunggu Konfirmasi';
-    } else if (order.orderStatus == OrderStatus.preparing &&
-        order.deliveryStatus == DeliveryStatus.pending) {
-      return 'Diproses Toko';
-    } else if (order.orderStatus == OrderStatus.pending &&
-        order.deliveryStatus == DeliveryStatus.pickedUp) {
-      return 'Diproses Driver';
-    } else if (order.orderStatus == OrderStatus.preparing &&
-        order.deliveryStatus == DeliveryStatus.pickedUp) {
-      return 'Disiapkan';
-    } else if (order.orderStatus == OrderStatus.readyForPickup &&
-        order.deliveryStatus == DeliveryStatus.pickedUp) {
-      return 'Siap Diambil';
-    } else if (order.orderStatus == OrderStatus.onDelivery &&
-        order.deliveryStatus == DeliveryStatus.onWay) {
-      return 'Sedang Diantar';
-    } else if (order.orderStatus == OrderStatus.delivered &&
-        order.deliveryStatus == DeliveryStatus.delivered) {
-      return 'Selesai';
-    } else if (order.orderStatus == OrderStatus.cancelled) {
+    // Prioritas: cek status cancelled/rejected dulu
+    if (order.orderStatus == OrderStatus.cancelled) {
       return 'Dibatalkan';
-    } else if (order.orderStatus == OrderStatus.rejected) {
-      return 'Ditolak';
-    } else if (order.deliveryStatus == DeliveryStatus.rejected) {
-      return 'Delivery Ditolak';
-    } else {
-      return 'Diproses'; // Fallback
+    }
+    if (order.orderStatus == OrderStatus.rejected) {
+      return 'Ditolak Toko';
+    }
+    if (order.deliveryStatus == DeliveryStatus.rejected) {
+      return 'Ditolak Driver';
+    }
+
+    // Status normal berdasarkan kombinasi order_status dan delivery_status
+    switch (order.orderStatus) {
+      case OrderStatus.pending:
+        if (order.driverId != null) {
+          return 'Menunggu Driver';
+        }
+        return 'Menunggu Konfirmasi';
+
+      case OrderStatus.confirmed:
+        return 'Dikonfirmasi Toko';
+
+      case OrderStatus.preparing:
+        if (order.deliveryStatus == DeliveryStatus.pickedUp) {
+          return 'Disiapkan (Driver Standby)';
+        }
+        return 'Sedang Disiapkan';
+
+      case OrderStatus.readyForPickup:
+        if (order.deliveryStatus == DeliveryStatus.pickedUp) {
+          return 'Sudah Diambil Driver';
+        }
+        return 'Siap Diambil';
+
+      case OrderStatus.onDelivery:
+        return 'Sedang Diantar';
+
+      case OrderStatus.delivered:
+        return 'Selesai';
+
+      default:
+        return 'Diproses';
     }
   }
+  // String _getDetailedStatusText(OrderModel order) {
+  //   // Kombinasi order_status dan delivery_status berdasarkan alur bisnis
+  //   if (order.orderStatus == OrderStatus.pending &&
+  //       order.deliveryStatus == DeliveryStatus.pending) {
+  //     return 'Menunggu Konfirmasi';
+  //   } else if (order.orderStatus == OrderStatus.preparing &&
+  //       order.deliveryStatus == DeliveryStatus.pending) {
+  //     return 'Diproses Toko';
+  //   } else if (order.orderStatus == OrderStatus.pending &&
+  //       order.deliveryStatus == DeliveryStatus.pickedUp) {
+  //     return 'Diproses Driver';
+  //   } else if (order.orderStatus == OrderStatus.preparing &&
+  //       order.deliveryStatus == DeliveryStatus.pickedUp) {
+  //     return 'Disiapkan';
+  //   } else if (order.orderStatus == OrderStatus.readyForPickup &&
+  //       order.deliveryStatus == DeliveryStatus.pickedUp) {
+  //     return 'Siap Diambil';
+  //   } else if (order.orderStatus == OrderStatus.onDelivery &&
+  //       order.deliveryStatus == DeliveryStatus.onWay) {
+  //     return 'Sedang Diantar';
+  //   } else if (order.orderStatus == OrderStatus.delivered &&
+  //       order.deliveryStatus == DeliveryStatus.delivered) {
+  //     return 'Selesai';
+  //   } else if (order.orderStatus == OrderStatus.cancelled) {
+  //     return 'Dibatalkan';
+  //   } else if (order.orderStatus == OrderStatus.rejected) {
+  //     return 'Ditolak';
+  //   } else if (order.deliveryStatus == DeliveryStatus.rejected) {
+  //     return 'Delivery Ditolak';
+  //   } else {
+  //     return 'Diproses'; // Fallback
+  //   }
+  // }
 
   // ✅ PERBAIKAN: Method untuk status color berdasarkan alur bisnis yang benar
   Color _getDetailedStatusColor(OrderModel order) {

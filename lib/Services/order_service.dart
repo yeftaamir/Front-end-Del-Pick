@@ -108,23 +108,35 @@ class OrderService {
     }
   }
 
-  /// Get orders by user - Ultra optimized
+  /// Get orders by user - Ultra optimized with timestamp support
   static Future<Map<String, dynamic>> getOrdersByUser({
     int page = 1,
     int limit = 10,
     String? status,
     String? sortBy,
     String? sortOrder,
+    int? timestamp, // ✅ TAMBAH parameter timestamp
   }) async {
     try {
       // Fast validation
       final isValid = await _fastValidateCustomer();
       if (!isValid) throw Exception('Authentication required: Please login');
 
+      // ✅ Build query params dengan timestamp support
+      final queryParams =
+          _buildQueryParams(page, limit, status, sortBy, sortOrder);
+
+      // ✅ Tambah timestamp untuk cache busting jika disediakan
+      if (timestamp != null) {
+        queryParams['_t'] = timestamp.toString();
+        queryParams['refresh'] = 'true';
+        _log('🔄 Force refresh with timestamp: $timestamp');
+      }
+
       final response = await BaseService.apiCall(
         method: 'GET',
         endpoint: '$_baseEndpoint/customer',
-        queryParams: _buildQueryParams(page, limit, status, sortBy, sortOrder),
+        queryParams: queryParams,
         requiresAuth: true,
       );
 
@@ -133,6 +145,43 @@ class OrderService {
       _log('Get orders by user error: $e');
       throw Exception('Failed to get user orders: $e');
     }
+  }
+
+  /// ✅ TAMBAH: Force refresh method untuk customer orders
+  static Future<Map<String, dynamic>> forceRefreshOrdersByUser({
+    int page = 1,
+    int limit = 10,
+    String? status,
+    String? sortBy,
+    String? sortOrder,
+  }) async {
+    return getOrdersByUser(
+      page: page,
+      limit: limit,
+      status: status,
+      sortBy: sortBy,
+      sortOrder: sortOrder,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  /// ✅ TAMBAH: Smart refresh method untuk customer orders
+  static Future<Map<String, dynamic>> getOrdersByUserSmart({
+    int page = 1,
+    int limit = 10,
+    String? status,
+    String? sortBy,
+    String? sortOrder,
+    bool forceRefresh = false,
+  }) async {
+    return getOrdersByUser(
+      page: page,
+      limit: limit,
+      status: status,
+      sortBy: sortBy,
+      sortOrder: sortOrder,
+      timestamp: forceRefresh ? DateTime.now().millisecondsSinceEpoch : null,
+    );
   }
 
   /// Get orders by store - Ultra optimized

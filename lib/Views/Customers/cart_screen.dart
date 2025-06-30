@@ -54,7 +54,8 @@ class CartScreen extends StatefulWidget {
   State<CartScreen> createState() => _CartScreenState();
 }
 
-class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
+class _CartScreenState extends State<CartScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // ✅ PERBAIKAN: Enhanced state management dengan quantity control
   double _estimatedDeliveryFee = 0;
   String? _deliveryAddress;
@@ -152,6 +153,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     _initializeStoreLocation();
     _loadInitialData();
     _initializeLocation();
+
+    WidgetsBinding.instance.addObserver(this);
 
     // ✅ BARU: Initialize local quantities from widget
     _localQuantities = Map<int, int>.from(widget.itemQuantities ?? {});
@@ -998,6 +1001,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _slideController.dispose();
     _pulseController.dispose();
     for (var controller in _cardControllers) {
@@ -1536,15 +1540,15 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     color: Colors.grey,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  "Order ID: $orderId",
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                // const SizedBox(height: 8),
+                // Text(
+                //   "Order ID: $orderId",
+                //   style: TextStyle(
+                //     fontSize: 14,
+                //     color: Colors.grey[600],
+                //     fontWeight: FontWeight.w500,
+                //   ),
+                // ),
                 const SizedBox(height: 16),
 
                 // ✅ ENHANCED: Show payment breakdown
@@ -1695,6 +1699,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                   ),
                 ),
                 const SizedBox(height: 24),
+// ✅ PERBAIKAN: Di method _showOrderCreatedSuccess, update tombol OK
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GlobalStyle.primaryColor,
@@ -1706,7 +1711,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                         horizontal: 40, vertical: 14),
                     elevation: 2,
                   ),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    // ✅ TAMBAH: Auto navigate ke history detail sudah ada di _createOrder
+                  },
                   child: const Text(
                     "OK",
                     style: TextStyle(
