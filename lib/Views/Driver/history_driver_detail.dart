@@ -17,6 +17,8 @@ import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Models/order.dart';
 import 'package:del_pick/Models/order_enum.dart';
 
+import '../../Models/order_item.dart';
+
 class HistoryDriverDetailPage extends StatefulWidget {
   static const String route = '/Driver/HistoryDriverDetail';
   final String orderId;
@@ -190,14 +192,14 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     }).toList();
   }
 
-  // ✅ ENHANCED: Comprehensive safe type conversion for deeply nested maps
+// ✅ FIXED: Enhanced safe type conversion untuk deeply nested maps
   static Map<String, dynamic> _safeMapConversion(dynamic data) {
     if (data == null) return {};
 
     if (data is Map<String, dynamic>) {
       return Map<String, dynamic>.from(data);
     } else if (data is Map) {
-      // Convert Map<dynamic, dynamic> to Map<String, dynamic> recursively
+      // ✅ FIXED: Convert Map<dynamic, dynamic> to Map<String, dynamic> recursively
       return Map<String, dynamic>.from(data.map((key, value) {
         // Recursively convert nested maps
         if (value is Map && value is! Map<String, dynamic>) {
@@ -212,7 +214,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     return {};
   }
 
-  // ✅ ENHANCED: Safe type conversion for lists containing maps
+  // ✅ FIXED: Safe type conversion untuk lists containing maps
   static List<dynamic> _safeListConversion(List<dynamic> list) {
     return list.map((item) {
       if (item is Map && item is! Map<String, dynamic>) {
@@ -503,19 +505,21 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
 
   void _processRequestData(Map<String, dynamic> requestData) {
     try {
-      // Extract order data from request
-      _orderData = requestData['order'] ?? {};
+      print('🔧 Starting request data processing...');
 
-      // ✅ CRITICAL: Safe conversion before creating OrderModel
+      // Extract and convert order data from request
+      _orderData = _safeMapConversion(requestData['order'] ?? {});
+
+      // Safe conversion before creating OrderModel
       final safeOrderData = _safeMapConversion(_orderData);
 
-      // ✅ FIXED: Ensure proper dual status structure sesuai backend
+      // Ensure proper dual status structure sesuai backend
       safeOrderData['order_status'] =
           safeOrderData['order_status'] ?? 'pending';
       safeOrderData['delivery_status'] =
           safeOrderData['delivery_status'] ?? 'pending';
 
-      // ✅ FIX: Safe numeric conversion untuk mencegah type casting error
+      // Safe numeric conversion untuk mencegah type casting error
       safeOrderData['total_amount'] =
           _safeParseDouble(safeOrderData['total_amount']);
       safeOrderData['delivery_fee'] =
@@ -525,7 +529,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
       safeOrderData['destination_longitude'] =
           _safeParseDouble(safeOrderData['destination_longitude']);
 
-      // ✅ FIX: Safe conversion untuk ID fields
+      // Safe conversion untuk ID fields
       safeOrderData['id'] = _safeParseInt(safeOrderData['id']);
       safeOrderData['customer_id'] =
           _safeParseInt(safeOrderData['customer_id']);
@@ -534,13 +538,13 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
           ? _safeParseInt(safeOrderData['driver_id'])
           : null;
 
-      // ✅ FIXED: Ensure required fields untuk OrderModel.fromJson()
+      // Ensure required fields untuk OrderModel.fromJson()
       safeOrderData['created_at'] =
           safeOrderData['created_at'] ?? DateTime.now().toIso8601String();
       safeOrderData['updated_at'] =
           safeOrderData['updated_at'] ?? DateTime.now().toIso8601String();
 
-      // ✅ FIXED: Process nested objects secara proper
+      // CRITICAL FIX: Process nested objects dengan proper type conversion
       if (safeOrderData['customer'] != null) {
         safeOrderData['customer'] =
             _safeMapConversion(safeOrderData['customer']);
@@ -552,43 +556,32 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         safeOrderData['items'] = _safeListConversion(safeOrderData['items']);
       }
 
-      print('📊 HistoryDriverDetail: Processing order data structure:');
+      print('📊 Order data structure processed:');
       print('   - Order ID: ${safeOrderData['id']}');
       print('   - Order Status: ${safeOrderData['order_status']}');
       print('   - Delivery Status: ${safeOrderData['delivery_status']}');
       print('   - Total Amount: ${safeOrderData['total_amount']}');
       print(
-          '   - Customer: ${safeOrderData['customer'] != null ? 'Available' : 'Null'}');
-      print(
-          '   - Store: ${safeOrderData['store'] != null ? 'Available' : 'Null'}');
-      print(
           '   - Items count: ${(safeOrderData['items'] as List?)?.length ?? 0}');
 
-      // ✅ FIXED: Create OrderModel dengan improved error handling
+      // Create OrderModel dengan improved error handling
       try {
         _currentOrder = OrderModel.fromJson(safeOrderData);
-        print('✅ HistoryDriverDetail: OrderModel created successfully');
-        print('   - Order Status: ${_currentOrder!.orderStatus}');
-        print('   - Delivery Status: ${_currentOrder!.deliveryStatus}');
+        print('✅ OrderModel created successfully');
       } catch (e) {
-        print('⚠️ HistoryDriverDetail: Error creating OrderModel: $e');
-        print('   - Attempting to create fallback OrderModel...');
-
-        // ✅ FALLBACK: Create minimal OrderModel manually jika fromJson gagal
+        print('⚠️ Error creating OrderModel: $e');
         try {
           _currentOrder = _createFallbackOrderModel(safeOrderData);
-          print('✅ HistoryDriverDetail: Fallback OrderModel created');
+          print('✅ Fallback OrderModel created');
         } catch (fallbackError) {
-          print(
-              '❌ HistoryDriverDetail: Fallback OrderModel creation failed: $fallbackError');
-          print('   - Will continue without OrderModel, using raw data');
+          print('❌ Fallback OrderModel creation failed: $fallbackError');
           // Continue without OrderModel, using raw data
         }
       }
 
-      // Process customer data
-      if (_orderData['customer'] != null) {
-        _customerData = _orderData['customer'];
+      // Process customer data dengan safe conversion
+      if (safeOrderData['customer'] != null) {
+        _customerData = _safeMapConversion(safeOrderData['customer']);
         _customerData!['name'] = _customerData!['name'] ?? 'Unknown Customer';
         _customerData!['phone'] = _customerData!['phone'] ?? '';
 
@@ -600,9 +593,9 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         }
       }
 
-      // Process store data
-      if (_orderData['store'] != null) {
-        _storeData = _orderData['store'];
+      // Process store data dengan safe conversion
+      if (safeOrderData['store'] != null) {
+        _storeData = _safeMapConversion(safeOrderData['store']);
         _storeData!['name'] = _storeData!['name'] ?? 'Unknown Store';
         _storeData!['phone'] = _storeData!['phone'] ?? '';
 
@@ -614,28 +607,14 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         }
       }
 
-      // Process order items
-      if (_orderData['items'] != null) {
-        _orderItems = _orderData['items'] as List;
-        for (var item in _orderItems) {
-          // Process item image
-          if (item['image_url'] != null &&
-              item['image_url'].toString().isNotEmpty) {
-            item['image_url'] = ImageService.getImageUrl(item['image_url']);
-          }
-
-          // ✅ FIX: Safe conversion untuk item fields
-          item['name'] = item['name'] ?? 'Unknown Item';
-          item['quantity'] = _safeParseInt(item['quantity']);
-          item['price'] = _safeParseDouble(item['price']);
-        }
-      }
+      // CRITICAL FIX: Process order items dengan OrderItemModel conversion
+      _processOrderItems(safeOrderData);
 
       // Process driver data from request
       if (requestData['driver'] != null) {
-        final requestDriver = requestData['driver'];
+        final requestDriver = _safeMapConversion(requestData['driver']);
         if (requestDriver['user'] != null) {
-          final driverUser = requestDriver['user'];
+          final driverUser = _safeMapConversion(requestDriver['user']);
           driverUser['name'] = driverUser['name'] ?? 'Driver';
           driverUser['phone'] = driverUser['phone'] ?? '';
 
@@ -648,9 +627,83 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         }
       }
 
-      print('📊 HistoryDriverDetail: Request data processed successfully');
+      print('✅ Request data processed successfully');
     } catch (e) {
-      print('❌ HistoryDriverDetail: Error processing request data: $e');
+      print('❌ Error processing request data: $e');
+      throw e; // Re-throw untuk error handling di parent
+    }
+  }
+
+  void _processOrderItems(Map<String, dynamic> safeOrderData) {
+    try {
+      if (safeOrderData['items'] == null) {
+        _orderItems = [];
+        return;
+      }
+
+      final itemsList = safeOrderData['items'] as List;
+      _orderItems = [];
+
+      print('🛒 Processing ${itemsList.length} order items...');
+
+      for (var item in itemsList) {
+        try {
+          // Convert to safe map first
+          final safeItem = _safeMapConversion(item);
+
+          // Ensure required fields exist and have correct types
+          safeItem['id'] = _safeParseInt(safeItem['id']);
+          safeItem['order_id'] = _safeParseInt(safeItem['order_id']);
+          safeItem['menu_item_id'] = _safeParseInt(safeItem['menu_item_id']);
+          safeItem['quantity'] = _safeParseInt(safeItem['quantity']);
+          safeItem['price'] = _safeParseDouble(safeItem['price']);
+          safeItem['name'] = safeItem['name'] ?? 'Unknown Item';
+          safeItem['description'] = safeItem['description'] ?? '';
+          safeItem['category'] = safeItem['category'] ?? '';
+          safeItem['notes'] = safeItem['notes'] ?? '';
+
+          // Process item image
+          if (safeItem['image_url'] != null &&
+              safeItem['image_url'].toString().isNotEmpty) {
+            safeItem['image_url'] =
+                ImageService.getImageUrl(safeItem['image_url']);
+          }
+
+          // Try to create OrderItemModel object
+          final orderItem = OrderItemModel.fromJson(safeItem);
+          _orderItems.add(orderItem);
+
+          print(
+              '✅ Processed item: ${orderItem.name} - qty: ${orderItem.quantity} - price: ${orderItem.price}');
+        } catch (itemError) {
+          print('❌ Error processing item: $itemError');
+
+          // FALLBACK: Create minimal item object dengan totalPrice
+          final safeItem = _safeMapConversion(item);
+          final fallbackItem = {
+            'id': _safeParseInt(safeItem['id']),
+            'name': safeItem['name'] ?? 'Unknown Item',
+            'quantity': _safeParseInt(safeItem['quantity']),
+            'price': _safeParseDouble(safeItem['price']),
+            'image_url': safeItem['image_url']?.toString() ?? '',
+            'category': safeItem['category'] ?? '',
+            'description': safeItem['description'] ?? '',
+            'notes': safeItem['notes'] ?? '',
+          };
+
+          // Add totalPrice calculated property
+          fallbackItem['totalPrice'] =
+              fallbackItem['price'] * fallbackItem['quantity'];
+
+          _orderItems.add(fallbackItem);
+          print('⚠️ Added fallback item: ${fallbackItem['name']}');
+        }
+      }
+
+      print('✅ All order items processed. Total: ${_orderItems.length}');
+    } catch (e) {
+      print('❌ Error in _processOrderItems: $e');
+      _orderItems = []; // Set empty list if processing fails
     }
   }
 
@@ -841,7 +894,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     super.dispose();
   }
 
-  // ✅ UPDATED: Driver Order Status Card with dual status tracking
+// ✅ FIXED: Show combined total (subtotal + delivery fee) di header sesuai gambar
   Widget _buildDriverOrderStatusCard() {
     // ✅ FIXED: Pastikan selalu ada data untuk ditampilkan, tidak stuck di loading
     if (_currentOrder == null && _orderData.isEmpty) {
@@ -889,14 +942,34 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         _orderData['delivery_status']?.toString() ??
         'pending';
     final orderId = _currentOrder?.id ?? _orderData['id'] ?? widget.orderId;
-    final totalAmount = _currentOrder?.totalAmount ??
-        _safeParseDouble(_orderData['total_amount']);
+
+    // ✅ FIXED: Calculate combined total (subtotal items + delivery fee) sesuai gambar
+    double subtotalItems = 0.0;
+
+    // Calculate subtotal from order items
+    for (var item in _orderItems) {
+      if (item is OrderItemModel) {
+        subtotalItems += item.totalPrice;
+      } else if (item is Map<String, dynamic>) {
+        final price = _safeParseDouble(item['price']);
+        final quantity = _safeParseInt(item['quantity']);
+        subtotalItems += (price * quantity);
+      }
+    }
+
+    final deliveryFee = _currentOrder?.deliveryFee ??
+        _safeParseDouble(_orderData['delivery_fee']);
+
+    // ✅ BACKEND-ALIGNED: Total yang ditampilkan = subtotal items + delivery fee
+    final combinedTotal = subtotalItems + deliveryFee;
 
     print('🎨 Building status card with:');
     print('   - Order Status: $currentOrderStatus');
     print('   - Delivery Status: $currentDeliveryStatus');
     print('   - Order ID: $orderId');
-    print('   - Total Amount: $totalAmount');
+    print('   - Subtotal Items: $subtotalItems');
+    print('   - Delivery Fee: $deliveryFee');
+    print('   - Combined Total: $combinedTotal');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
@@ -966,7 +1039,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                       ],
                     ),
                   ),
-                  // ✅ FIXED: Show total amount di header sesuai gambar
+                  // ✅ FIXED: Show combined total (subtotal + delivery fee) di header sesuai gambar
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -975,7 +1048,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      GlobalStyle.formatRupiah(totalAmount),
+                      GlobalStyle.formatRupiah(combinedTotal),
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -1081,7 +1154,104 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
                     ),
                   ),
 
-                  // ✅ FIXED: Show customer info di bawah status message
+                  // ✅ FIXED: Show breakdown di bawah status sesuai gambar
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.grey.withOpacity(0.2),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        // Subtotal Items
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Subtotal Items',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                            Text(
+                              GlobalStyle.formatRupiah(subtotalItems),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: GlobalStyle.fontColor,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+
+                        // Delivery Fee
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Biaya Pengiriman',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                            Text(
+                              GlobalStyle.formatRupiah(deliveryFee),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.green[700],
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        // Divider
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          height: 1,
+                          color: Colors.grey.withOpacity(0.3),
+                        ),
+
+                        // Total
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total Pembayaran',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: GlobalStyle.fontColor,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                            Text(
+                              GlobalStyle.formatRupiah(combinedTotal),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: GlobalStyle.primaryColor,
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ✅ FIXED: Show customer info di bawah breakdown
                   if (_customerData != null) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -2581,11 +2751,33 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
   Widget _buildItemsCard() {
     if (_orderItems.isEmpty) return const SizedBox.shrink();
 
-    // ✅ FIX: Safe numeric conversion untuk total amounts
-    final subtotal = _orderItems.fold<double>(0, (sum, item) => sum + (item.totalPrice ?? 0));
-    final deliveryFee = _safeParseDouble(_orderData['delivery_fee']); // hasil perhitungan jarak x 2500
+    print('🎨 Building items card with ${_orderItems.length} items');
+
+    // Safe subtotal calculation dengan type checking
+    double subtotal = 0.0;
+    for (var item in _orderItems) {
+      if (item is OrderItemModel) {
+        subtotal += item.totalPrice;
+        print('   OrderItemModel: ${item.name} - ${item.totalPrice}');
+      } else if (item is Map<String, dynamic>) {
+        // Handle fallback raw map data
+        final price = _safeParseDouble(item['price']);
+        final quantity = _safeParseInt(item['quantity']);
+        final itemTotal = price * quantity;
+        subtotal += itemTotal;
+        print('   Map fallback: ${item['name']} - $itemTotal');
+      }
+    }
+
+    final deliveryFee = _safeParseDouble(_orderData['delivery_fee']);
     final totalAmount = subtotal + deliveryFee;
-    final driverEarning = _calculateEstimatedEarnings(); // Driver earning = delivery fee
+    final driverEarning = _calculateEstimatedEarnings();
+
+    print('💰 Payment breakdown:');
+    print('   - Subtotal: $subtotal');
+    print('   - Delivery Fee: $deliveryFee');
+    print('   - Total: $totalAmount');
+    print('   - Driver Earning: $driverEarning');
 
     return _buildCard(
       index: 3,
@@ -2594,6 +2786,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header
             Row(
               children: [
                 Container(
@@ -2624,121 +2817,12 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
             ),
             const SizedBox(height: 20),
 
-            // ✅ ITEMS LIST (same as before)
+            // Items list dengan proper type handling
             ..._orderItems.map<Widget>((item) {
-              final itemName = item['name']?.toString() ?? 'Unknown Item';
-              final quantity = _safeParseInt(item['quantity']);
-              final price = _safeParseDouble(item['price']);
-              final imageUrl = item['image_url']?.toString() ?? '';
-              final subtotal = _orderItems.fold<double>(0, (sum, item) => sum + (_safeParseDouble(item['total_price'])));
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: imageUrl.isNotEmpty
-                          ? Image.network(
-                              imageUrl,
-                              width: 60,
-                              height: 60,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  width: 60,
-                                  height: 60,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[300],
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Icon(
-                                    Icons.fastfood,
-                                    color: Colors.grey[600],
-                                  ),
-                                );
-                              },
-                            )
-                          : Container(
-                              width: 60,
-                              height: 60,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[300],
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                Icons.fastfood,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            itemName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              fontFamily: GlobalStyle.fontFamily,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            GlobalStyle.formatRupiah(price),
-                            style: TextStyle(
-                              color: GlobalStyle.primaryColor,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: GlobalStyle.primaryColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            'x$quantity',
-                            style: TextStyle(
-                              color: GlobalStyle.primaryColor,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          GlobalStyle.formatRupiah(subtotal),
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: GlobalStyle.fontColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
+              return _buildOrderItemCard(item);
             }).toList(),
 
-            // ✅ PAYMENT BREAKDOWN
+            // Payment breakdown
             Container(
               margin: const EdgeInsets.symmetric(vertical: 16),
               height: 1,
@@ -2748,7 +2832,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
             const SizedBox(height: 12),
             _buildPaymentRow('Biaya Pengiriman', deliveryFee),
 
-            // ✅ DRIVER EARNING SECTION (NEW)
+            // Driver earning section
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -2794,7 +2878,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
               ),
             ),
 
-            // ✅ TOTAL PAYMENT
+            // Total payment
             Container(
               margin: const EdgeInsets.symmetric(vertical: 16),
               height: 2,
@@ -2811,6 +2895,155 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
             _buildPaymentRow('Total Pembayaran', totalAmount, isTotal: true),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildOrderItemCard(dynamic item) {
+    // Extract data from either OrderItemModel or Map
+    String itemName = 'Unknown Item';
+    int quantity = 1;
+    double price = 0.0;
+    String imageUrl = '';
+    double itemTotal = 0.0;
+    String description = '';
+
+    if (item is OrderItemModel) {
+      itemName = item.name;
+      quantity = item.quantity;
+      price = item.price;
+      imageUrl = item.imageUrl ?? '';
+      itemTotal = item.totalPrice;
+      description = item.description;
+    } else if (item is Map<String, dynamic>) {
+      itemName = item['name']?.toString() ?? 'Unknown Item';
+      quantity = _safeParseInt(item['quantity']);
+      price = _safeParseDouble(item['price']);
+      imageUrl = item['image_url']?.toString() ?? '';
+      description = item['description']?.toString() ?? '';
+
+      // Calculate total from stored value or compute it
+      if (item.containsKey('totalPrice')) {
+        itemTotal = _safeParseDouble(item['totalPrice']);
+      } else {
+        itemTotal = price * quantity;
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          // Item image
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: imageUrl.isNotEmpty
+                ? Image.network(
+                    imageUrl,
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return _buildItemImagePlaceholder();
+                    },
+                  )
+                : _buildItemImagePlaceholder(),
+          ),
+          const SizedBox(width: 16),
+
+          // Item details
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  itemName,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+                if (description.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    description,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Text(
+                  GlobalStyle.formatRupiah(price),
+                  style: TextStyle(
+                    color: GlobalStyle.primaryColor,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Quantity and total
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: GlobalStyle.primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'x$quantity',
+                  style: TextStyle(
+                    color: GlobalStyle.primaryColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                GlobalStyle.formatRupiah(itemTotal),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: GlobalStyle.fontColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildItemImagePlaceholder() {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        color: Colors.grey[300],
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(
+        Icons.fastfood,
+        color: Colors.grey[600],
+        size: 24,
       ),
     );
   }
