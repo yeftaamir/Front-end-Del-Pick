@@ -1010,14 +1010,14 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                             fontFamily: GlobalStyle.fontFamily,
                           ),
                         ),
-                        Text(
-                          'Order #${_orderDetail!.id}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.9),
-                            fontFamily: GlobalStyle.fontFamily,
-                          ),
-                        ),
+                        // Text(
+                        //   'Order #${_orderDetail!.id}',
+                        //   style: TextStyle(
+                        //     fontSize: 14,
+                        //     color: Colors.white.withOpacity(0.9),
+                        //     fontFamily: GlobalStyle.fontFamily,
+                        //   ),
+                        // ),
                       ],
                     ),
                   ),
@@ -1029,7 +1029,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      _orderDetail!.formatTotalAmount(),
+                      GlobalStyle.formatRupiah(_orderDetail!.totalAmount +
+                          _orderDetail!.deliveryFee),
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 14,
@@ -1825,9 +1826,10 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
 
   Widget _buildItemsCard() {
     final orderItems = _orderDetail!.items;
-    final totalAmount = _orderDetail!.totalAmount;
+    final totalAmount = _orderDetail!.totalAmount; // Ini adalah total item saja
     final deliveryFee = _orderDetail!.deliveryFee;
-    final subtotal = totalAmount - deliveryFee;
+    final grandTotal = totalAmount +
+        deliveryFee; // ✅ PERBAIKAN: Grand total = total_amount + delivery_fee
 
     if (orderItems.isEmpty) {
       return const SizedBox.shrink();
@@ -1976,7 +1978,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
               height: 1,
               color: Colors.grey.shade300,
             ),
-            _buildPaymentRow('Subtotal', subtotal),
+            // ✅ PERBAIKAN: Total Items (bukan subtotal)
+            _buildPaymentRow('Total Items', totalAmount),
             const SizedBox(height: 12),
             _buildPaymentRow('Biaya Pengiriman', deliveryFee),
             Container(
@@ -1992,7 +1995,8 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
                 borderRadius: BorderRadius.circular(1),
               ),
             ),
-            _buildPaymentRow('Total Pembayaran', totalAmount, isTotal: true),
+            // ✅ PERBAIKAN: Grand Total = total_amount + delivery_fee
+            _buildPaymentRow('Total Pembayaran', grandTotal, isTotal: true),
           ],
         ),
       ),
