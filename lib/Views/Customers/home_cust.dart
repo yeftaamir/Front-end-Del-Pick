@@ -1,8 +1,9 @@
+// lib/Views/Customers/home_cust.dart - Enhanced with Driver Search
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:geocoding/geocoding.dart';
 import 'package:del_pick/Models/store.dart';
-import 'package:del_pick/Models/driver.dart';
+import 'package:del_pick/Models/driver.dart'; // Import DriverModel
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:del_pick/Common/global_style.dart';
@@ -14,7 +15,7 @@ import '../Component/cust_bottom_navigation.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:del_pick/Services/store_service.dart';
-import 'package:del_pick/Services/driver_service.dart';
+import 'package:del_pick/Services/driver_service.dart'; // Import DriverService
 import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:geolocator/geolocator.dart';
@@ -293,7 +294,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
           try {
             // Create StoreModel with proper error handling
             final store =
-                _createSafeStoreModel(storeJson as Map<String, dynamic>);
+            _createSafeStoreModel(storeJson as Map<String, dynamic>);
             if (store != null) {
               allStores.add(store);
             }
@@ -433,11 +434,11 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
       if (store.latitude != null && store.longitude != null) {
         try {
           double distance = Geolocator.distanceBetween(
-                _currentPosition!.latitude,
-                _currentPosition!.longitude,
-                store.latitude!,
-                store.longitude!,
-              ) /
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+            store.latitude!,
+            store.longitude!,
+          ) /
               1000; // Convert to kilometers
 
           // Create a new store with distance
@@ -458,12 +459,14 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         .toList();
   }
 
+  // ========================================
+  // 🚗 ENHANCED DRIVER SEARCH IMPLEMENTATION
+  // ========================================
+
   void _searchDriver() async {
     setState(() {
       _isSearchingDriver = true;
     });
-
-    _driverSearchController.repeat();
 
     try {
       // Play search sound
@@ -473,43 +476,67 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
         print('Sound file not found: $e');
       }
 
-      // Show modal with loading animation
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => _buildDriverSearchModal(),
-      );
+      // Show enhanced search modal
+      _showDriverSearchModal();
 
-      // Simulate driver search
-      await Future.delayed(const Duration(seconds: 3));
+      print('🔍 HomePage: Starting driver search...');
 
-      if (mounted) {
-        Navigator.of(context).pop(); // Close modal
+      // Check if user location is available
+      if (_currentPosition == null || !_hasLocationPermission) {
+        print('⚠️ HomePage: Location not available, requesting location access...');
 
-        // Check if ContactDriverPage route exists
-        try {
-          Navigator.pushNamed(context, '/contact-driver');
-        } catch (e) {
-          // If route doesn't exist, show a placeholder dialog
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Driver Ditemukan'),
-              content: const Text('Fitur contact driver belum tersedia.'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
+        // Try to get location first
+        await _getCurrentLocation();
+
+        if (_currentPosition == null) {
+          throw Exception('Lokasi diperlukan untuk mencari driver terdekat.\nSilakan aktifkan GPS dan izinkan akses lokasi.');
         }
       }
+
+      print('📍 HomePage: User location: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}');
+
+      // Start animation
+      _driverSearchController.repeat();
+
+      // Search for nearest active driver
+// Search for nearest active driver
+      final nearestDriver = await DriverService.findNearestActiveDriver(
+        userLatitude: _currentPosition!.latitude,
+        userLongitude: _currentPosition!.longitude,
+        maxRadius: 15, // 15km radius
+        minRating: 3, // minimum 3.0 rating
+      );
+
+      // Stop animation
+      _driverSearchController.stop();
+      _driverSearchController.reset();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close search modal
+
+        if (nearestDriver != null) {
+          print('✅ HomePage: Driver found: ${nearestDriver['name']}');
+          print('   📏 Distance: ${nearestDriver['distance_km']?.toStringAsFixed(2)}km');
+          print('   ⭐ Rating: ${nearestDriver['rating']}');
+
+          // Create DriverModel from the response
+          final driverModel = _createDriverModelFromResponse(nearestDriver);
+
+          // Show success and navigate to contact driver
+          await _showDriverFoundDialog(driverModel, nearestDriver['distance_km']);
+
+        } else {
+          print('❌ HomePage: No drivers found');
+          _showNoDriverDialog();
+        }
+      }
+
     } catch (e) {
-      print('Error searching driver: $e');
+      print('❌ HomePage: Error searching driver: $e');
+
       if (mounted) {
         Navigator.of(context).pop(); // Close modal
+        _showErrorDialog('Gagal mencari driver: $e');
       }
     } finally {
       if (mounted) {
@@ -522,85 +549,597 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  Widget _buildDriverSearchModal() {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Loading animation
-            SizedBox(
-              width: 150,
-              height: 150,
-              child: Lottie.asset(
-                'assets/animations/loading_animation.json',
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    width: 150,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      color: GlobalStyle.primaryColor.withOpacity(0.1),
-                      shape: BoxShape.circle,
+  /// Create DriverModel from API response
+  DriverModel _createDriverModelFromResponse(Map<String, dynamic> driverData) {
+    try {
+      // Handle nested user data
+      final userData = driverData['user'] ?? driverData;
+
+      // Create safe user data
+      final safeUserData = {
+        'id': userData['id'] ?? 0,
+        'name': userData['name'] ?? 'Driver',
+        'email': userData['email'] ?? '',
+        'phone': userData['phone'] ?? '',
+        'role': 'driver',
+        'avatar': userData['avatar'],
+        'fcm_token': userData['fcm_token'],
+        'created_at': userData['created_at'],
+        'updated_at': userData['updated_at'],
+      };
+
+      // Create safe driver data
+      final safeDriverData = {
+        'id': driverData['id'] ?? driverData['driver_id'] ?? 0,
+        'license_number': driverData['license_number'] ?? '',
+        'vehicle_plate': driverData['vehicle_plate'] ?? '',
+        'rating': _safeToDouble(driverData['rating'] ?? 5.0),
+        'reviews_count': _safeToInt(driverData['reviews_count'] ?? 0),
+        'status': driverData['status'] ?? 'active',
+        'latitude': _safeToDouble(driverData['latitude']),
+        'longitude': _safeToDouble(driverData['longitude']),
+        'created_at': driverData['created_at'],
+        'updated_at': driverData['updated_at'],
+      };
+
+      // Combine for DriverModel.fromJson
+      final combinedData = {
+        'user': safeUserData,
+        'driver': safeDriverData,
+        ...safeDriverData, // Also include driver data at root level for compatibility
+      };
+
+      print('🏗️ HomePage: Creating DriverModel with data: $combinedData');
+
+      return DriverModel.fromJson(combinedData);
+
+    } catch (e) {
+      print('❌ HomePage: Error creating DriverModel: $e');
+      print('   Raw data: $driverData');
+
+      // Create fallback driver model
+      return DriverModel.fromJson({
+        'user': {
+          'id': 0,
+          'name': driverData['name'] ?? 'Driver',
+          'email': driverData['email'] ?? '',
+          'phone': driverData['phone'] ?? '',
+          'role': 'driver',
+        },
+        'driver': {
+          'id': 0,
+          'license_number': driverData['license_number'] ?? '',
+          'vehicle_plate': driverData['vehicle_plate'] ?? '',
+          'rating': _safeToDouble(driverData['rating'] ?? 5.0),
+          'reviews_count': 0,
+          'status': 'active',
+          'latitude': _safeToDouble(driverData['latitude']),
+          'longitude': _safeToDouble(driverData['longitude']),
+        },
+      });
+    }
+  }
+
+  /// Show enhanced driver search modal
+  void _showDriverSearchModal() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Enhanced loading animation
+              SizedBox(
+                width: 180,
+                height: 180,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Outer spinning circle
+                    AnimatedBuilder(
+                      animation: _driverSearchController,
+                      builder: (context, child) {
+                        return Transform.rotate(
+                          angle: _driverSearchController.value * 2 * math.pi,
+                          child: Container(
+                            width: 160,
+                            height: 160,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: GlobalStyle.primaryColor.withOpacity(0.3),
+                                width: 3,
+                              ),
+                            ),
+                            child: Container(
+                              margin: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: GlobalStyle.primaryColor,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                    child: Icon(
-                      LucideIcons.car,
-                      size: 60,
-                      color: GlobalStyle.primaryColor,
+
+                    // Center driver icon
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: GlobalStyle.primaryColor.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        LucideIcons.car,
+                        size: 40,
+                        color: GlobalStyle.primaryColor,
+                      ),
                     ),
-                  );
-                },
+
+                    // Scanning dots
+                    ...List.generate(3, (index) {
+                      return AnimatedBuilder(
+                        animation: _driverSearchController,
+                        builder: (context, child) {
+                          final angle = (_driverSearchController.value * 2 * math.pi) +
+                              (index * math.pi * 2 / 3);
+                          final radius = 70.0;
+                          final x = math.cos(angle) * radius;
+                          final y = math.sin(angle) * radius;
+
+                          return Transform.translate(
+                            offset: Offset(x, y),
+                            child: Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: GlobalStyle.primaryColor.withOpacity(0.8),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Mencari Driver Terdekat...',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: GlobalStyle.primaryColor,
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tunggu sebentar, kami sedang\nmencarikan driver terbaik untuk Anda',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-                fontFamily: GlobalStyle.fontFamily,
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                setState(() {
-                  _isSearchingDriver = false;
-                });
-                _driverSearchController.stop();
-                _driverSearchController.reset();
-              },
-              child: Text(
-                'Batalkan',
+
+              const SizedBox(height: 24),
+
+              Text(
+                'Mencari Driver Terdekat',
                 style: TextStyle(
-                  color: Colors.red,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: GlobalStyle.primaryColor,
                   fontFamily: GlobalStyle.fontFamily,
                 ),
               ),
-            ),
-          ],
+
+              const SizedBox(height: 12),
+
+              Text(
+                'Sedang mencari driver terbaik\ndi sekitar lokasi Anda...',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                  fontFamily: GlobalStyle.fontFamily,
+                  height: 1.5,
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Location info if available
+              if (_currentPosition != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        LucideIcons.mapPin,
+                        size: 14,
+                        color: Colors.grey[600],
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _userLocation ?? 'Lokasi Anda',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontFamily: GlobalStyle.fontFamily,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Cancel button
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  setState(() {
+                    _isSearchingDriver = false;
+                  });
+                  _driverSearchController.stop();
+                  _driverSearchController.reset();
+                },
+                child: Text(
+                  'Batalkan',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontFamily: GlobalStyle.fontFamily,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  /// Show driver found success dialog
+  Future<void> _showDriverFoundDialog(DriverModel driver, double? distance) async {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Success animation
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.check_circle,
+                  size: 60,
+                  color: Colors.green,
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Text(
+                'Driver Ditemukan!',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                  fontFamily: GlobalStyle.fontFamily,
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Driver preview card
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    // Driver avatar
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: GlobalStyle.primaryColor,
+                          width: 2,
+                        ),
+                      ),
+                      child: ClipOval(
+                        child: driver.avatar != null && driver.avatar!.isNotEmpty
+                            ? Image.network(
+                          driver.avatar!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: GlobalStyle.primaryColor.withOpacity(0.1),
+                              child: Icon(
+                                LucideIcons.user,
+                                color: GlobalStyle.primaryColor,
+                                size: 30,
+                              ),
+                            );
+                          },
+                        )
+                            : Container(
+                          color: GlobalStyle.primaryColor.withOpacity(0.1),
+                          child: Icon(
+                            LucideIcons.user,
+                            color: GlobalStyle.primaryColor,
+                            size: 30,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 16),
+
+                    // Driver info
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            driver.name,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.star, color: Colors.amber, size: 16),
+                              const SizedBox(width: 4),
+                              Text(
+                                driver.formattedRating,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                  fontFamily: GlobalStyle.fontFamily,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (distance != null) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(LucideIcons.mapPin, size: 14, color: Colors.grey[600]),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${distance.toStringAsFixed(1)} km dari Anda',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                    fontFamily: GlobalStyle.fontFamily,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Action buttons
+              Row(
+                children: [
+                  // Cancel button
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.grey[600],
+                        side: BorderSide(color: Colors.grey[300]!),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Batal'),
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  // Contact driver button
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop(); // Close dialog
+                        _navigateToContactDriver(driver);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: GlobalStyle.primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Hubungi Driver',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Navigate to contact driver page with driver data
+  void _navigateToContactDriver(DriverModel driver) {
+    try {
+      print('🚀 HomePage: Navigating to ContactDriverPage with driver: ${driver.name}');
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ContactDriverPage(
+            driver: driver,
+            serviceType: 'jastip',
+          ),
+        ),
+      );
+    } catch (e) {
+      print('❌ HomePage: Error navigating to ContactDriverPage: $e');
+      _showErrorDialog('Gagal membuka halaman driver: $e');
+    }
+  }
+
+  /// Show no driver available dialog
+  void _showNoDriverDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              LucideIcons.userX,
+              color: Colors.orange,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            const Text('Driver Tidak Tersedia'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Saat ini tidak ada driver yang tersedia di sekitar lokasi Anda.',
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tips:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue[700],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '• Coba lagi dalam beberapa menit\n'
+                        '• Pastikan lokasi GPS aktif\n'
+                        '• Periksa koneksi internet Anda',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Tutup'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _searchDriver(); // Try search again
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GlobalStyle.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Coba Lagi'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show error dialog
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              Icons.error_outline,
+              color: Colors.red,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            const Text('Error'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              'OK',
+              style: TextStyle(color: GlobalStyle.primaryColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ========================================
+  // EXISTING METHODS (unchanged)
+  // ========================================
 
   List<StoreModel> _getFilteredStores() {
     if (_searchQuery.isEmpty) {
@@ -906,7 +1445,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ],
                 Text(
                   _promotionalPhrases[
-                      math.Random().nextInt(_promotionalPhrases.length)],
+                  math.Random().nextInt(_promotionalPhrases.length)],
                   style: const TextStyle(
                     fontSize: 14,
                     color: Colors.white,
@@ -914,7 +1453,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton(
-                  onPressed: _searchDriver,
+                  onPressed: _isSearchingDriver ? null : _searchDriver,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: GlobalStyle.primaryColor,
@@ -926,13 +1465,31 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(LucideIcons.car, size: 16),
-                      SizedBox(width: 8),
-                      Text(
-                        'Cari Driver',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                    children: [
+                      if (_isSearchingDriver) ...[
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              GlobalStyle.primaryColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Mencari...',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ] else ...[
+                        const Icon(LucideIcons.search, size: 18),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Cari Driver',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -977,22 +1534,22 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
           suffixIcon: _isSearching
               ? IconButton(
-                  icon: Icon(
-                    LucideIcons.x,
-                    color: Colors.grey[400],
-                  ),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() {
-                      _searchQuery = '';
-                      _isSearching = false;
-                    });
-                  },
-                )
+            icon: Icon(
+              LucideIcons.x,
+              color: Colors.grey[400],
+            ),
+            onPressed: () {
+              _searchController.clear();
+              setState(() {
+                _searchQuery = '';
+                _isSearching = false;
+              });
+            },
+          )
               : null,
           border: InputBorder.none,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         ),
       ),
     );
@@ -1169,7 +1726,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
               height: 110, // Dikurangi dari 120 ke 100
               decoration: BoxDecoration(
                 borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(12)),
+                const BorderRadius.vertical(top: Radius.circular(12)),
                 color: Colors.grey[300],
               ),
               child: Stack(
@@ -1177,7 +1734,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
                     ClipRRect(
                       borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(12)),
+                      const BorderRadius.vertical(top: Radius.circular(12)),
                       child: Image.network(
                         store.imageUrl!,
                         width: double.infinity,
@@ -1324,208 +1881,6 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  // Widget _buildHorizontalStoreCard(StoreModel store) {
-  //   return GestureDetector(
-  //     onTap: () {
-  //       print('🔍 HomePage: Navigating to store with ID: ${store.storeId}');
-  //       Navigator.pushNamed(context, StoreDetail.route, arguments: {
-  //         'storeId': store.storeId,
-  //         'storeName': store.name, // Optional: untuk debugging
-  //       });
-  //     },
-  //     child: Container(
-  //       decoration: BoxDecoration(
-  //         color: Colors.white,
-  //         borderRadius: BorderRadius.circular(12),
-  //         boxShadow: [
-  //           BoxShadow(
-  //             color: Colors.grey.withOpacity(0.1),
-  //             blurRadius: 8,
-  //             offset: const Offset(0, 2),
-  //           ),
-  //         ],
-  //       ),
-  //       child: Column(
-  //         crossAxisAlignment: CrossAxisAlignment.start,
-  //         children: [
-  //           Container(
-  //             height: 120,
-  //             decoration: BoxDecoration(
-  //               borderRadius:
-  //                   const BorderRadius.vertical(top: Radius.circular(12)),
-  //               color: Colors.grey[300],
-  //             ),
-  //             child: Stack(
-  //               children: [
-  //                 if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
-  //                   ClipRRect(
-  //                     borderRadius:
-  //                         const BorderRadius.vertical(top: Radius.circular(12)),
-  //                     child: Image.network(
-  //                       store.imageUrl!,
-  //                       width: double.infinity,
-  //                       height: 120,
-  //                       fit: BoxFit.cover,
-  //                       errorBuilder: (context, error, stackTrace) {
-  //                         return Container(
-  //                           width: double.infinity,
-  //                           height: 120,
-  //                           color: Colors.grey[300],
-  //                           child: Icon(
-  //                             LucideIcons.imageOff,
-  //                             color: Colors.grey[600],
-  //                             size: 40,
-  //                           ),
-  //                         );
-  //                       },
-  //                       loadingBuilder: (context, child, loadingProgress) {
-  //                         if (loadingProgress == null) return child;
-  //                         return Container(
-  //                           width: double.infinity,
-  //                           height: 120,
-  //                           color: Colors.grey[300],
-  //                           child: const Center(
-  //                             child: CircularProgressIndicator(),
-  //                           ),
-  //                         );
-  //                       },
-  //                     ),
-  //                   )
-  //                 else
-  //                   Container(
-  //                     width: double.infinity,
-  //                     height: 120,
-  //                     color: Colors.grey[300],
-  //                     child: Icon(
-  //                       LucideIcons.store,
-  //                       color: Colors.grey[600],
-  //                       size: 40,
-  //                     ),
-  //                   ),
-  //                 if (store.rating > 0)
-  //                   Positioned(
-  //                     top: 8,
-  //                     right: 8,
-  //                     child: Container(
-  //                       padding: const EdgeInsets.symmetric(
-  //                           horizontal: 8, vertical: 4),
-  //                       decoration: BoxDecoration(
-  //                         color: Colors.black.withOpacity(0.7),
-  //                         borderRadius: BorderRadius.circular(12),
-  //                       ),
-  //                       child: Row(
-  //                         mainAxisSize: MainAxisSize.min,
-  //                         children: [
-  //                           const Icon(
-  //                             Icons.star,
-  //                             color: Colors.yellow,
-  //                             size: 14,
-  //                           ),
-  //                           const SizedBox(width: 4),
-  //                           Text(
-  //                             store.rating.toStringAsFixed(1),
-  //                             style: const TextStyle(
-  //                               color: Colors.white,
-  //                               fontSize: 12,
-  //                               fontWeight: FontWeight.bold,
-  //                             ),
-  //                           ),
-  //                         ],
-  //                       ),
-  //                     ),
-  //                   ),
-  //                 if (store.distance != null)
-  //                   Positioned(
-  //                     bottom: 8,
-  //                     left: 8,
-  //                     child: Container(
-  //                       padding: const EdgeInsets.symmetric(
-  //                           horizontal: 8, vertical: 4),
-  //                       decoration: BoxDecoration(
-  //                         color: GlobalStyle.primaryColor,
-  //                         borderRadius: BorderRadius.circular(12),
-  //                       ),
-  //                       child: Text(
-  //                         '${store.distance!.toStringAsFixed(1)} km',
-  //                         style: const TextStyle(
-  //                           color: Colors.white,
-  //                           fontSize: 12,
-  //                           fontWeight: FontWeight.bold,
-  //                         ),
-  //                       ),
-  //                     ),
-  //                   ),
-  //               ],
-  //             ),
-  //           ),
-  //           Expanded(
-  //             child: Padding(
-  //               padding: const EdgeInsets.all(12.0),
-  //               child: Column(
-  //                 crossAxisAlignment: CrossAxisAlignment.start,
-  //                 children: [
-  //                   Text(
-  //                     store.name,
-  //                     style: TextStyle(
-  //                       fontSize: 16,
-  //                       fontWeight: FontWeight.bold,
-  //                       color: Colors.black87,
-  //                       fontFamily: GlobalStyle.fontFamily,
-  //                     ),
-  //                     maxLines: 1,
-  //                     overflow: TextOverflow.ellipsis,
-  //                   ),
-  //                   const SizedBox(height: 4),
-  //                   Text(
-  //                     store.address,
-  //                     style: TextStyle(
-  //                       fontSize: 12,
-  //                       color: Colors.grey[600],
-  //                       fontFamily: GlobalStyle.fontFamily,
-  //                     ),
-  //                     maxLines: 2,
-  //                     overflow: TextOverflow.ellipsis,
-  //                   ),
-  //                   const SizedBox(height: 8),
-  //                   if (store.description.isNotEmpty)
-  //                     Text(
-  //                       store.description,
-  //                       style: TextStyle(
-  //                         fontSize: 12,
-  //                         color: Colors.grey[500],
-  //                         fontFamily: GlobalStyle.fontFamily,
-  //                       ),
-  //                       maxLines: 2,
-  //                       overflow: TextOverflow.ellipsis,
-  //                     ),
-  //                   const Spacer(),
-  //                   Row(
-  //                     children: [
-  //                       Icon(
-  //                         LucideIcons.clock,
-  //                         size: 12,
-  //                         color: Colors.grey[600],
-  //                       ),
-  //                       const SizedBox(width: 4),
-  //                       Text(
-  //                         '${store.openTime} - ${store.closeTime}',
-  //                         style: TextStyle(
-  //                           fontSize: 10,
-  //                           color: Colors.grey[600],
-  //                           fontFamily: GlobalStyle.fontFamily,
-  //                         ),
-  //                       ),
-  //                     ],
-  //                   ),
-  //                 ],
-  //               ),
-  //             ),
-  //           ),
-  //         ],
-  //       ),
-  //     ),
-  //   );
-  // }
   Widget _buildSliderStoreCard(StoreModel store) {
     return GestureDetector(
       onTap: () {
@@ -1558,7 +1913,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
               height: 140,
               decoration: BoxDecoration(
                 borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(12)),
+                const BorderRadius.vertical(top: Radius.circular(12)),
                 color: Colors.grey[300],
               ),
               child: Stack(
@@ -1566,7 +1921,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
                     ClipRRect(
                       borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(12)),
+                      const BorderRadius.vertical(top: Radius.circular(12)),
                       child: Image.network(
                         store.imageUrl!,
                         width: double.infinity,
@@ -1797,7 +2152,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 backgroundColor: GlobalStyle.primaryColor,
                 foregroundColor: Colors.white,
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -1887,7 +2242,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
             StoreDetail.route,
             arguments: {
               'storeId':
-                  store.storeId, // Ubah dari {'store': store} ke format ini
+              store.storeId, // Ubah dari {'store': store} ke format ini
               'storeName': store.name, // Optional: untuk debugging
             },
           );
@@ -1900,7 +2255,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
               height: 180,
               decoration: BoxDecoration(
                 borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(12)),
+                const BorderRadius.vertical(top: Radius.circular(12)),
                 color: Colors.grey[300],
               ),
               child: Stack(
@@ -1908,7 +2263,7 @@ class HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   if (store.imageUrl != null && store.imageUrl!.isNotEmpty)
                     ClipRRect(
                       borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(12)),
+                      const BorderRadius.vertical(top: Radius.circular(12)),
                       child: Image.network(
                         store.imageUrl!,
                         width: double.infinity,
