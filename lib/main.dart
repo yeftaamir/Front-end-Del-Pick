@@ -58,9 +58,23 @@ import 'package:del_pick/Services/customer_service.dart';
 import 'Views/Driver/driver_request_detail.dart';
 import 'Views/Store/history_store.dart' as StoreHistory;
 
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+import 'package:intl/intl.dart';
+
 Future<void> main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
+
+    // ✅ Initialize timezone data (untuk timezone ^0.10.0)
+    tz.initializeTimeZones();
+
+    // ✅ Set default timezone to WIB (Asia/Jakarta)
+    final wibLocation = tz.getLocation('Asia/Jakarta');
+    tz.setLocalLocation(wibLocation);
+
+    print("Timezone initialized: ${tz.local.name}");
+    print("Current WIB time: ${tz.TZDateTime.now(tz.local)}");
 
     await dotenv.load(fileName: ".env").then((_) {
       print("Environment file loaded successfully");

@@ -20,6 +20,7 @@ import 'package:del_pick/Services/image_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 
 // Import Components
+import '../../Utils/timezone_helper.dart';
 import 'rating_cust.dart';
 import 'home_cust.dart';
 
@@ -240,6 +241,61 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     print('   - Should Track: ${!isFinallyCompleted}');
 
     return !isFinallyCompleted;
+  }
+
+  // Helper methods untuk format waktu WIB
+  String _formatOrderDateWIB(DateTime dateTime) {
+    try {
+      // Convert DateTime ke TZDateTime WIB
+      final wibDateTime = TimezoneHelper.utcToWIB(dateTime.toUtc());
+      return TimezoneHelper.formatWIBFull(wibDateTime);
+    } catch (e) {
+      print('Error formatting order date to WIB: $e');
+      // Fallback ke format biasa jika error
+      return DateFormat('dd MMM yyyy, HH:mm').format(dateTime);
+    }
+  }
+
+  String _formatTimeWIB(DateTime dateTime) {
+    try {
+      // Convert DateTime ke TZDateTime WIB
+      final wibDateTime = TimezoneHelper.utcToWIB(dateTime.toUtc());
+      return TimezoneHelper.formatOrderTime(wibDateTime);
+    } catch (e) {
+      print('Error formatting time to WIB: $e');
+      // Fallback ke format biasa jika error
+      return DateFormat('dd MMM yyyy, HH:mm').format(dateTime);
+    }
+  }
+
+  String _formatTimeShortWIB(DateTime dateTime) {
+    try {
+      // Convert DateTime ke TZDateTime WIB
+      final wibDateTime = TimezoneHelper.utcToWIB(dateTime.toUtc());
+
+      if (TimezoneHelper.isToday(wibDateTime)) {
+        return 'Hari ini, ${TimezoneHelper.formatTimeOnly(wibDateTime)} WIB';
+      } else if (TimezoneHelper.isYesterday(wibDateTime)) {
+        return 'Kemarin, ${TimezoneHelper.formatTimeOnly(wibDateTime)} WIB';
+      } else {
+        return TimezoneHelper.formatWIB(wibDateTime, pattern: 'dd MMM, HH:mm') +
+            ' WIB';
+      }
+    } catch (e) {
+      print('Error formatting short time to WIB: $e');
+      return DateFormat('dd MMM, HH:mm').format(dateTime);
+    }
+  }
+
+  String _getRelativeTimeWIB(DateTime dateTime) {
+    try {
+      // Convert DateTime ke TZDateTime WIB
+      final wibDateTime = TimezoneHelper.utcToWIB(dateTime.toUtc());
+      return TimezoneHelper.formatRelativeTime(wibDateTime);
+    } catch (e) {
+      print('Error formatting relative time to WIB: $e');
+      return 'Beberapa waktu lalu';
+    }
   }
 
   @override
@@ -652,7 +708,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     }
   }
 
-  // ✅ PERBAIKAN: Enhanced status tracking dengan logika yang benar
+  //  Enhanced status tracking dengan logika yang benar
   void _startStatusTracking() {
     if (_orderDetail == null) {
       print('⚠️ HistoryDetailPage: No order detail for status tracking');
@@ -805,12 +861,19 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     });
   }
 
-  // ✅ PERBAIKAN: Handle status change dengan logika kombinasi yang benar
+  // Handle status change dengan logika kombinasi yang benar
   void _handleStatusChange(
       OrderStatus? previousOrderStatus,
       OrderStatus newOrderStatus,
       DeliveryStatus? previousDeliveryStatus,
       DeliveryStatus newDeliveryStatus) {
+    // ✅ TAMBAHAN: Log perubahan dengan waktu WIB
+    final now = TimezoneHelper.nowWIB();
+    print('🔄 Status changed at ${TimezoneHelper.formatWIBFull(now)}:');
+    print('   - Order: ${previousOrderStatus?.name} -> ${newOrderStatus.name}');
+    print(
+        '   - Delivery: ${previousDeliveryStatus?.name} -> ${newDeliveryStatus.name}');
+
     String? notification;
 
     // Prioritas notifikasi berdasarkan kombinasi status
@@ -847,34 +910,181 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
     } else if (newOrderStatus == OrderStatus.rejected) {
       notification = 'Pesanan Anda ditolak oleh toko.';
       _playCancelSound();
+    } else if (newOrderStatus == OrderStatus.confirmed) {
+      notification =
+          'Pesanan dikonfirmasi! Toko akan segera memproses pesanan Anda.';
+      _playStatusChangeSound();
     }
 
-    // Handle pulse animation
+    // ✅ TAMBAHAN: Handle perubahan status individual untuk notifikasi tambahan
+    if (previousOrderStatus != newOrderStatus) {
+      print(
+          '📝 Order status change detected: ${previousOrderStatus?.name} -> ${newOrderStatus.name}');
+
+      // Notifikasi khusus untuk perubahan order status
+      switch (newOrderStatus) {
+        case OrderStatus.confirmed:
+          if (notification == null) {
+            notification = 'Pesanan dikonfirmasi oleh toko.';
+            _playStatusChangeSound();
+          }
+          break;
+        case OrderStatus.preparing:
+          if (notification == null) {
+            notification = 'Toko mulai menyiapkan pesanan Anda.';
+            _playStatusChangeSound();
+          }
+          break;
+        case OrderStatus.readyForPickup:
+          if (notification == null) {
+            notification = 'Pesanan siap untuk diambil driver.';
+            _playStatusChangeSound();
+          }
+          break;
+        case OrderStatus.onDelivery:
+          if (notification == null) {
+            notification = 'Pesanan dalam perjalanan menuju Anda.';
+            _playStatusChangeSound();
+          }
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (previousDeliveryStatus != newDeliveryStatus) {
+      print(
+          '🚚 Delivery status change detected: ${previousDeliveryStatus?.name} -> ${newDeliveryStatus.name}');
+
+      // Notifikasi khusus untuk perubahan delivery status
+      switch (newDeliveryStatus) {
+        case DeliveryStatus.pickedUp:
+          if (notification == null) {
+            notification = 'Driver telah menerima pesanan Anda.';
+            _playStatusChangeSound();
+          }
+          break;
+        case DeliveryStatus.onWay:
+          if (notification == null) {
+            notification = 'Driver sedang dalam perjalanan mengantar pesanan.';
+            _playStatusChangeSound();
+          }
+          break;
+        case DeliveryStatus.delivered:
+          if (notification == null) {
+            notification = 'Pesanan telah sampai di tujuan.';
+            _playSuccessSound();
+          }
+          break;
+        default:
+          break;
+      }
+    }
+
+    // Handle pulse animation berdasarkan status
     if ([OrderStatus.cancelled, OrderStatus.rejected]
         .contains(newOrderStatus)) {
       _pulseController.stop();
+      print('🛑 Stopping pulse animation for cancelled/rejected order');
     } else if (newOrderStatus == OrderStatus.pending &&
         newDeliveryStatus == DeliveryStatus.pending) {
       _pulseController.repeat(reverse: true);
+      print('🔄 Starting pulse animation for pending order');
     } else if (newOrderStatus == OrderStatus.delivered &&
         newDeliveryStatus == DeliveryStatus.delivered) {
       _pulseController.stop();
+      print('✅ Stopping pulse animation for completed order');
     } else {
+      // Stop pulse for other statuses but don't log
       _pulseController.stop();
     }
 
+    // ✅ TAMBAHAN: Show notification dengan timestamp WIB
     if (notification != null && mounted) {
+      final notificationColor = _getNotificationColor(newOrderStatus);
+      final timeText = TimezoneHelper.formatTimeOnly(now);
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(notification),
-          backgroundColor: _getNotificationColor(newOrderStatus),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                notification,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Diperbarui pada $timeText WIB',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white.withOpacity(0.8),
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: notificationColor,
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Tutup',
+            textColor: Colors.white,
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
+          ),
         ),
       );
+
+      // ✅ TAMBAHAN: Log notifikasi yang ditampilkan
+      print(
+          '📢 Showing notification at ${TimezoneHelper.formatWIBFull(now)}: $notification');
     }
+
+    // ✅ TAMBAHAN: Update waktu perubahan status terakhir untuk tracking
+    if (mounted) {
+      setState(() {
+        // Bisa digunakan untuk menyimpan waktu perubahan terakhir jika diperlukan
+        // _lastStatusChangeTime = now;
+      });
+    }
+  }
+
+  // ✅ BARU: Helper method untuk cek apakah ada informasi waktu
+  bool _hasTimeInformation() {
+    if (_orderDetail == null) return false;
+
+    return _orderDetail!.estimatedPickupTime != null ||
+        _orderDetail!.actualPickupTime != null ||
+        _orderDetail!.estimatedDeliveryTime != null ||
+        _orderDetail!.actualDeliveryTime != null;
+  }
+
+// ✅ BARU: Helper method untuk cek apakah perlu menampilkan section waktu/progress
+  bool _shouldShowTimeInfoOrProgress() {
+    return _hasTimeInformation() || _shouldShowProgressIndicator();
+  }
+
+// Method yang sudah ada sebelumnya
+  bool _shouldShowProgressIndicator() {
+    if (_orderDetail == null) return false;
+
+    final orderStatus = _orderDetail!.orderStatus;
+    final deliveryStatus = _orderDetail!.deliveryStatus;
+
+    // Tampilkan progress untuk status yang sedang berlangsung
+    return ![OrderStatus.cancelled, OrderStatus.rejected, OrderStatus.delivered]
+            .contains(orderStatus) ||
+        (orderStatus == OrderStatus.delivered &&
+            deliveryStatus != DeliveryStatus.delivered);
   }
 
   // ✅ BARU: Helper untuk warna notifikasi
@@ -2042,9 +2252,9 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           ),
           const SizedBox(height: 12),
 
-          // Tanggal Pesanan
-          _buildInfoRow('Tanggal Pesanan',
-              DateFormat('dd MMM yyyy, HH:mm').format(_orderDetail!.createdAt)),
+          // ✅ PERBAIKAN: Tanggal Pesanan dalam WIB
+          _buildInfoRow(
+              'Tanggal Pesanan', _formatOrderDateWIB(_orderDetail!.createdAt)),
           const SizedBox(height: 8),
 
           // Status Utama (kombinasi)
@@ -2123,80 +2333,187 @@ class _HistoryDetailPageState extends State<HistoryDetailPage>
           const SizedBox(height: 8),
           _buildInfoRow('Metode Pembayaran', _getPaymentMethodText()),
 
-          // ✅ Status Progress Indicator untuk status yang sedang berlangsung
-          if (_shouldShowProgressIndicator()) ...[
+          // ✅ GABUNGAN: Informasi waktu dan progress indicator
+          if (_shouldShowTimeInfoOrProgress()) ...[
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    _getCurrentStatusInfo()['color'].withOpacity(0.1),
-                    _getCurrentStatusInfo()['color'].withOpacity(0.05),
-                  ],
+
+            // ✅ Informasi waktu dalam WIB (jika ada data waktu)
+            if (_hasTimeInformation())
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.blue.withOpacity(0.2),
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _getCurrentStatusInfo()['color'].withOpacity(0.3),
-                ),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        _getCurrentStatusInfo()['icon'],
-                        color: _getCurrentStatusInfo()['color'],
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _getStatusDescription(_orderDetail!.orderStatus,
-                              _orderDetail!.deliveryStatus),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.schedule, size: 16, color: Colors.blue),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Informasi Waktu:',
                           style: TextStyle(
-                            color: _getCurrentStatusInfo()['color'],
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[700],
                             fontFamily: GlobalStyle.fontFamily,
                           ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Estimasi Pickup
+                    if (_orderDetail!.estimatedPickupTime != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.schedule_outlined,
+                                size: 14, color: Colors.grey[600]),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Est. Pickup: ${_formatTimeWIB(_orderDetail!.estimatedPickupTime!)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+
+                    // Actual Pickup
+                    if (_orderDetail!.actualPickupTime != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle_outlined,
+                                size: 14, color: Colors.green),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Pickup: ${_formatTimeWIB(_orderDetail!.actualPickupTime!)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.green[700],
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    // Estimasi Delivery
+                    if (_orderDetail!.estimatedDeliveryTime != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.schedule_outlined,
+                                size: 14, color: Colors.grey[600]),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Est. Delivery: ${_formatTimeWIB(_orderDetail!.estimatedDeliveryTime!)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                                fontFamily: GlobalStyle.fontFamily,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    // Actual Delivery
+                    if (_orderDetail!.actualDeliveryTime != null)
+                      Row(
+                        children: [
+                          Icon(Icons.check_circle,
+                              size: 14, color: Colors.green),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Delivered: ${_formatTimeWIB(_orderDetail!.actualDeliveryTime!)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.bold,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+
+            // ✅ Status Progress Indicator (jika perlu)
+            if (_shouldShowProgressIndicator())
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _getCurrentStatusInfo()['color'].withOpacity(0.1),
+                      _getCurrentStatusInfo()['color'].withOpacity(0.05),
                     ],
                   ),
-
-                  // Progress indicator untuk status pending
-                  if (_orderDetail!.orderStatus == OrderStatus.pending &&
-                      _orderDetail!.deliveryStatus ==
-                          DeliveryStatus.pending) ...[
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      backgroundColor: Colors.grey[300],
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        _getCurrentStatusInfo()['color'],
-                      ),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _getCurrentStatusInfo()['color'].withOpacity(0.3),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          _getCurrentStatusInfo()['icon'],
+                          color: _getCurrentStatusInfo()['color'],
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _getStatusDescription(_orderDetail!.orderStatus,
+                                _orderDetail!.deliveryStatus),
+                            style: TextStyle(
+                              color: _getCurrentStatusInfo()['color'],
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+
+                    // Progress indicator untuk status pending
+                    if (_orderDetail!.orderStatus == OrderStatus.pending &&
+                        _orderDetail!.deliveryStatus ==
+                            DeliveryStatus.pending) ...[
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        backgroundColor: Colors.grey[300],
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          _getCurrentStatusInfo()['color'],
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
           ],
         ],
       ),
     );
-  }
-
-  bool _shouldShowProgressIndicator() {
-    if (_orderDetail == null) return false;
-
-    final orderStatus = _orderDetail!.orderStatus;
-    final deliveryStatus = _orderDetail!.deliveryStatus;
-
-    // Tampilkan progress untuk status yang sedang berlangsung
-    return ![OrderStatus.cancelled, OrderStatus.rejected, OrderStatus.delivered]
-            .contains(orderStatus) ||
-        (orderStatus == OrderStatus.delivered &&
-            deliveryStatus != DeliveryStatus.delivered);
   }
 
   @override
