@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:del_pick/Common/global_style.dart';
 import 'package:lottie/lottie.dart';
@@ -2487,7 +2488,22 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   Future<void> _callCustomer(String phoneNumber) async {
-    if (phoneNumber.isEmpty) return;
+    if (phoneNumber.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Nomor telepon tidak tersedia'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+      return;
+    }
+
+    print('🔍 Debug Call: Original phone number: $phoneNumber');
 
     String cleanPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
     if (cleanPhone.startsWith('0')) {
@@ -2496,22 +2512,49 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
       cleanPhone = '+62$cleanPhone';
     }
 
+    print('🔍 Debug Call: Final formatted phone: $cleanPhone');
+
     final url = 'tel:$cleanPhone';
+
     try {
-      if (await canLaunch(url)) {
-        await launch(url);
+      final Uri uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+        print('✅ Call launched successfully');
       } else {
         throw Exception('Cannot launch phone dialer');
       }
     } catch (e) {
+      print('❌ Debug Call: Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Tidak dapat melakukan panggilan: $e'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Tidak dapat melakukan panggilan'),
+                Text('Nomor: $cleanPhone', style: TextStyle(fontSize: 12)),
+              ],
+            ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            action: SnackBarAction(
+              label: 'Salin Nomor',
+              textColor: Colors.white,
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: cleanPhone));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Nomor disalin: $cleanPhone'),
+                    backgroundColor: Colors.green,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
           ),
         );
       }
@@ -2519,35 +2562,11 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
   }
 
   Future<void> _openWhatsApp(String phoneNumber) async {
-    if (phoneNumber.isEmpty) return;
-
-    String cleanPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
-    if (cleanPhone.startsWith('0')) {
-      cleanPhone = '62${cleanPhone.substring(1)}';
-    } else if (cleanPhone.startsWith('+62')) {
-      cleanPhone = cleanPhone.substring(1);
-    } else if (!cleanPhone.startsWith('62')) {
-      cleanPhone = '62$cleanPhone';
-    }
-
-    final storeName = _storeData?['name'] ?? 'Toko';
-    final orderId = widget.orderId;
-    final message =
-        'Halo! Saya dari $storeName mengenai pesanan #$orderId Anda. Apakah ada yang bisa saya bantu?';
-    final encodedMessage = Uri.encodeComponent(message);
-    final url = 'https://wa.me/$cleanPhone?text=$encodedMessage';
-
-    try {
-      if (await canLaunch(url)) {
-        await launch(url);
-      } else {
-        throw Exception('Cannot launch WhatsApp');
-      }
-    } catch (e) {
+    if (phoneNumber.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Tidak dapat membuka WhatsApp: $e'),
+            content: Text('Nomor telepon tidak tersedia'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape:
@@ -2555,6 +2574,111 @@ class _HistoryStoreDetailPageState extends State<HistoryStoreDetailPage>
           ),
         );
       }
+      return;
+    }
+
+    print('🔍 Debug WhatsApp: Original phone number: $phoneNumber');
+
+    // ✅ PERBAIKAN: Clean dan format phone number dengan lebih hati-hati
+    String cleanPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+    print('🔍 Debug WhatsApp: Cleaned phone: $cleanPhone');
+
+    // ✅ PERBAIKAN: Handle berbagai format nomor Indonesia
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '62${cleanPhone.substring(1)}';
+    } else if (cleanPhone.startsWith('+62')) {
+      cleanPhone = cleanPhone.substring(1);
+    } else if (cleanPhone.startsWith('62') && cleanPhone.length > 10) {
+      // Already in correct format
+      cleanPhone = cleanPhone;
+    } else if (!cleanPhone.startsWith('62')) {
+      cleanPhone = '62$cleanPhone';
+    }
+
+    print('🔍 Debug WhatsApp: Final formatted phone: $cleanPhone');
+
+    // ✅ PERBAIKAN: Generate message yang lebih baik
+    final storeName = _storeData?['name'] ?? 'Toko';
+    final orderId = widget.orderId;
+    final message =
+        'Halo! Saya dari $storeName mengenai pesanan #$orderId Anda. Apakah ada yang bisa saya bantu?';
+    final encodedMessage = Uri.encodeComponent(message);
+
+    // ✅ PERBAIKAN: Try multiple URL schemes
+    final List<String> urlsToTry = [
+      'https://wa.me/$cleanPhone?text=$encodedMessage',
+      'https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMessage',
+      'whatsapp://send?phone=$cleanPhone&text=$encodedMessage',
+    ];
+
+    print('🔍 Debug WhatsApp: Trying URLs: $urlsToTry');
+
+    bool success = false;
+    String lastError = '';
+
+    for (String url in urlsToTry) {
+      try {
+        print('🔍 Debug WhatsApp: Trying URL: $url');
+
+        // ✅ PERBAIKAN: Use launchUrl instead of deprecated launch
+        final Uri uri = Uri.parse(url);
+
+        if (await canLaunchUrl(uri)) {
+          print('✅ Debug WhatsApp: Can launch URL: $url');
+          await launchUrl(
+            uri,
+            mode: LaunchMode.externalApplication, // ✅ Force external app
+          );
+          success = true;
+          break;
+        } else {
+          print('❌ Debug WhatsApp: Cannot launch URL: $url');
+        }
+      } catch (e) {
+        lastError = e.toString();
+        print('❌ Debug WhatsApp: Error with URL $url: $e');
+        continue;
+      }
+    }
+
+    if (!success && mounted) {
+      // ✅ PERBAIKAN: Show more helpful error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Tidak dapat membuka WhatsApp'),
+              Text('Nomor: $cleanPhone', style: TextStyle(fontSize: 12)),
+              if (lastError.isNotEmpty)
+                Text('Error: $lastError', style: TextStyle(fontSize: 10)),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Salin Nomor',
+            textColor: Colors.white,
+            onPressed: () {
+              // ✅ FALLBACK: Copy number to clipboard
+              Clipboard.setData(ClipboardData(text: '+$cleanPhone'));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Nomor disalin: +$cleanPhone'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    } else if (success) {
+      print('✅ WhatsApp opened successfully');
     }
   }
 
