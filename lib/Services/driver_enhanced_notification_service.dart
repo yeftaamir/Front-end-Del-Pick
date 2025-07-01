@@ -11,7 +11,7 @@ class DriverEnhancedNotificationService {
   static final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Badge counter untuk tracking notifikasi driver
-  static int _driverBadgeCount = 0;
+  static int _badgeCount = 0;
 
   // Callback untuk handling notification tap
   static Function(String)? onNotificationTap;
@@ -52,7 +52,7 @@ class DriverEnhancedNotificationService {
     await _requestPermissions();
   }
 
-  /// Request semua permissions yang diperlukan
+  /// Request semua permissions yang diperlukan untuk driver
   static Future<void> _requestPermissions() async {
     await Permission.notification.request();
 
@@ -83,22 +83,15 @@ class DriverEnhancedNotificationService {
       // Parse request data
       final requestId = requestData['id']?.toString() ?? '';
       final order = requestData['order'] ?? {};
-      final orderId = order['id']?.toString() ?? '';
-      final customerName = order['customer']?['name'] ??
-          order['user']?['name'] ?? 'Customer';
+      final customerName = order['customer']?['name'] ?? order['user']?['name'] ?? 'Customer';
       final storeName = order['store']?['name'] ?? 'Store';
-      final totalAmount = _parseDouble(order['total_amount'] ??
-          order['totalAmount'] ??
-          order['total']) ?? 0.0;
-      final deliveryFee = _parseDouble(order['delivery_fee'] ??
-          order['deliveryFee']) ?? 0.0;
-
-      // Calculate potential earnings (delivery fee + 5% commission)
-      final potentialEarnings = deliveryFee + (totalAmount * 0.05);
+      final totalAmount = _parseDouble(order['total_amount'] ?? order['totalAmount'] ?? order['total']) ?? 0.0;
+      final deliveryFee = _parseDouble(order['delivery_fee'] ?? order['deliveryFee']) ?? 0.0;
+      final orderId = order['id']?.toString() ?? '';
 
       // Update badge count
       if (updateBadge) {
-        _driverBadgeCount++;
+        _badgeCount++;
       }
 
       // Play kring.mp3 sound
@@ -109,41 +102,41 @@ class DriverEnhancedNotificationService {
       // Android notification details dengan badge
       final AndroidNotificationDetails androidPlatformChannelSpecifics =
       AndroidNotificationDetails(
-        'driver_request_channel',
-        'Permintaan Antar',
-        channelDescription: 'Notifikasi untuk permintaan pengantaran baru',
+        'driver_requests_channel',
+        'Permintaan Driver',
+        channelDescription: 'Notifikasi untuk permintaan delivery baru',
         importance: Importance.max,
         priority: Priority.high,
-        ticker: 'Permintaan Antar Baru',
+        ticker: 'Permintaan Delivery Baru',
         showWhen: true,
         autoCancel: true,
         enableVibration: true,
         enableLights: true,
-        color: Colors.blue,
+        color: GlobalStyle.primaryColor,
         colorized: true,
-        number: _driverBadgeCount, // Badge count untuk Android
+        number: _badgeCount, // Badge count untuk Android
         icon: '@mipmap/ic_launcher',
         largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
         styleInformation: BigTextStyleInformation(
           'Customer: $customerName\n'
               'Store: $storeName\n'
-              'Order Total: ${GlobalStyle.formatRupiah(totalAmount)}\n'
-              'Est. Earning: ${GlobalStyle.formatRupiah(potentialEarnings)}',
-          contentTitle: '🚗 Permintaan Antar Baru! 🔔',
+              'Total: ${GlobalStyle.formatRupiah(totalAmount)}\n'
+              'Delivery Fee: ${GlobalStyle.formatRupiah(deliveryFee)}',
+          contentTitle: 'Permintaan Delivery Baru! 🚗',
           summaryText: 'Order #$orderId',
         ),
         actions: [
           AndroidNotificationAction(
             'view_request',
-            'Lihat Permintaan',
+            'Lihat Detail',
             icon: DrawableResourceAndroidBitmap('@drawable/ic_visibility'),
             showsUserInterface: true,
           ),
           AndroidNotificationAction(
-            'dismiss',
-            'Tutup',
-            icon: DrawableResourceAndroidBitmap('@drawable/ic_close'),
-            cancelNotification: true,
+            'accept_request',
+            'Terima',
+            icon: DrawableResourceAndroidBitmap('@drawable/ic_check'),
+            showsUserInterface: true,
           ),
         ],
       );
@@ -151,8 +144,8 @@ class DriverEnhancedNotificationService {
       // iOS notification details dengan badge
       final DarwinNotificationDetails iOSPlatformChannelSpecifics =
       DarwinNotificationDetails(
-        badgeNumber: _driverBadgeCount, // Badge count untuk iOS
-        subtitle: 'Order #$orderId',
+        badgeNumber: _badgeCount, // Badge count untuk iOS
+        subtitle: 'Request #$requestId',
         sound: 'kring.mp3', // Custom sound file
         presentAlert: true,
         presentBadge: true,
@@ -170,17 +163,17 @@ class DriverEnhancedNotificationService {
       // Show notification
       await _flutterLocalNotificationsPlugin.show(
         DateTime.now().millisecondsSinceEpoch.remainder(100000),
-        '🚗 Permintaan Antar Baru!',
-        '$customerName → $storeName • Est. ${GlobalStyle.formatRupiah(potentialEarnings)}',
+        '🚗 Permintaan Delivery Baru!',
+        'Customer: $customerName • Store: $storeName • ${GlobalStyle.formatRupiah(totalAmount)}',
         platformChannelSpecifics,
         payload: requestId,
       );
 
       print('✅ Driver notification sent for request #$requestId');
-      print('   - Badge count: $_driverBadgeCount');
+      print('   - Badge count: $_badgeCount');
       print('   - Customer: $customerName');
       print('   - Store: $storeName');
-      print('   - Potential Earnings: ${GlobalStyle.formatRupiah(potentialEarnings)}');
+      print('   - Amount: ${GlobalStyle.formatRupiah(totalAmount)}');
 
     } catch (e) {
       print('❌ Error showing driver notification: $e');
@@ -212,7 +205,7 @@ class DriverEnhancedNotificationService {
       if (requests.isEmpty) return;
 
       // Update badge count
-      _driverBadgeCount += requests.length;
+      _badgeCount += requests.length;
 
       // Play sound
       if (playSound) {
@@ -227,34 +220,33 @@ class DriverEnhancedNotificationService {
         final request = requests[i];
         final requestId = request['id']?.toString() ?? '';
         final order = request['order'] ?? {};
-        final customerName = order['customer']?['name'] ?? 'Customer';
+        final customerName = order['customer']?['name'] ?? order['user']?['name'] ?? 'Customer';
         final storeName = order['store']?['name'] ?? 'Store';
-        final totalAmount = _parseDouble(order['total_amount']) ?? 0.0;
-        final deliveryFee = _parseDouble(order['delivery_fee']) ?? 0.0;
-        final potentialEarnings = deliveryFee + (totalAmount * 0.05);
+        final totalAmount = _parseDouble(order['total_amount'] ?? order['totalAmount'] ?? order['total']) ?? 0.0;
 
         final AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
           groupChannelId,
-          'Permintaan Antar Grup',
-          channelDescription: 'Notifikasi grup untuk permintaan pengantaran',
+          'Permintaan Driver Grup',
+          channelDescription: 'Notifikasi grup untuk permintaan driver baru',
           importance: Importance.max,
           priority: Priority.high,
           groupKey: groupKey,
           setAsGroupSummary: false,
           autoCancel: true,
-          number: _driverBadgeCount,
+          number: _badgeCount,
           styleInformation: BigTextStyleInformation(
-            '$customerName → $storeName\n'
-                'Est. Earning: ${GlobalStyle.formatRupiah(potentialEarnings)}',
-            contentTitle: 'Permintaan Antar #$requestId',
+            'Customer: $customerName\n'
+                'Store: $storeName\n'
+                'Total: ${GlobalStyle.formatRupiah(totalAmount)}',
+            contentTitle: 'Permintaan Delivery #$requestId',
           ),
         );
 
         await _flutterLocalNotificationsPlugin.show(
-          i + 2000, // Unique ID untuk setiap notification
-          'Permintaan Antar #$requestId',
-          '$customerName → $storeName • ${GlobalStyle.formatRupiah(potentialEarnings)}',
+          i + 2000, // Unique ID untuk setiap notification (offset untuk driver)
+          'Permintaan Delivery #$requestId',
+          '$customerName → $storeName • ${GlobalStyle.formatRupiah(totalAmount)}',
           NotificationDetails(android: androidDetails),
           payload: requestId,
         );
@@ -264,95 +256,41 @@ class DriverEnhancedNotificationService {
       final AndroidNotificationDetails summaryAndroidDetails =
       AndroidNotificationDetails(
         groupChannelId,
-        'Permintaan Antar Grup',
-        channelDescription: 'Notifikasi grup untuk permintaan pengantaran',
+        'Permintaan Driver Grup',
+        channelDescription: 'Notifikasi grup untuk permintaan driver baru',
         importance: Importance.max,
         priority: Priority.high,
         groupKey: groupKey,
         setAsGroupSummary: true,
-        number: _driverBadgeCount,
+        number: _badgeCount,
         styleInformation: InboxStyleInformation(
           requests.map((request) {
             final requestId = request['id']?.toString() ?? '';
             final order = request['order'] ?? {};
-            final customerName = order['customer']?['name'] ?? 'Customer';
+            final customerName = order['customer']?['name'] ?? order['user']?['name'] ?? 'Customer';
             final storeName = order['store']?['name'] ?? 'Store';
-            final deliveryFee = _parseDouble(order['delivery_fee']) ?? 0.0;
-            final totalAmount = _parseDouble(order['total_amount']) ?? 0.0;
-            final potentialEarnings = deliveryFee + (totalAmount * 0.05);
-            return '#$requestId - $customerName → $storeName (${GlobalStyle.formatRupiah(potentialEarnings)})';
+            final totalAmount = _parseDouble(order['total_amount'] ?? order['totalAmount'] ?? order['total']) ?? 0.0;
+            return '#$requestId - $customerName → $storeName (${GlobalStyle.formatRupiah(totalAmount)})';
           }).toList(),
-          contentTitle: '${requests.length} Permintaan Antar Baru! 🚗',
+          contentTitle: '${requests.length} Permintaan Delivery Baru! 🚗',
           summaryText: 'Tap untuk melihat semua permintaan',
         ),
       );
 
       await _flutterLocalNotificationsPlugin.show(
-        1000, // Summary notification ID untuk driver
-        '${requests.length} Permintaan Antar! 🚗',
-        'Tap untuk melihat semua permintaan pengantaran',
+        1, // Summary notification ID untuk driver
+        '${requests.length} Permintaan Delivery Baru! 🚗',
+        'Tap untuk melihat semua permintaan delivery',
         NotificationDetails(android: summaryAndroidDetails),
         payload: 'group_driver_requests',
       );
 
       print('✅ Grouped driver notification sent for ${requests.length} requests');
-      print('   - Total badge count: $_driverBadgeCount');
+      print('   - Total badge count: $_badgeCount');
 
     } catch (e) {
       print('❌ Error showing grouped driver notification: $e');
     }
-  }
-
-  /// Clear specific notification
-  static Future<void> clearNotification(int notificationId) async {
-    try {
-      await _flutterLocalNotificationsPlugin.cancel(notificationId);
-      print('✅ Driver notification $notificationId cleared');
-    } catch (e) {
-      print('❌ Error clearing driver notification: $e');
-    }
-  }
-
-  /// Clear all notifications
-  static Future<void> clearAllNotifications() async {
-    try {
-      await _flutterLocalNotificationsPlugin.cancelAll();
-      print('✅ All driver notifications cleared');
-    } catch (e) {
-      print('❌ Error clearing all driver notifications: $e');
-    }
-  }
-
-  /// Reset badge count
-  static Future<void> resetBadgeCount() async {
-    try {
-      _driverBadgeCount = 0;
-
-      // Clear badge untuk iOS
-      await _flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin>()
-          ?.requestPermissions(badge: true);
-
-      print('✅ Driver badge count reset to 0');
-    } catch (e) {
-      print('❌ Error resetting driver badge count: $e');
-    }
-  }
-
-  /// Set custom badge count
-  static Future<void> setBadgeCount(int count) async {
-    try {
-      _driverBadgeCount = count;
-      print('✅ Driver badge count set to $count');
-    } catch (e) {
-      print('❌ Error setting driver badge count: $e');
-    }
-  }
-
-  /// Get current badge count
-  static int getBadgeCount() {
-    return _driverBadgeCount;
   }
 
   /// Show request processed notification
@@ -371,7 +309,7 @@ class DriverEnhancedNotificationService {
         channelDescription: 'Notifikasi untuk permintaan yang sudah diproses',
         importance: Importance.high,
         priority: Priority.high,
-        color: isAccepted ? Colors.green : Colors.orange,
+        color: isAccepted ? GlobalStyle.primaryColor : Colors.orange,
         icon: '@mipmap/ic_launcher',
       );
 
@@ -400,23 +338,75 @@ class DriverEnhancedNotificationService {
     }
   }
 
-  /// Parse double value safely
-  static double _parseDouble(dynamic value) {
-    if (value == null) return 0.0;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0.0;
-    return 0.0;
+  /// Clear specific notification
+  static Future<void> clearNotification(int notificationId) async {
+    try {
+      await _flutterLocalNotificationsPlugin.cancel(notificationId);
+      print('✅ Driver notification $notificationId cleared');
+    } catch (e) {
+      print('❌ Error clearing driver notification: $e');
+    }
   }
 
-  /// Create notification channel untuk Android
+  /// Clear all notifications
+  static Future<void> clearAllNotifications() async {
+    try {
+      await _flutterLocalNotificationsPlugin.cancelAll();
+      print('✅ All driver notifications cleared');
+    } catch (e) {
+      print('❌ Error clearing all driver notifications: $e');
+    }
+  }
+
+  /// Reset badge count
+  static Future<void> resetBadgeCount() async {
+    try {
+      _badgeCount = 0;
+
+      // Clear badge untuk iOS
+      await _flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin>()
+          ?.requestPermissions(badge: true);
+
+      print('✅ Driver badge count reset to 0');
+    } catch (e) {
+      print('❌ Error resetting driver badge count: $e');
+    }
+  }
+
+  /// Set custom badge count
+  static Future<void> setBadgeCount(int count) async {
+    try {
+      _badgeCount = count;
+      print('✅ Driver badge count set to $count');
+    } catch (e) {
+      print('❌ Error setting driver badge count: $e');
+    }
+  }
+
+  /// Get current badge count
+  static int getBadgeCount() {
+    return _badgeCount;
+  }
+
+  /// Parse double value safely
+  static double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  /// Create notification channels untuk Android (driver specific)
   static Future<void> createNotificationChannels() async {
     try {
       const AndroidNotificationChannel driverRequestChannel =
       AndroidNotificationChannel(
-        'driver_request_channel',
-        'Permintaan Antar',
-        description: 'Notifikasi untuk permintaan pengantaran baru',
+        'driver_requests_channel',
+        'Permintaan Driver',
+        description: 'Notifikasi untuk permintaan delivery baru',
         importance: Importance.max,
         enableVibration: true,
         enableLights: true,
@@ -426,8 +416,8 @@ class DriverEnhancedNotificationService {
       const AndroidNotificationChannel groupedDriverRequestChannel =
       AndroidNotificationChannel(
         'grouped_driver_requests_channel',
-        'Permintaan Antar Grup',
-        description: 'Notifikasi grup untuk permintaan pengantaran',
+        'Permintaan Driver Grup',
+        description: 'Notifikasi grup untuk permintaan driver baru',
         importance: Importance.max,
         enableVibration: true,
         enableLights: true,

@@ -1,4 +1,4 @@
-// lib/Views/Driver/home_driver.dart - Updated dengan Sistem Notifikasi
+// lib/Views/Driver/home_driver.dart - Updated dengan Sistem Notifikasi Badge
 import 'package:del_pick/Views/Driver/driver_request_detail.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -13,16 +13,16 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
-import 'package:del_pick/Services/driver_enhanced_notification_service.dart';
+
 // Import services
 import 'package:del_pick/Services/driver_service.dart';
 import 'package:del_pick/Services/driver_request_service.dart';
 import 'package:del_pick/Services/auth_service.dart';
 import 'package:del_pick/Services/image_service.dart';
 
-import '../Component/driver_notification_badge_card.dart';
-
-// ✅ TAMBAHAN: Import notification components
+// ✅ TAMBAHAN: Import notification components yang baru
+import 'package:del_pick/Services/driver_enhanced_notification_service.dart';
+import 'package:del_pick/Views/Component/driver_notification_badge_card.dart';
 
 class HomeDriverPage extends StatefulWidget {
   static const String route = '/Driver/HomePage';
@@ -91,6 +91,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   bool _isOnline = true;
 
   // ✅ TAMBAHAN: Notification Badge State
+  int _notificationBadgeCount = 0;
+  bool _notificationPermissionGranted = false;
   List<Map<String, dynamic>> _notificationQueue = [];
   bool _showNotificationBadge = false;
   Map<String, dynamic>? _currentNotificationRequest;
@@ -162,6 +164,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   // ✅ TAMBAHAN: Initialize enhanced notification system
   Future<void> _initializeEnhancedNotifications() async {
     try {
+      print('🔔 HomeDriver: Initializing enhanced notification system...');
+
       // Initialize enhanced notification service
       await DriverEnhancedNotificationService.initialize(
         onTap: (requestId) {
@@ -169,6 +173,11 @@ class _HomeDriverPageState extends State<HomeDriverPage>
 
           // Reset badge saat notification di-tap
           DriverEnhancedNotificationService.resetBadgeCount();
+
+          // Update local badge count
+          setState(() {
+            _notificationBadgeCount = DriverEnhancedNotificationService.getBadgeCount();
+          });
 
           // Navigate ke request detail jika requestId valid
           if (requestId.isNotEmpty && requestId != 'group_driver_requests') {
@@ -186,9 +195,26 @@ class _HomeDriverPageState extends State<HomeDriverPage>
       // Create notification channels
       await DriverEnhancedNotificationService.createNotificationChannels();
 
-      print('✅ Driver enhanced notification system initialized');
+      // ✅ TAMBAHAN: Initialize DriverNotificationService
+      await DriverNotificationService.initialize();
+
+      // Request notification permissions
+      _notificationPermissionGranted = await DriverNotificationService.requestNotificationPermissions(context);
+
+      if (_notificationPermissionGranted) {
+        print('✅ HomeDriver: Notification permissions granted');
+      } else {
+        print('⚠️ HomeDriver: Notification permissions denied');
+      }
+
+      // Update badge count from service
+      setState(() {
+        _notificationBadgeCount = DriverEnhancedNotificationService.getBadgeCount();
+      });
+
+      print('✅ HomeDriver: Enhanced notification system initialized successfully');
     } catch (e) {
-      print('❌ Error initializing driver enhanced notifications: $e');
+      print('❌ HomeDriver: Error initializing enhanced notifications: $e');
     }
   }
 
@@ -356,7 +382,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     }
   }
 
-//method untuk validasi status request
+  //method untuk validasi status request
   bool _isRequestStillValid(Map<String, dynamic> requestData) {
     final String status = requestData['status'] ?? 'pending';
     final String requestId = requestData['id'].toString();
@@ -476,7 +502,7 @@ class _HomeDriverPageState extends State<HomeDriverPage>
   // ✅ TAMBAHAN: Handle new request notifications
   Future<void> _handleNewRequestNotifications(List<Map<String, dynamic>> newRequests) async {
     try {
-      if (newRequests.isEmpty) return;
+      if (newRequests.isEmpty || !_notificationPermissionGranted) return;
 
       print('🔔 HomeDriver: Handling ${newRequests.length} new request notifications');
 
@@ -488,17 +514,32 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           playSound: true,
           updateBadge: true,
         );
+
+        // ✅ TAMBAHAN: Show notification menggunakan DriverNotificationService
+        await DriverNotificationService.showDriverRequestNotification(
+          requestData: newRequests.first,
+          context: context,
+        );
       } else {
         // Multiple requests notification
         await DriverEnhancedNotificationService.showGroupedDriverRequestNotification(
           requests: newRequests,
           playSound: true,
         );
+
+        // Show multiple notifications using DriverNotificationService
+        for (var request in newRequests) {
+          await DriverNotificationService.showDriverRequestNotification(
+            requestData: request,
+            context: context,
+          );
+        }
       }
 
       // Add to notification queue
       setState(() {
         _notificationQueue.addAll(newRequests);
+        _notificationBadgeCount = DriverEnhancedNotificationService.getBadgeCount();
       });
 
       // Show in-app notification badge untuk first request
@@ -595,6 +636,25 @@ class _HomeDriverPageState extends State<HomeDriverPage>
         ),
       );
     }
+  }
+
+  // ✅ TAMBAHAN: Show notification history
+  void _showNotificationHistory() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DriverNotificationHistoryWidget(),
+    );
+  }
+
+  // ✅ TAMBAHAN: Clear notifications
+  void _clearNotifications() {
+    setState(() {
+      _notificationBadgeCount = 0;
+    });
+    DriverEnhancedNotificationService.clearAllNotifications();
+    DriverNotificationService.clearBadgeCount();
   }
 
   /// ✅ Load driver stats menggunakan perhitungan frontend
@@ -1396,6 +1456,9 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     // ✅ TAMBAHAN: Dispose enhanced notification service
     DriverEnhancedNotificationService.dispose();
 
+    // ✅ TAMBAHAN: Dispose driver notification service
+    DriverNotificationService.dispose();
+
     print('✅ HomeDriver: Widget disposed successfully');
     super.dispose();
   }
@@ -2183,6 +2246,216 @@ class _HomeDriverPageState extends State<HomeDriverPage>
     );
   }
 
+  // ✅ TAMBAHAN: Enhanced header dengan notification badge
+  Widget _buildEnhancedHeader() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // ✅ PERBAIKI: Header dengan status info dan notification badge
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Driver Dashboard',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    DateFormat('EEEE, dd MMMM yyyy')
+                        .format(DateTime.now()),
+                    style: TextStyle(
+                      color: GlobalStyle.fontColor,
+                      fontSize: 14,
+                      fontFamily: GlobalStyle.fontFamily,
+                    ),
+                  ),
+                  if (_driverId != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Driver ID: $_driverId',
+                      style: TextStyle(
+                        color: GlobalStyle.fontColor.withOpacity(0.7),
+                        fontSize: 12,
+                        fontFamily: GlobalStyle.fontFamily,
+                      ),
+                    ),
+                  ],
+                  // ✅ TAMBAH: Status info untuk busy
+                  if (_driverStatus == 'busy') ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: Colors.orange.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.work,
+                            size: 14,
+                            color: Colors.orange[800],
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Currently processing an order',
+                            style: TextStyle(
+                              color: Colors.orange[800],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              fontFamily: GlobalStyle.fontFamily,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+
+              // ✅ TAMBAHAN: Right side dengan notification badge dan profile
+              Row(
+                children: [
+                  // Notification badge button
+                  DriverNotificationBadgeWidget(
+                    count: _notificationBadgeCount,
+                    badgeColor: Colors.red,
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                      ),
+                      child: GestureDetector(
+                        onTap: _showNotificationHistory,
+                        child: Icon(
+                          Icons.notifications,
+                          color: Colors.blue,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Profile button
+                  GestureDetector(
+                    onTap: _navigateToProfile,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: GlobalStyle.lightColor.withOpacity(0.3),
+                        shape: BoxShape.circle,
+                      ),
+                      child: FaIcon(
+                        FontAwesomeIcons.user,
+                        size: 20,
+                        color: GlobalStyle.primaryColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Status Toggle with Animation
+          AnimatedBuilder(
+            animation: _statusAnimation,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: 0.9 + (_statusAnimation.value * 0.1),
+                child: Container(
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      BoxShadow(
+                        color: _getStatusColor(_driverStatus)
+                            .withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ElevatedButton.icon(
+                    onPressed: _isUpdatingStatus ||
+                        _driverStatus == 'busy'
+                        ? null
+                        : _toggleDriverStatus, // ✅ TAMBAH: Disable saat busy
+                    icon: _isUpdatingStatus
+                        ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                        : Icon(
+                      _driverStatus == 'active'
+                          ? Icons.toggle_on
+                          : _driverStatus == 'busy'
+                          ? Icons
+                          .work // ✅ TAMBAH: Icon untuk busy
+                          : Icons.toggle_off,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                    label: Text(
+                      _isUpdatingStatus
+                          ? 'Updating Status...'
+                          : 'Status: ${_getStatusLabel(_driverStatus)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _getStatusColor(_driverStatus),
+                      disabledBackgroundColor:
+                      Colors.grey, // ✅ TAMBAH: Grey saat disabled
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      minimumSize: const Size(double.infinity, 55),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -2262,183 +2535,8 @@ class _HomeDriverPageState extends State<HomeDriverPage>
           SafeArea(
             child: Column(
               children: [
-                // Header Section
-                Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      // ✅ PERBAIKI: Header dengan status info
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Driver Dashboard',
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                DateFormat('EEEE, dd MMMM yyyy')
-                                    .format(DateTime.now()),
-                                style: TextStyle(
-                                  color: GlobalStyle.fontColor,
-                                  fontSize: 14,
-                                  fontFamily: GlobalStyle.fontFamily,
-                                ),
-                              ),
-                              if (_driverId != null) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Driver ID: $_driverId',
-                                  style: TextStyle(
-                                    color: GlobalStyle.fontColor.withOpacity(0.7),
-                                    fontSize: 12,
-                                    fontFamily: GlobalStyle.fontFamily,
-                                  ),
-                                ),
-                              ],
-                              // ✅ TAMBAH: Status info untuk busy
-                              if (_driverStatus == 'busy') ...[
-                                const SizedBox(height: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                        color: Colors.orange.withOpacity(0.3)),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.work,
-                                        size: 14,
-                                        color: Colors.orange[800],
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Currently processing an order',
-                                        style: TextStyle(
-                                          color: Colors.orange[800],
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
-                                          fontFamily: GlobalStyle.fontFamily,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          GestureDetector(
-                            onTap: _navigateToProfile,
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: GlobalStyle.lightColor.withOpacity(0.3),
-                                shape: BoxShape.circle,
-                              ),
-                              child: FaIcon(
-                                FontAwesomeIcons.user,
-                                size: 20,
-                                color: GlobalStyle.primaryColor,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Status Toggle with Animation
-                      AnimatedBuilder(
-                        animation: _statusAnimation,
-                        builder: (context, child) {
-                          return Transform.scale(
-                            scale: 0.9 + (_statusAnimation.value * 0.1),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: _getStatusColor(_driverStatus)
-                                        .withOpacity(0.3),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: ElevatedButton.icon(
-                                onPressed: _isUpdatingStatus ||
-                                    _driverStatus == 'busy'
-                                    ? null
-                                    : _toggleDriverStatus, // ✅ TAMBAH: Disable saat busy
-                                icon: _isUpdatingStatus
-                                    ? SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                                    : Icon(
-                                  _driverStatus == 'active'
-                                      ? Icons.toggle_on
-                                      : _driverStatus == 'busy'
-                                      ? Icons
-                                      .work // ✅ TAMBAH: Icon untuk busy
-                                      : Icons.toggle_off,
-                                  color: Colors.white,
-                                  size: 28,
-                                ),
-                                label: Text(
-                                  _isUpdatingStatus
-                                      ? 'Updating Status...'
-                                      : 'Status: ${_getStatusLabel(_driverStatus)}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _getStatusColor(_driverStatus),
-                                  disabledBackgroundColor:
-                                  Colors.grey, // ✅ TAMBAH: Grey saat disabled
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
-                                  ),
-                                  minimumSize: const Size(double.infinity, 55),
-                                  elevation: 0,
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
+                // ✅ UBAH: Enhanced Header dengan notification badge
+                _buildEnhancedHeader(),
 
                 _buildDriverStatsCard(),
                 // Request List
@@ -2544,6 +2642,134 @@ class _HomeDriverPageState extends State<HomeDriverPage>
             _currentIndex = index;
           });
         },
+      ),
+    );
+  }
+}
+
+// ✅ TAMBAHAN: Driver Notification History Widget
+class DriverNotificationHistoryWidget extends StatefulWidget {
+  const DriverNotificationHistoryWidget({Key? key}) : super(key: key);
+
+  @override
+  State<DriverNotificationHistoryWidget> createState() => _DriverNotificationHistoryWidgetState();
+}
+
+class _DriverNotificationHistoryWidgetState extends State<DriverNotificationHistoryWidget> {
+  @override
+  Widget build(BuildContext context) {
+    final notifications = DriverNotificationService.getPendingNotifications();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Colors.grey.shade200),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.notifications, color: GlobalStyle.primaryColor),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Notifikasi Permintaan',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (notifications.isNotEmpty)
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        DriverNotificationService.clearBadgeCount();
+                      });
+                    },
+                    child: const Text('Hapus Semua'),
+                  ),
+              ],
+            ),
+          ),
+
+          // Notifications list
+          if (notifications.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.notifications_off_outlined,
+                    size: 64,
+                    color: Colors.grey.shade400,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Belum ada notifikasi',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Notifikasi permintaan delivery akan muncul di sini',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            )
+          else
+            Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.6,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: notifications.length,
+                itemBuilder: (context, index) {
+                  final notification = notifications[index];
+                  return DriverNotificationCardWidget(
+                    requestData: notification,
+                    onTap: () {
+                      Navigator.pop(context);
+                      // Handle navigation to request detail
+                    },
+                    onDismiss: () {
+                      setState(() {
+                        notifications.removeAt(index);
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+
+          // Bottom padding
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }
