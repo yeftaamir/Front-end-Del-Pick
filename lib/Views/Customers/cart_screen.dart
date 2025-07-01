@@ -524,7 +524,7 @@ class _CartScreenState extends State<CartScreen>
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Jarak: ${_getFormattedDistance()} (Haversine)',
+                            'Jarak: ${_getFormattedDistance()}',
                             style: TextStyle(
                               fontSize: 12,
                               color: GlobalStyle.primaryColor,
@@ -736,64 +736,6 @@ class _CartScreenState extends State<CartScreen>
     );
   }
 
-  // ✅ BARU: Widget untuk remove item completely
-  Widget _buildRemoveButton(MenuItemModel item) {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        color: Colors.red.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.red.withOpacity(0.3)),
-      ),
-      child: IconButton(
-        padding: EdgeInsets.zero,
-        icon: Icon(
-          Icons.delete_outline,
-          size: 16,
-          color: Colors.red[600],
-        ),
-        onPressed: () => _showRemoveItemDialog(item),
-      ),
-    );
-  }
-
-  Future<void> _showRemoveItemDialog(MenuItemModel item) async {
-    final shouldRemove = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: const Text('Hapus Item'),
-        content: Text('Hapus "${item.name}" dari keranjang?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(
-              'Batal',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              'Hapus',
-              style: TextStyle(
-                color: Colors.red[600],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldRemove == true) {
-      _updateItemQuantity(item, 0);
-    }
-  }
-
   // ✅ PERBAIKAN: Updated untuk struktur backend yang baru
   List<Map<String, dynamic>> _prepareOrderItems() {
     return activeItems.map((item) {
@@ -843,21 +785,6 @@ class _CartScreenState extends State<CartScreen>
                 children: [
                   // ✅ FIXED: Subtotal sesuai backend (total_amount)
                   _buildPaymentRow('Subtotal', itemsSubtotal),
-                  const SizedBox(height: 4),
-                  // Helper text untuk subtotal
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text(
-                        '${activeItems.length} item × harga per-pcs',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey[600],
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 12),
 
                   // ✅ FIXED: Biaya pengiriman sesuai backend (delivery_fee)
@@ -920,10 +847,6 @@ class _CartScreenState extends State<CartScreen>
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  _buildInfoRow('Subtotal', 'Total harga semua item pesanan'),
-                  _buildInfoRow('Biaya Pengiriman',
-                      'Dihitung berdasarkan jarak Toko - IT Del'),
                   const SizedBox(height: 8),
                   Container(
                     padding:
@@ -1966,7 +1889,6 @@ class _CartScreenState extends State<CartScreen>
                                           children: [
                                             _buildQuantityControls(item),
                                             const SizedBox(width: 12),
-                                            _buildRemoveButton(item),
                                           ],
                                         ),
                                       ],

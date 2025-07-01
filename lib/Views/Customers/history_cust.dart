@@ -1200,19 +1200,6 @@ class _HistoryCustomerState extends State<HistoryCustomer>
           ),
           const SizedBox(height: 4),
         ],
-
-        // Info items count
-        Text(
-          '${order.totalItems} item • ${order.items.isNotEmpty ? order.items.map((e) => e.name).join(", ") : "Detail di halaman detail"}',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey[800],
-            fontWeight: FontWeight.w500,
-            fontFamily: GlobalStyle.fontFamily,
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
       ],
     );
   }
