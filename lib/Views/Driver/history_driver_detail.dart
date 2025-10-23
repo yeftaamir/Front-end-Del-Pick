@@ -73,7 +73,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
   final Color _primaryColor = const Color(0xFF2E7D32);
   final Color _secondaryColor = const Color(0xFF66BB6A);
 
-  // ✅ UPDATED: Dual status timeline untuk order_status dan delivery_status
+  // Dual status timeline untuk order_status dan delivery_status
   final List<Map<String, dynamic>> _orderStatusTimeline = [
     {
       'status': OrderStatus.pending,
@@ -192,7 +192,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     }).toList();
   }
 
-// ✅ FIXED: Enhanced safe type conversion untuk deeply nested maps
+  //Enhanced safe type conversion untuk deeply nested maps
   static Map<String, dynamic> _safeMapConversion(dynamic data) {
     if (data == null) return {};
 
@@ -214,7 +214,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     return {};
   }
 
-  // ✅ FIXED: Safe type conversion untuk lists containing maps
+  //Safe type conversion untuk lists containing maps
   static List<dynamic> _safeListConversion(List<dynamic> list) {
     return list.map((item) {
       if (item is Map && item is! Map<String, dynamic>) {
@@ -224,7 +224,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     }).toList();
   }
 
-  // ✅ FIXED: Enhanced validation and data loading
+  // Enhanced validation and data loading
   Future<void> _validateAndLoadData() async {
     try {
       setState(() {
@@ -234,14 +234,12 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
 
       print('🚗 HistoryDriverDetail: Starting validation and data loading...');
 
-      // ✅ FIX: Simplified authentication check
       final isAuthenticated = await AuthService.isAuthenticated();
       if (!isAuthenticated) {
         _handleAuthenticationError();
         return;
       }
 
-      // ✅ FIX: Optional role-specific data loading
       try {
         final roleData = await AuthService.getRoleSpecificData();
         if (roleData != null && roleData['driver'] != null) {
@@ -295,7 +293,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
     }
   }
 
-  // ✅ FIXED: Enhanced request data loading menggunakan DriverRequestService.getDriverRequestDetail
+  // FIXED: Enhanced request data loading menggunakan DriverRequestService.getDriverRequestDetail
   Future<void> _loadRequestData() async {
     try {
       print('📋 HistoryDriverDetail: Loading request data...');
@@ -544,7 +542,7 @@ class _HistoryDriverDetailPageState extends State<HistoryDriverDetailPage>
       safeOrderData['updated_at'] =
           safeOrderData['updated_at'] ?? DateTime.now().toIso8601String();
 
-      // CRITICAL FIX: Process nested objects dengan proper type conversion
+      // CRITICAL FIX (Process nested objects dengan proper type conversion)
       if (safeOrderData['customer'] != null) {
         safeOrderData['customer'] =
             _safeMapConversion(safeOrderData['customer']);
